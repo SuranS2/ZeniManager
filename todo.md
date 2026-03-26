@@ -27,3 +27,13 @@
 - [x] AdminDashboard: use real Supabase data with mock fallback
 - [x] AdminClientList: use real Supabase data with CSV export
 - [x] Save checkpoint
+
+## Electron Packaging
+- [x] Install electron and electron-builder as devDependencies
+- [x] Create electron/main.js (main process with BrowserWindow)
+- [x] Create electron/preload.js (contextBridge IPC)
+- [x] Configure electron-builder.yml for Windows NSIS + macOS DMG
+- [x] Update package.json with electron scripts
+- [x] Create vite.electron.config.ts for Electron builds (base: './' for file:// protocol)
+- [x] Write ELECTRON_BUILD.md with build instructions
+- [x] Save checkpoint

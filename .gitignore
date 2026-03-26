@@ -111,3 +111,14 @@ temp/
 
 # Manus version file (auto-generated, not part of source)
 client/public/__manus__/version.json
+
+# Electron build outputs
+release/
+out/
+electron/icons/*.icns
+electron/icons/*.ico
+electron/icons/icon.png
+electron/icons/dmg-background.png
+
+# Electron cache
+.electron-builder-cache/
