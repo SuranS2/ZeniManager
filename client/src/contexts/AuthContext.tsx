@@ -8,7 +8,7 @@
  * SECURITY: No API keys are hardcoded. All credentials come from localStorage.
  */
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { getSupabaseClient, isSupabaseConfigured, STORAGE_KEYS } from '@/lib/supabase';
+import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase';
 
 export type UserRole = 'counselor' | 'admin';
 
@@ -22,11 +22,17 @@ export interface User {
   counselorId?: string; // Supabase counselors.id
 }
 
+export interface LoginResult {
+  success: boolean;
+  error?: string;
+  user?: User;
+}
+
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string, role: UserRole) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string, password: string) => Promise<LoginResult>;
   logout: () => Promise<void>;
 }
 
@@ -90,9 +96,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const resolveSupabaseUser = useCallback(async (authUserId: string, email: string) => {
+  const resolveSupabaseUser = useCallback(async (authUserId: string, email: string): Promise<User | null> => {
     const sb = getSupabaseClient();
-    if (!sb) return;
+    if (!sb) return null;
+
     try {
       const { data } = await sb
         .from('counselors')
@@ -101,7 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .single();
 
       if (data) {
-        const u: User = {
+        const resolvedUser: User = {
           id: authUserId,
           name: data.name,
           email,
@@ -109,27 +116,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           branch: data.branch || undefined,
           counselorId: data.id,
         };
-        setUser(u);
-        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(u));
+        setUser(resolvedUser);
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
+        return resolvedUser;
       }
     } catch {
-      // Counselor record not found — use basic info
-      const u: User = {
-        id: authUserId,
-        name: email.split('@')[0],
-        email,
-        role: 'counselor',
-      };
-      setUser(u);
-      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(u));
+      // Fall through to the local fallback profile.
     }
+
+    const fallbackUser: User = {
+      id: authUserId,
+      name: email.split('@')[0] || '사용자',
+      email,
+      role: 'counselor',
+    };
+    setUser(fallbackUser);
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(fallbackUser));
+    return fallbackUser;
   }, []);
 
   const login = useCallback(async (
     email: string,
-    password: string,
-    role: UserRole
-  ): Promise<{ success: boolean; error?: string }> => {
+    password: string
+  ): Promise<LoginResult> => {
     setIsLoading(true);
     try {
       // ── Supabase Auth ──────────────────────────────────────────────────────
@@ -141,8 +150,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (error) return { success: false, error: error.message };
 
         if (data.user) {
-          await resolveSupabaseUser(data.user.id, data.user.email || email);
-          return { success: true };
+          const resolvedUser = await resolveSupabaseUser(data.user.id, data.user.email || email);
+          return resolvedUser
+            ? { success: true, user: resolvedUser }
+            : { success: false, error: '사용자 정보를 확인할 수 없습니다.' };
         }
         return { success: false, error: '로그인 실패' };
       }
@@ -152,23 +163,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const demo = DEMO_USERS[email];
       if (demo && demo.password === password) {
-        const { password: _, ...u } = demo;
-        setUser(u);
-        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(u));
-        return { success: true };
+        const { password: _, ...resolvedUser } = demo;
+        setUser(resolvedUser);
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
+        return { success: true, user: resolvedUser };
       }
 
-      // Fallback: accept any credentials in demo mode
-      const fallback: User = {
+      // Fallback: accept any credentials in demo mode as a counselor profile.
+      const fallbackUser: User = {
         id: `local_${Date.now()}`,
-        name: email.split('@')[0] || (role === 'admin' ? '관리자' : '상담사'),
+        name: email.split('@')[0] || '상담사',
         email,
-        role,
-        branch: role === 'admin' ? '본사' : '서울지점',
+        role: 'counselor',
+        branch: '서울지점',
       };
-      setUser(fallback);
-      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(fallback));
-      return { success: true };
+      setUser(fallbackUser);
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(fallbackUser));
+      return { success: true, user: fallbackUser };
     } catch (e: any) {
       return { success: false, error: e.message || '로그인 중 오류 발생' };
     } finally {

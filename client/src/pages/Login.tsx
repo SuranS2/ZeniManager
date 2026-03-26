@@ -1,20 +1,23 @@
 /**
  * Login Page
  * Design: 모던 웰니스 미니멀리즘
- * Features: 역할 선택(상담사/관리자), Supabase 설정, 로그인
+ * Features: Supabase 설정, 설정 초기화, 로그인
  *
  * SECURITY: No API keys are hardcoded. All credentials stored in localStorage via Settings.
  */
 import { useState } from 'react';
 import { useLocation } from 'wouter';
-import { useAuth, UserRole } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/AuthContext';
 import {
-  BarChart3, Eye, EyeOff, Key, Globe, ChevronDown,
-  CheckCircle2, AlertTriangle, Save
+  Eye, EyeOff, Key, Globe, ChevronDown,
+  CheckCircle2, AlertTriangle, Save, RotateCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  STORAGE_KEYS, isSupabaseConfigured, resetSupabaseClient,
+  STORAGE_KEYS,
+  isSupabaseConfigured,
+  resetStoredAppSettings,
+  resetSupabaseClient,
 } from '@/lib/supabase';
 
 function ApiSettingsPanel({ onClose }: { onClose: () => void }) {
@@ -37,7 +40,7 @@ function ApiSettingsPanel({ onClose }: { onClose: () => void }) {
   const configured = isSupabaseConfigured();
 
   return (
-    <div className="mt-3 space-y-3 p-3 rounded-sm border border-border bg-muted/20">
+    <div className="mt-3 space-y-3 rounded-sm border border-border bg-muted/20 p-3">
       <div className="flex items-center gap-1.5 text-xs">
         {configured
           ? <><CheckCircle2 size={12} className="text-green-600" /><span className="text-green-700">Supabase 연결됨</span></>
@@ -46,7 +49,7 @@ function ApiSettingsPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-foreground mb-1">Supabase URL</label>
+        <label className="mb-1 block text-xs font-medium text-foreground">Supabase URL</label>
         <div className="relative">
           <Globe size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -54,15 +57,15 @@ function ApiSettingsPanel({ onClose }: { onClose: () => void }) {
             value={url}
             onChange={e => setUrl(e.target.value)}
             placeholder="https://xxxxxxxxxxxx.supabase.co"
-            className="w-full pl-7 pr-3 py-2 rounded-sm border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+            className="w-full rounded-sm border border-input bg-background py-2 pl-7 pr-3 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-ring"
             autoComplete="off"
           />
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5">Settings → API → Project URL</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">Settings → API → Project URL</p>
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-foreground mb-1">Supabase Anon Key</label>
+        <label className="mb-1 block text-xs font-medium text-foreground">Supabase Anon Key</label>
         <div className="relative">
           <Key size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -70,7 +73,7 @@ function ApiSettingsPanel({ onClose }: { onClose: () => void }) {
             value={anonKey}
             onChange={e => setAnonKey(e.target.value)}
             placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-            className="w-full pl-7 pr-8 py-2 rounded-sm border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+            className="w-full rounded-sm border border-input bg-background py-2 pl-7 pr-8 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-ring"
             autoComplete="off"
           />
           <button
@@ -81,14 +84,14 @@ function ApiSettingsPanel({ onClose }: { onClose: () => void }) {
             {showKey ? <EyeOff size={12} /> : <Eye size={12} />}
           </button>
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5">Settings → API → anon public</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">Settings → API → anon public</p>
       </div>
 
       <div className="flex gap-2">
         <button
           type="button"
           onClick={handleSave}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs font-medium text-white"
+          className="flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium text-white"
           style={{ background: '#009C64' }}
         >
           <Save size={11} />
@@ -97,7 +100,7 @@ function ApiSettingsPanel({ onClose }: { onClose: () => void }) {
         <button
           type="button"
           onClick={onClose}
-          className="px-3 py-1.5 rounded-sm text-xs border border-input hover:bg-muted transition-colors"
+          className="rounded-sm border border-input px-3 py-1.5 text-xs transition-colors hover:bg-muted"
         >
           닫기
         </button>
@@ -112,7 +115,6 @@ export default function Login() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<UserRole>('counselor');
   const [showPassword, setShowPassword] = useState(false);
   const [showApiSettings, setShowApiSettings] = useState(false);
   const [error, setError] = useState('');
@@ -125,78 +127,64 @@ export default function Login() {
     }
     setError('');
 
-    const result = await login(email, password, role);
+    const result = await login(email, password);
     if (result.success) {
       toast.success('로그인되었습니다.');
-      navigate(role === 'admin' ? '/admin/dashboard' : '/dashboard');
+      navigate(result.user?.role === 'admin' ? '/admin/dashboard' : '/dashboard');
     } else {
       setError(result.error || '이메일 또는 비밀번호가 올바르지 않습니다.');
     }
   };
 
+  const handleResetSettings = () => {
+    resetStoredAppSettings();
+    setError('');
+    setShowApiSettings(false);
+    toast.success('로컬 설정이 초기화되었습니다. 데모 모드로 전환됩니다.');
+  };
+
   const configured = isSupabaseConfigured();
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'oklch(0.958 0.008 75)' }}>
+    <div className="flex min-h-screen items-center justify-center p-4" style={{ background: 'oklch(0.958 0.008 75)' }}>
       <div className="w-full max-w-md">
         {/* Logo */}
-        <div className="text-center mb-8">
+        <div className="mb-8 text-center">
           <img
             src="https://d2xsxph8kpxj0f.cloudfront.net/310519663477530955/KJzdo2y2Lmf5RsBh2TqxqF/zeniel_d6e9bacb.png"
             alt="ZENIEL"
-            className="h-16 mx-auto mb-4 object-contain"
+            className="mx-auto mb-4 h-16 object-contain"
           />
           <h1 className="text-2xl font-bold text-foreground">상담 관리 시스템</h1>
-          <p className="text-sm text-muted-foreground mt-1">로그인하여 시스템에 접속하세요</p>
+          <p className="mt-1 text-sm text-muted-foreground">로그인하여 시스템에 접속하세요</p>
         </div>
 
         {/* Login Card */}
-        <div className="bg-card rounded-md shadow-sm border border-border p-6">
+        <div className="rounded-md border border-border bg-card p-6 shadow-sm">
           <form onSubmit={handleLogin} className="space-y-4">
-            {/* Role Selection */}
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-2">역할 선택</label>
-              <div className="grid grid-cols-2 gap-2">
-                {(['counselor', 'admin'] as UserRole[]).map(r => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setRole(r)}
-                    className="py-2.5 px-4 rounded-sm text-sm font-medium border transition-all duration-150"
-                    style={role === r
-                      ? { background: 'oklch(0.588 0.152 162.5)', borderColor: 'oklch(0.588 0.152 162.5)', color: 'white' }
-                      : {}
-                    }
-                  >
-                    {r === 'counselor' ? '상담사' : '관리자'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Email */}
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">이메일</label>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">이메일</label>
               <input
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="이메일을 입력하세요"
-                className="w-full px-3 py-2.5 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring transition-all"
+                className="w-full rounded-sm border border-input bg-background px-3 py-2.5 text-sm transition-all focus:outline-none focus:ring-2 focus:ring-ring"
                 autoComplete="email"
               />
             </div>
 
             {/* Password */}
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">비밀번호</label>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">비밀번호</label>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   placeholder="비밀번호를 입력하세요"
-                  className="w-full px-3 py-2.5 pr-10 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring transition-all"
+                  className="w-full rounded-sm border border-input bg-background px-3 py-2.5 pr-10 text-sm transition-all focus:outline-none focus:ring-2 focus:ring-ring"
                   autoComplete="current-password"
                 />
                 <button
@@ -211,7 +199,7 @@ export default function Login() {
 
             {/* Error */}
             {error && (
-              <div className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-sm">
+              <div className="rounded-sm bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {error}
               </div>
             )}
@@ -228,29 +216,39 @@ export default function Login() {
 
           {/* Demo hint — shown only when Supabase not configured */}
           {!configured && (
-            <div className="mt-4 p-3 rounded-sm text-xs text-muted-foreground" style={{ background: 'oklch(0.94 0.006 75)' }}>
-              <div className="font-medium mb-1">데모 계정 (Supabase 미설정 시)</div>
+            <div className="mt-4 rounded-sm p-3 text-xs text-muted-foreground" style={{ background: 'oklch(0.94 0.006 75)' }}>
+              <div className="mb-1 font-medium">데모 계정 (Supabase 미설정 시)</div>
               <div>상담사: counselor@example.com / REDACTED</div>
               <div>관리자: admin@example.com / REDACTED</div>
             </div>
           )}
 
           {/* Supabase Settings Toggle */}
-          <div className="mt-4 border-t border-border pt-4">
-            <button
-              type="button"
-              onClick={() => setShowApiSettings(!showApiSettings)}
-              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors w-full"
-            >
-              <Key size={14} />
-              <span>Supabase 연결 설정</span>
-              {configured && <CheckCircle2 size={12} className="text-green-600" />}
-              <ChevronDown
-                size={14}
-                className="ml-auto transition-transform duration-200"
-                style={{ transform: showApiSettings ? 'rotate(180deg)' : 'rotate(0deg)' }}
-              />
-            </button>
+          <div className="mt-4 space-y-2 border-t border-border pt-4">
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowApiSettings(!showApiSettings)}
+                className="flex flex-1 items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Key size={14} />
+                <span>Supabase 연결 설정</span>
+                {configured && <CheckCircle2 size={12} className="text-green-600" />}
+                <ChevronDown
+                  size={14}
+                  className="ml-auto transition-transform duration-200"
+                  style={{ transform: showApiSettings ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                />
+              </button>
+              <button
+                type="button"
+                onClick={handleResetSettings}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-input px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <RotateCcw size={12} />
+                설정 초기화
+              </button>
+            </div>
 
             {showApiSettings && (
               <ApiSettingsPanel onClose={() => setShowApiSettings(false)} />
