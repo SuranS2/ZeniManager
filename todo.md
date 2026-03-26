@@ -37,3 +37,10 @@
 - [x] Create vite.electron.config.ts for Electron builds (base: './' for file:// protocol)
 - [x] Write ELECTRON_BUILD.md with build instructions
 - [x] Save checkpoint
+
+## Security Audit & GitHub Upload
+- [ ] Scan source files for hardcoded secrets/API keys
+- [ ] Verify .gitignore covers all sensitive files
+- [ ] Verify .env files are not committed
+- [ ] Upload Excel data to Supabase
+- [ ] Create GitHub public repo and push
