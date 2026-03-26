@@ -15,8 +15,8 @@ directories:
 # ─── Files to include in the app package ──────────────────────────────────────
 files:
   - dist/public/**/*          # Vite-built frontend
-  - electron/main.js          # Electron main process
-  - electron/preload.js       # Preload script
+  - electron/main.cjs          # Electron main process
+  - electron/preload.cjs       # Preload script
   - package.json
 
 # ─── Extra resources (icons, etc.) ───────────────────────────────────────────
