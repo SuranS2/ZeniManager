@@ -98,7 +98,8 @@
 ### 사전 요구사항
 
 - Node.js 18 이상
-- pnpm 10 이상
+- Corepack 사용 가능 환경 권장 (`corepack enable`)
+- pnpm 10 이상 (전역 설치를 이미 사용 중인 경우)
 
 ### 설치 및 실행
 
@@ -107,17 +108,35 @@
 git clone https://github.com/SuranS2/ZeniManager.git
 cd ZeniManager
 
-# 2. 의존성 설치
+# 2-A. Corepack 사용 시 (최초 1회)
+corepack enable
+
+# 2-B. 전역 pnpm 설치 시 (둘 중 하나만 선택)
+npm install -g pnpm
+
+# 3. 의존성 설치
+corepack pnpm install
+
+# 4. 개발 서버 실행 (웹 브라우저)
+corepack pnpm dev
+
+# 5. Electron 개발 모드 실행 (데스크탑 창)
+corepack pnpm electron:dev
+```
+
+전역 `pnpm`을 설치했다면 아래처럼 `corepack` 없이 실행해도 됩니다.
+
+```bash
 pnpm install
-
-# 3. 개발 서버 실행 (웹 브라우저)
 pnpm dev
-
-# 4. Electron 개발 모드 실행 (데스크탑 창)
 pnpm electron:dev
 ```
 
-브라우저에서 `http://localhost:5173` 접속 또는 Electron 창이 자동으로 열립니다.
+PowerShell에서 `npm` 또는 `pnpm` 스크립트 실행이 막히면 새 터미널을 다시 열거나 `npm.cmd`, `pnpm.cmd`로 실행하세요.
+
+`pnpm dev`는 Express 서버와 Vite 미들웨어를 함께 구동하므로 브라우저에서는 `http://localhost:3000`으로 접속합니다. `3000` 포트가 이미 사용 중이면 `3001`부터 순차적으로 빈 포트를 찾아 실행됩니다.
+
+Windows에서도 `pnpm dev`가 동작하도록 `package.json`의 개발/실행 스크립트는 `cross-env`를 사용합니다.
 
 ### 데모 계정 (Supabase 미설정 시)
 
