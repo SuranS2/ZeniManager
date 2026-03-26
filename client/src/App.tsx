@@ -1,41 +1,135 @@
+/**
+ * App.tsx - 라우팅 및 레이아웃 설정
+ * Design: 모던 웰니스 미니멀리즘
+ * Primary: #009C64 | Background: #F0EEE9 | Font: Noto Sans KR
+ */
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
-import ErrorBoundary from "./components/ErrorBoundary";
+import { Route, Switch, useLocation, Redirect } from "wouter";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import Home from "./pages/Home";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import DashboardLayout from "./components/DashboardLayout";
 
+// Pages
+import Login from "./pages/Login";
+import Settings from "./pages/Settings";
+import CounselorDashboard from "./pages/counselor/Dashboard";
+import ClientList from "./pages/counselor/ClientList";
+import ClientRegister from "./pages/counselor/ClientRegister";
+import AdminDashboard from "./pages/admin/AdminDashboard";
+import CounselorList from "./pages/admin/CounselorList";
+import AdminClientList from "./pages/admin/AdminClientList";
+
+// Protected route wrapper
+function ProtectedRoute({ component: Component, adminOnly = false }: {
+  component: React.ComponentType;
+  adminOnly?: boolean;
+}) {
+  const { isAuthenticated, user } = useAuth();
+  const [location] = useLocation();
+
+  if (!isAuthenticated) {
+    return <Redirect to="/login" />;
+  }
+
+  if (adminOnly && user?.role !== 'admin') {
+    return <Redirect to="/dashboard" />;
+  }
+
+  return (
+    <DashboardLayout>
+      <Component />
+    </DashboardLayout>
+  );
+}
+
+// Counselor-only route
+function CounselorRoute({ component: Component }: { component: React.ComponentType }) {
+  const { isAuthenticated, user } = useAuth();
+
+  if (!isAuthenticated) return <Redirect to="/login" />;
+  if (user?.role === 'admin') return <Redirect to="/admin/dashboard" />;
+
+  return (
+    <DashboardLayout>
+      <Component />
+    </DashboardLayout>
+  );
+}
 
 function Router() {
+  const { isAuthenticated, user } = useAuth();
+
   return (
     <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
-      <Route component={NotFound} />
+      {/* Public */}
+      <Route path="/login" component={Login} />
+
+      {/* Root redirect */}
+      <Route path="/">
+        {isAuthenticated
+          ? <Redirect to={user?.role === 'admin' ? '/admin/dashboard' : '/dashboard'} />
+          : <Redirect to="/login" />
+        }
+      </Route>
+
+      {/* Counselor routes */}
+      <Route path="/dashboard">
+        <CounselorRoute component={CounselorDashboard} />
+      </Route>
+      <Route path="/dashboard/:sub">
+        <CounselorRoute component={CounselorDashboard} />
+      </Route>
+      <Route path="/clients">
+        <CounselorRoute component={ClientList} />
+      </Route>
+      <Route path="/clients/list">
+        <CounselorRoute component={ClientList} />
+      </Route>
+      <Route path="/clients/register">
+        <CounselorRoute component={ClientRegister} />
+      </Route>
+
+      {/* Admin routes */}
+      <Route path="/admin/dashboard">
+        <ProtectedRoute component={AdminDashboard} adminOnly />
+      </Route>
+      <Route path="/admin/dashboard/:sub">
+        <ProtectedRoute component={AdminDashboard} adminOnly />
+      </Route>
+      <Route path="/admin/counselors">
+        <ProtectedRoute component={CounselorList} adminOnly />
+      </Route>
+      <Route path="/admin/clients">
+        <ProtectedRoute component={AdminClientList} adminOnly />
+      </Route>
+
+      {/* Settings */}
+      <Route path="/settings">
+        <ProtectedRoute component={Settings} />
+      </Route>
+
+      {/* Fallback */}
+      <Route>
+        {isAuthenticated
+          ? <Redirect to={user?.role === 'admin' ? '/admin/dashboard' : '/dashboard'} />
+          : <Redirect to="/login" />
+        }
+      </Route>
     </Switch>
   );
 }
 
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
-
 function App() {
   return (
-    <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="light"
-        // switchable
-      >
+    <ThemeProvider defaultTheme="light">
+      <AuthProvider>
         <TooltipProvider>
-          <Toaster />
+          <Toaster position="top-right" />
           <Router />
         </TooltipProvider>
-      </ThemeProvider>
-    </ErrorBoundary>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 
