@@ -1,4 +1,14 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+/**
+ * AuthContext
+ *
+ * Supports two modes:
+ * 1. Supabase Auth — when Supabase URL + anon key are configured in Settings
+ * 2. Local demo — when Supabase is not configured (mock users)
+ *
+ * SECURITY: No API keys are hardcoded. All credentials come from localStorage.
+ */
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { getSupabaseClient, isSupabaseConfigured, STORAGE_KEYS } from '@/lib/supabase';
 
 export type UserRole = 'counselor' | 'admin';
 
@@ -9,34 +19,32 @@ export interface User {
   role: UserRole;
   profileImage?: string;
   branch?: string;
+  counselorId?: string; // Supabase counselors.id
 }
 
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
-  login: (email: string, password: string, role: UserRole) => Promise<boolean>;
-  logout: () => void;
-  apiKey: string;
-  setApiKey: (key: string) => void;
-  apiUrl: string;
-  setApiUrl: (url: string) => void;
+  isLoading: boolean;
+  login: (email: string, password: string, role: UserRole) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-// Mock users for demo
-const MOCK_USERS: Record<string, User & { password: string }> = {
+// ─── Demo users (used only when Supabase is not configured) ──────────────────
+const DEMO_USERS: Record<string, User & { password: string }> = {
   'counselor@demo.com': {
-    id: 'c001',
-    name: '김상담',
+    id: 'demo-c001',
+    name: '최인수',
     email: 'counselor@demo.com',
     password: 'demo1234',
     role: 'counselor',
-    branch: '서울 강남지점',
+    branch: '울산지점',
   },
   'admin@demo.com': {
-    id: 'a001',
-    name: '이관리',
+    id: 'demo-a001',
+    name: '관리자',
     email: 'admin@demo.com',
     password: 'demo1234',
     role: 'admin',
@@ -44,64 +52,146 @@ const MOCK_USERS: Record<string, User & { password: string }> = {
   },
 };
 
+const USER_STORAGE_KEY = 'counsel_user';
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
-    const stored = localStorage.getItem('counsel_user');
-    return stored ? JSON.parse(stored) : null;
-  });
-  const [apiKey, setApiKeyState] = useState(() => localStorage.getItem('counsel_api_key') || '');
-  const [apiUrl, setApiUrlState] = useState(() => localStorage.getItem('counsel_api_url') || '');
-
-  const login = async (email: string, password: string, role: UserRole): Promise<boolean> => {
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 600));
-    
-    const mockUser = MOCK_USERS[email];
-    if (mockUser && mockUser.password === password) {
-      const { password: _, ...userWithoutPassword } = mockUser;
-      setUser(userWithoutPassword);
-      localStorage.setItem('counsel_user', JSON.stringify(userWithoutPassword));
-      return true;
+    try {
+      const stored = localStorage.getItem(USER_STORAGE_KEY);
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
     }
-    
-    // Allow any login for demo purposes with role selection
-    const demoUser: User = {
-      id: `demo_${Date.now()}`,
-      name: role === 'admin' ? '관리자' : '상담사',
-      email,
-      role,
-      branch: role === 'admin' ? '본사' : '서울지점',
-    };
-    setUser(demoUser);
-    localStorage.setItem('counsel_user', JSON.stringify(demoUser));
-    return true;
-  };
+  });
+  const [isLoading, setIsLoading] = useState(false);
 
-  const logout = () => {
+  // Listen for Supabase session changes when configured
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    const sb = getSupabaseClient();
+    if (!sb) return;
+
+    // Check existing session
+    sb.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        resolveSupabaseUser(session.user.id, session.user.email || '');
+      }
+    });
+
+    const { data: { subscription } } = sb.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        resolveSupabaseUser(session.user.id, session.user.email || '');
+      } else {
+        setUser(null);
+        localStorage.removeItem(USER_STORAGE_KEY);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const resolveSupabaseUser = useCallback(async (authUserId: string, email: string) => {
+    const sb = getSupabaseClient();
+    if (!sb) return;
+    try {
+      const { data } = await sb
+        .from('counselors')
+        .select('id, name, branch, role')
+        .eq('auth_user_id', authUserId)
+        .single();
+
+      if (data) {
+        const u: User = {
+          id: authUserId,
+          name: data.name,
+          email,
+          role: (data.role as UserRole) || 'counselor',
+          branch: data.branch || undefined,
+          counselorId: data.id,
+        };
+        setUser(u);
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(u));
+      }
+    } catch {
+      // Counselor record not found — use basic info
+      const u: User = {
+        id: authUserId,
+        name: email.split('@')[0],
+        email,
+        role: 'counselor',
+      };
+      setUser(u);
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(u));
+    }
+  }, []);
+
+  const login = useCallback(async (
+    email: string,
+    password: string,
+    role: UserRole
+  ): Promise<{ success: boolean; error?: string }> => {
+    setIsLoading(true);
+    try {
+      // ── Supabase Auth ──────────────────────────────────────────────────────
+      if (isSupabaseConfigured()) {
+        const sb = getSupabaseClient();
+        if (!sb) throw new Error('Supabase 클라이언트 초기화 실패');
+
+        const { data, error } = await sb.auth.signInWithPassword({ email, password });
+        if (error) return { success: false, error: error.message };
+
+        if (data.user) {
+          await resolveSupabaseUser(data.user.id, data.user.email || email);
+          return { success: true };
+        }
+        return { success: false, error: '로그인 실패' };
+      }
+
+      // ── Demo / local mode ─────────────────────────────────────────────────
+      await new Promise(r => setTimeout(r, 500)); // simulate latency
+
+      const demo = DEMO_USERS[email];
+      if (demo && demo.password === password) {
+        const { password: _, ...u } = demo;
+        setUser(u);
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(u));
+        return { success: true };
+      }
+
+      // Fallback: accept any credentials in demo mode
+      const fallback: User = {
+        id: `local_${Date.now()}`,
+        name: email.split('@')[0] || (role === 'admin' ? '관리자' : '상담사'),
+        email,
+        role,
+        branch: role === 'admin' ? '본사' : '서울지점',
+      };
+      setUser(fallback);
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(fallback));
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message || '로그인 중 오류 발생' };
+    } finally {
+      setIsLoading(false);
+    }
+  }, [resolveSupabaseUser]);
+
+  const logout = useCallback(async () => {
+    if (isSupabaseConfigured()) {
+      const sb = getSupabaseClient();
+      if (sb) await sb.auth.signOut();
+    }
     setUser(null);
-    localStorage.removeItem('counsel_user');
-  };
-
-  const setApiKey = (key: string) => {
-    setApiKeyState(key);
-    localStorage.setItem('counsel_api_key', key);
-  };
-
-  const setApiUrl = (url: string) => {
-    setApiUrlState(url);
-    localStorage.setItem('counsel_api_url', url);
-  };
+    localStorage.removeItem(USER_STORAGE_KEY);
+  }, []);
 
   return (
     <AuthContext.Provider value={{
       user,
       isAuthenticated: !!user,
+      isLoading,
       login,
       logout,
-      apiKey,
-      setApiKey,
-      apiUrl,
-      setApiUrl,
     }}>
       {children}
     </AuthContext.Provider>

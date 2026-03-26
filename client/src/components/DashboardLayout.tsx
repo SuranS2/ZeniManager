@@ -152,14 +152,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         style={{ width: sidebarOpen ? '240px' : '0px', minWidth: sidebarOpen ? '240px' : '0px' }}
       >
         {/* Logo */}
-        <div className="flex items-center gap-2.5 px-5 py-4 border-b border-border">
-          <div className="w-8 h-8 rounded-sm flex items-center justify-center" style={{ background: 'oklch(0.588 0.152 162.5)' }}>
-            <BarChart3 size={16} color="white" />
-          </div>
-          <div>
-            <div className="text-sm font-700 text-foreground leading-tight">상담관리</div>
-            <div className="text-xs text-muted-foreground">시스템</div>
-          </div>
+        <div className="flex items-center justify-center px-4 py-3 border-b border-border">
+          <img
+            src="https://d2xsxph8kpxj0f.cloudfront.net/310519663477530955/KJzdo2y2Lmf5RsBh2TqxqF/zeniel_d6e9bacb.png"
+            alt="ZENIEL"
+            className="h-9 object-contain"
+          />
         </div>
 
         {/* Role badge */}
@@ -205,6 +203,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             >
               {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
             </button>
+            {!sidebarOpen && (
+              <img
+                src="https://d2xsxph8kpxj0f.cloudfront.net/310519663477530955/KJzdo2y2Lmf5RsBh2TqxqF/zeniel_d6e9bacb.png"
+                alt="ZENIEL"
+                className="h-7 object-contain"
+              />
+            )}
             <div className="text-sm text-muted-foreground hidden sm:block">
               {user?.role === 'admin' ? '관리자 포털' : '상담사 포털'}
             </div>

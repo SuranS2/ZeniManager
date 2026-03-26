@@ -56,7 +56,6 @@ function CounselorRoute({ component: Component }: { component: React.ComponentTy
     </DashboardLayout>
   );
 }
-
 function Router() {
   const { isAuthenticated, user } = useAuth();
 
