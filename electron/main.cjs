@@ -28,7 +28,7 @@ function createWindow() {
     // Use the app icon from resources
     icon: path.join(__dirname, 'icons', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.cjs'),
       // Security best practices
       contextIsolation: true,       // Isolate renderer from main process
       nodeIntegration: false,       // Disable Node.js in renderer
