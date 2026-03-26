@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "license": "MIT",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "NODE_ENV=development tsx watch server/_core/index.ts",
     "build": "vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
@@ -10,7 +11,13 @@
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
-    "db:push": "drizzle-kit generate && drizzle-kit migrate"
+    "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "electron:dev": "concurrently -k \"cross-env NODE_ENV=development vite --port 5173\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
+    "electron:build": "vite build --config vite.electron.config.ts && electron-builder --config electron-builder.yml",
+    "electron:build:win": "vite build --config vite.electron.config.ts && electron-builder --win --config electron-builder.yml",
+    "electron:build:mac": "vite build --config vite.electron.config.ts && electron-builder --mac --config electron-builder.yml",
+    "electron:build:linux": "vite build --config vite.electron.config.ts && electron-builder --linux --config electron-builder.yml",
+    "electron:preview": "cross-env NODE_ENV=production electron ."
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
@@ -91,7 +98,12 @@
     "@vitejs/plugin-react": "^5.0.4",
     "add": "^2.0.6",
     "autoprefixer": "^10.4.20",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
     "drizzle-kit": "^0.31.4",
+    "electron": "^41.0.4",
+    "electron-builder": "^26.8.1",
+    "electron-is-dev": "^3.0.1",
     "esbuild": "^0.25.0",
     "pnpm": "^10.15.1",
     "postcss": "^8.4.47",
@@ -102,7 +114,8 @@
     "typescript": "5.9.3",
     "vite": "^7.1.7",
     "vite-plugin-manus-runtime": "^0.0.57",
-    "vitest": "^2.1.4"
+    "vitest": "^2.1.4",
+    "wait-on": "^9.0.4"
   },
   "packageManager": "pnpm@10.4.1+sha512.c753b6c3ad7afa13af388fa6d808035a008e30ea9993f58c6663e2bc5ff21679aa834db094987129aa4d488b86df57f7b634981b2f827cdcacc698cc0cfb88af",
   "pnpm": {
