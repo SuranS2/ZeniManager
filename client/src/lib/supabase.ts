@@ -14,6 +14,8 @@ export const STORAGE_KEYS = {
   USER: 'counsel_user',
 } as const;
 
+export const SUPABASE_SESSION_STORAGE_KEY = 'counsel_sb_session';
+
 /** Returns the Supabase URL stored by the user in Settings, or null if not set. */
 export function getSupabaseUrl(): string | null {
   return localStorage.getItem(STORAGE_KEYS.SUPABASE_URL) || null;
@@ -61,7 +63,7 @@ export function getSupabaseClient(): SupabaseClient | null {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        storageKey: 'counsel_sb_session',
+        storageKey: SUPABASE_SESSION_STORAGE_KEY,
       },
     });
     _clientUrl = url;
@@ -77,6 +79,19 @@ export function resetSupabaseClient(): void {
   _client = null;
   _clientUrl = null;
   _clientKey = null;
+}
+
+/** Clears locally stored app settings and cached auth/session state. */
+export function resetStoredAppSettings(): void {
+  [
+    STORAGE_KEYS.SUPABASE_URL,
+    STORAGE_KEYS.SUPABASE_ANON_KEY,
+    STORAGE_KEYS.OPENAI_API_KEY,
+    STORAGE_KEYS.USER,
+    SUPABASE_SESSION_STORAGE_KEY,
+  ].forEach(key => localStorage.removeItem(key));
+
+  resetSupabaseClient();
 }
 
 export type Database = {

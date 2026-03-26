@@ -2,7 +2,9 @@
  * electron/main.js
  * Electron Main Process for 상담 관리 시스템 (Zeniel)
  *
- * - Dev mode: loads Vite dev server from ELECTRON_RENDERER_URL
+
+ * - Dev mode: loads Vite dev server from ELECTRON_RENDERER_URL (default: http://localhost:5181)
+
  * - Production: loads built index.html from dist/public
  */
 
