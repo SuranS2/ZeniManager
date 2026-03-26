@@ -39,8 +39,13 @@
 - [x] Save checkpoint
 
 ## Security Audit & GitHub Upload
-- [ ] Scan source files for hardcoded secrets/API keys
-- [ ] Verify .gitignore covers all sensitive files
-- [ ] Verify .env files are not committed
-- [ ] Upload Excel data to Supabase
-- [ ] Create GitHub public repo and push
+- [x] Scan source files for hardcoded secrets/API keys
+- [x] Verify .gitignore covers all sensitive files
+- [x] Verify .env files are not committed
+- [x] Upload Excel data to Supabase (skipped - URL not configured)
+- [x] Push to SuranS2/ZemiManager (private) on GitHub
+
+## README & Branch
+- [ ] Create dev branch
+- [ ] Write README.md (KR/EN)
+- [ ] Push dev branch to ZeniManager
