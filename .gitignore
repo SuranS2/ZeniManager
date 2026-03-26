@@ -109,8 +109,22 @@ temp/
 # Webdev artifacts (checkpoint zips, migrations, etc.)
 .webdev/
 
-# Manus version file (auto-generated, not part of source)
-client/public/__manus__/version.json
+# Manus internal files (auto-generated, not part of source)
+client/public/__manus__/
+.manus/
+
+# Supabase local dev
+.supabase/
+supabase/.temp/
+
+# Excel / CSV data files with real personal data
+*.xlsx
+*.xls
+*.csv
+
+# PDF documents with personal data
+구직준비도*.pdf
+별첨*.pdf
 
 # Electron build outputs
 release/
