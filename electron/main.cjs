@@ -10,7 +10,7 @@
 
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require('electron');
 const path = require('path');
-const isDev = require('electron-is-dev');
+const isDev = !app.isPackaged;
 
 // ─── Keep a global reference to prevent garbage collection ───────────────────
 let mainWindow = null;

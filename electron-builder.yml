@@ -14,9 +14,8 @@ directories:
 
 # ─── Files to include in the app package ──────────────────────────────────────
 files:
-  - dist/public/**/*          # Vite-built frontend
-  - electron/main.cjs          # Electron main process
-  - electron/preload.cjs       # Preload script
+  - dist/**/*
+  - electron/**/*
   - package.json
 
 # ─── Extra resources (icons, etc.) ───────────────────────────────────────────
@@ -64,19 +63,18 @@ dmg:
 
 # ─── Windows Configuration ────────────────────────────────────────────────────
 win:
+  executableName: ZeniManager
   icon: electron/icons/icon.ico
   target:
     - target: nsis
       arch:
         - x64        # 64-bit Windows
-        - ia32       # 32-bit Windows (optional, remove if not needed)
     - target: portable
       arch:
         - x64
   # Code signing (set CSC_LINK and CSC_KEY_PASSWORD env vars for production)
   # certificateFile: path/to/cert.pfx
   # certificatePassword: ""
-  publisherName: Zeniel
   verifyUpdateCodeSignature: false
 
 nsis:
