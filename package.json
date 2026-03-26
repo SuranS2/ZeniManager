@@ -1,5 +1,9 @@
 {
   "name": "counsel-admin-v2",
+  "description": "상담 관리 시스템",
+  "author": {
+    "name": "Zeniel"
+  },
   "version": "1.0.0",
   "type": "module",
   "license": "MIT",
