@@ -57,6 +57,12 @@ npx electron-icon-builder --input=zeniel-logo.png --output=electron/icons
 pnpm install
 ```
 
+`pnpm`이 의존성 빌드 스크립트를 제한한 환경에서도 루트 `postinstall`이 Electron 바이너리를 자동 복구합니다. 이미 설치된 상태에서 `Electron failed to install correctly` 오류가 나면 아래 명령으로 수동 복구 후 다시 실행하세요.
+
+```bash
+pnpm electron:ensure
+```
+
 ---
 
 ## 3단계: 개발 모드 실행 (Electron)
@@ -65,7 +71,7 @@ pnpm install
 pnpm electron:dev
 ```
 
-Vite 개발 서버(포트 5173)가 시작된 후 Electron 창이 자동으로 열립니다.
+Vite 개발 서버(포트 5181)가 시작된 후 Electron 창이 자동으로 열립니다.
 
 > **참고**: 개발 모드에서는 Supabase 연결 없이 목업 데이터로 동작합니다.
 > 로그인 화면 하단 **Supabase 연결 설정**에서 키를 입력하면 실제 데이터와 연결됩니다.
@@ -181,6 +187,7 @@ Electron 앱은 코드에 API 키를 포함하지 않습니다. 사용자가 직
 | 스크립트 | 설명 |
 |----------|------|
 | `pnpm dev` | 웹 서버 개발 모드 (브라우저) |
+| `pnpm electron:ensure` | Electron 바이너리 수동 복구 |
 | `pnpm electron:dev` | Electron 개발 모드 (데스크탑) |
 | `pnpm electron:build:win` | Windows 설치 파일 빌드 |
 | `pnpm electron:build:mac` | macOS DMG 빌드 |

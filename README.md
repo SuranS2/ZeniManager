@@ -134,6 +134,8 @@ pnpm electron:dev
 
 PowerShell에서 `npm` 또는 `pnpm` 스크립트 실행이 막히면 새 터미널을 다시 열거나 `npm.cmd`, `pnpm.cmd`로 실행하세요.
 
+`pnpm install` 시 Electron 바이너리가 누락된 상태면 `postinstall`에서 자동 복구합니다. 이미 설치를 마친 뒤 `Electron failed to install correctly` 오류가 발생하면 `pnpm electron:ensure`를 한 번 실행한 뒤 다시 `pnpm electron:dev`를 실행하세요.
+
 `pnpm dev`는 Express 서버와 Vite 미들웨어를 함께 구동하므로 브라우저에서는 `http://localhost:3000`으로 접속합니다. `3000` 포트가 이미 사용 중이면 `3001`부터 순차적으로 빈 포트를 찾아 실행됩니다.
 
 Windows에서도 `pnpm dev`가 동작하도록 `package.json`의 개발/실행 스크립트는 `cross-env`를 사용합니다.
@@ -245,6 +247,7 @@ ZeniManager/
 |----------|------|
 | `pnpm dev` | 웹 개발 서버 실행 |
 | `pnpm build` | 웹 프로덕션 빌드 |
+| `pnpm electron:ensure` | Electron 바이너리 수동 복구 |
 | `pnpm electron:dev` | Electron 개발 모드 |
 | `pnpm electron:build:win` | Windows 설치 파일 빌드 |
 | `pnpm electron:build:mac` | macOS DMG 빌드 |
