@@ -2,24 +2,29 @@
  * Counselor Dashboard
  * Design: 모던 웰니스 미니멀리즘
  * Features: 전체 상담자 수, 프로세스 현황, 캘린더, 메모장(칸반)
+ * Data: Supabase API (mock fallback when not configured)
  */
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useLocation } from 'wouter';
 import { useAuth } from '@/contexts/AuthContext';
-import { MOCK_CLIENTS, MONTHLY_STATS, PROCESS_STAGES, INITIAL_KANBAN, type KanbanColumn, type MemoCard } from '@/lib/mockData';
+import { fetchDashboardStats, fetchClients, type DashboardStats } from '@/lib/api';
+import { MONTHLY_STATS, INITIAL_KANBAN, type KanbanColumn, type MemoCard } from '@/lib/mockData';
+import { isSupabaseConfigured } from '@/lib/supabase';
+import type { ClientRow } from '@/lib/supabase';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, Area, AreaChart,
+  Area, AreaChart,
 } from 'recharts';
 import {
   Users, TrendingUp, CheckCircle2, Clock, Search, Plus, X, ChevronLeft, ChevronRight,
-  AlertCircle, Calendar as CalendarIcon, StickyNote,
+  AlertCircle, Calendar as CalendarIcon, StickyNote, Loader2, RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const PRIMARY = 'oklch(0.588 0.152 162.5)';
 const PRIMARY_HEX = '#009C64';
 
-// Mini stat card
+// ─── Stat Card ────────────────────────────────────────────────────────────────
+
 function StatCard({ icon, label, value, sub, color }: {
   icon: React.ReactNode; label: string; value: string | number; sub?: string; color?: string;
 }) {
@@ -37,7 +42,8 @@ function StatCard({ icon, label, value, sub, color }: {
   );
 }
 
-// Simple calendar
+// ─── Mini Calendar ────────────────────────────────────────────────────────────
+
 function MiniCalendar() {
   const [date, setDate] = useState(new Date());
   const year = date.getFullYear();
@@ -50,7 +56,6 @@ function MiniCalendar() {
   for (let i = 0; i < firstDay; i++) days.push(null);
   for (let i = 1; i <= daysInMonth; i++) days.push(i);
 
-  // Mock events
   const events: Record<number, string> = { 5: '상담', 12: '회의', 18: '상담', 25: '교육' };
 
   return (
@@ -69,21 +74,22 @@ function MiniCalendar() {
           <div key={d} className="text-xs text-muted-foreground py-1 font-medium">{d}</div>
         ))}
         {days.map((day, i) => (
-          <div key={i} className={`
-            text-xs py-1.5 rounded-sm relative
-            ${day === null ? '' : 'hover:bg-muted cursor-pointer'}
-            ${day === today.getDate() && month === today.getMonth() && year === today.getFullYear()
-              ? 'text-white font-bold'
-              : 'text-foreground'}
-          `}
-            style={day === today.getDate() && month === today.getMonth() && year === today.getFullYear()
-              ? { background: PRIMARY_HEX }
-              : {}
+          <div
+            key={i}
+            className={`text-xs py-1.5 rounded-sm relative ${day === null ? '' : 'hover:bg-muted cursor-pointer'} ${
+              day === today.getDate() && month === today.getMonth() && year === today.getFullYear()
+                ? 'text-white font-bold'
+                : 'text-foreground'
+            }`}
+            style={
+              day === today.getDate() && month === today.getMonth() && year === today.getFullYear()
+                ? { background: PRIMARY_HEX }
+                : {}
             }
           >
             {day}
             {day && events[day] && (
-              <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full" style={{ background: PRIMARY_HEX }}></span>
+              <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full" style={{ background: PRIMARY_HEX }} />
             )}
           </div>
         ))}
@@ -91,7 +97,7 @@ function MiniCalendar() {
       <div className="mt-3 space-y-1.5">
         {Object.entries(events).map(([day, label]) => (
           <div key={day} className="flex items-center gap-2 text-xs">
-            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: PRIMARY_HEX }}></span>
+            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: PRIMARY_HEX }} />
             <span className="text-muted-foreground">{month + 1}/{day}</span>
             <span className="text-foreground">{label}</span>
           </div>
@@ -101,7 +107,8 @@ function MiniCalendar() {
   );
 }
 
-// Kanban board
+// ─── Kanban Board ─────────────────────────────────────────────────────────────
+
 function KanbanBoard() {
   const [columns, setColumns] = useState<KanbanColumn[]>(INITIAL_KANBAN);
   const [newCardColumn, setNewCardColumn] = useState<string | null>(null);
@@ -194,24 +201,72 @@ function KanbanBoard() {
   );
 }
 
+// ─── Main Dashboard ───────────────────────────────────────────────────────────
+
 export default function CounselorDashboard() {
   const { user } = useAuth();
+  const [, navigate] = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'overview' | 'calendar' | 'memo'>('overview');
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [searchResults, setSearchResults] = useState<ClientRow[]>([]);
+  const [searching, setSearching] = useState(false);
 
-  const myClients = MOCK_CLIENTS.filter(c => c.counselorId === 'c001');
-  const totalClients = myClients.length;
-  const completedClients = myClients.filter(c => c.employmentStatus === '취업완료').length;
-  const pendingClients = myClients.filter(c => c.followUp).length;
-  const activeProcesses = myClients.filter(c => c.processStage !== '취업완료').length;
+  const loadStats = useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      const data = await fetchDashboardStats(user?.counselorId);
+      setStats(data);
+    } catch (e: any) {
+      toast.error('통계 로드 실패: ' + e.message);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, [user?.counselorId]);
 
-  const searchResults = searchQuery
-    ? MOCK_CLIENTS.filter(c =>
-        c.name.includes(searchQuery) ||
-        c.phone.includes(searchQuery) ||
-        c.counselorName.includes(searchQuery)
-      )
-    : [];
+  useEffect(() => { loadStats(); }, [loadStats]);
+
+  // Search with debounce
+  useEffect(() => {
+    if (!searchQuery.trim()) { setSearchResults([]); return; }
+    const timer = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const all = await fetchClients(user?.role === 'counselor' ? user.counselorId : undefined);
+        const q = searchQuery.toLowerCase();
+        setSearchResults(all.filter(c =>
+          c.name.toLowerCase().includes(q) ||
+          (c.phone || '').includes(q) ||
+          (c.desired_job || '').includes(q)
+        ).slice(0, 10));
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, user]);
+
+  const totalClients = stats?.totalClients ?? 0;
+  const completedClients = stats?.employed ?? 0;
+  const pendingClients = stats?.followUpNeeded ?? 0;
+  const activeProcesses = stats?.inProgress ?? 0;
+
+  // Build process stages from stats
+  const processStages = stats?.stageBreakdown ?? [
+    { stage: '초기상담', count: 0 },
+    { stage: '심층상담', count: 0 },
+    { stage: '취업지원', count: 0 },
+    { stage: '취업완료', count: 0 },
+    { stage: '사후관리', count: 0 },
+  ];
+  const stageColors: Record<string, string> = {
+    '초기상담': '#4299E1', '심층상담': '#9F7AEA',
+    '취업지원': '#F6AD55', '취업완료': PRIMARY_HEX, '사후관리': '#68D391',
+  };
+  const maxStageCount = Math.max(...processStages.map(s => s.count), 1);
 
   return (
     <div className="space-y-5">
@@ -219,9 +274,19 @@ export default function CounselorDashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-foreground">업무 대시보드</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">안녕하세요, {user?.name}님. 오늘도 좋은 하루 되세요.</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            안녕하세요, {user?.name}님. 오늘도 좋은 하루 되세요.
+            {!isSupabaseConfigured() && <span className="ml-2 text-amber-600 text-xs">(데모 모드)</span>}
+          </p>
         </div>
-        <div className="text-sm text-muted-foreground">{new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</div>
+        <div className="flex items-center gap-2">
+          <button onClick={loadStats} className="p-1.5 rounded-sm hover:bg-muted" title="새로고침">
+            <RefreshCw size={14} className={statsLoading ? 'animate-spin' : ''} />
+          </button>
+          <div className="text-sm text-muted-foreground">
+            {new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
+          </div>
+        </div>
       </div>
 
       {/* Search */}
@@ -231,7 +296,7 @@ export default function CounselorDashboard() {
           type="text"
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
-          placeholder="상담자 검색 (이름, 전화번호...)"
+          placeholder="상담자 검색 (이름, 전화번호, 희망직종...)"
           className="w-full pl-9 pr-4 py-2.5 rounded-sm border border-input bg-card text-sm focus:outline-none focus:ring-2 focus:ring-ring shadow-sm"
         />
         {searchQuery && (
@@ -244,7 +309,12 @@ export default function CounselorDashboard() {
       {/* Search Results */}
       {searchQuery && (
         <div className="bg-card rounded-md border border-border shadow-sm overflow-hidden">
-          {searchResults.length === 0 ? (
+          {searching ? (
+            <div className="flex items-center justify-center p-4">
+              <Loader2 size={16} className="animate-spin text-muted-foreground mr-2" />
+              <span className="text-sm text-muted-foreground">검색 중...</span>
+            </div>
+          ) : searchResults.length === 0 ? (
             <div className="p-4 text-sm text-muted-foreground text-center">검색 결과가 없습니다.</div>
           ) : (
             <table className="w-full text-sm">
@@ -258,12 +328,16 @@ export default function CounselorDashboard() {
               </thead>
               <tbody>
                 {searchResults.map(c => (
-                  <tr key={c.id} className="border-b border-border last:border-0 hover:bg-muted/20 cursor-pointer">
+                  <tr
+                    key={c.id}
+                    className="border-b border-border last:border-0 hover:bg-muted/20 cursor-pointer"
+                    onClick={() => { setSearchQuery(''); navigate('/clients/list'); }}
+                  >
                     <td className="px-4 py-2.5 font-medium">{c.name}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{c.phone}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{c.counselorName}</td>
+                    <td className="px-4 py-2.5 text-muted-foreground">{c.phone || '-'}</td>
+                    <td className="px-4 py-2.5 text-muted-foreground">{c.counselor_name || '-'}</td>
                     <td className="px-4 py-2.5">
-                      <span className="badge-active">{c.processStage}</span>
+                      <span className="badge-active">{c.participation_stage || '-'}</span>
                     </td>
                   </tr>
                 ))}
@@ -275,34 +349,24 @@ export default function CounselorDashboard() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          icon={<Users size={18} color={PRIMARY_HEX} />}
-          label="전체 상담자 수"
-          value={totalClients}
-          sub="담당 상담자"
-          color="oklch(0.92 0.05 162.5)"
-        />
-        <StatCard
-          icon={<TrendingUp size={18} color="#4299E1" />}
-          label="진행 중"
-          value={activeProcesses}
-          sub="프로세스 진행"
-          color="oklch(0.92 0.04 240)"
-        />
-        <StatCard
-          icon={<CheckCircle2 size={18} color={PRIMARY_HEX} />}
-          label="취업 완료"
-          value={completedClients}
-          sub={`성사율 ${Math.round(completedClients / totalClients * 100)}%`}
-          color="oklch(0.92 0.05 162.5)"
-        />
-        <StatCard
-          icon={<AlertCircle size={18} color="#F6AD55" />}
-          label="후속 상담 필요"
-          value={pendingClients}
-          sub="팔로업 대상"
-          color="oklch(0.95 0.06 85)"
-        />
+        {statsLoading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="stat-card animate-pulse">
+              <div className="w-10 h-10 rounded-sm bg-muted" />
+              <div className="flex-1 space-y-2">
+                <div className="h-3 bg-muted rounded w-2/3" />
+                <div className="h-6 bg-muted rounded w-1/2" />
+              </div>
+            </div>
+          ))
+        ) : (
+          <>
+            <StatCard icon={<Users size={18} color={PRIMARY_HEX} />} label="전체 상담자 수" value={totalClients} sub="담당 상담자" color="oklch(0.92 0.05 162.5)" />
+            <StatCard icon={<TrendingUp size={18} color="#4299E1" />} label="진행 중" value={activeProcesses} sub="프로세스 진행" color="oklch(0.92 0.04 240)" />
+            <StatCard icon={<CheckCircle2 size={18} color={PRIMARY_HEX} />} label="취업 완료" value={completedClients} sub={totalClients > 0 ? `성사율 ${Math.round(completedClients / totalClients * 100)}%` : '-'} color="oklch(0.92 0.05 162.5)" />
+            <StatCard icon={<AlertCircle size={18} color="#F6AD55" />} label="후속 상담 필요" value={pendingClients} sub="팔로업 대상" color="oklch(0.95 0.06 85)" />
+          </>
+        )}
       </div>
 
       {/* Tabs */}
@@ -315,12 +379,11 @@ export default function CounselorDashboard() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-all -mb-px ${
-              activeTab === tab.id
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-            style={activeTab === tab.id ? { borderColor: PRIMARY_HEX, color: PRIMARY_HEX } : {}}
+            className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-all -mb-px"
+            style={activeTab === tab.id
+              ? { borderColor: PRIMARY_HEX, color: PRIMARY_HEX }
+              : { borderColor: 'transparent', color: '#6b7280' }
+            }
           >
             {tab.icon}
             {tab.label}
@@ -339,9 +402,7 @@ export default function CounselorDashboard() {
                 <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.88 0.008 75)" vertical={false} />
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'oklch(0.55 0.015 65)' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: 'oklch(0.55 0.015 65)' }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  contentStyle={{ borderRadius: '6px', border: '1px solid oklch(0.88 0.008 75)', fontSize: '12px' }}
-                />
+                <Tooltip contentStyle={{ borderRadius: '6px', border: '1px solid oklch(0.88 0.008 75)', fontSize: '12px' }} />
                 <Bar dataKey="clients" name="상담자" fill={PRIMARY_HEX} radius={[3, 3, 0, 0]} />
                 <Bar dataKey="completed" name="취업완료" fill="#4299E1" radius={[3, 3, 0, 0]} />
               </BarChart>
@@ -352,7 +413,7 @@ export default function CounselorDashboard() {
           <div className="bg-card rounded-md p-5 shadow-sm border border-border">
             <h3 className="text-sm font-semibold text-foreground mb-4">프로세스 과정 수</h3>
             <div className="space-y-3">
-              {PROCESS_STAGES.map(stage => (
+              {processStages.map(stage => (
                 <div key={stage.stage}>
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs text-foreground">{stage.stage}</span>
@@ -362,8 +423,8 @@ export default function CounselorDashboard() {
                     <div
                       className="h-full rounded-full transition-all duration-500"
                       style={{
-                        width: `${(stage.count / 50) * 100}%`,
-                        background: stage.color,
+                        width: `${(stage.count / maxStageCount) * 100}%`,
+                        background: stageColors[stage.stage] || PRIMARY_HEX,
                       }}
                     />
                   </div>
@@ -433,10 +494,6 @@ export default function CounselorDashboard() {
         <div className="bg-card rounded-md p-5 shadow-sm border border-border">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-foreground">메모장 (칸반)</h3>
-            <button onClick={() => toast.info('새 컬럼 추가 기능')} className="btn-primary text-xs py-1.5 px-3">
-              <Plus size={12} className="mr-1" />
-              컬럼 추가
-            </button>
           </div>
           <KanbanBoard />
         </div>
