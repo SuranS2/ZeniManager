@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { isAdminRole, ROLE_ADMIN, ROLE_COUNSELOR } from '@shared/const';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePageGuard } from '@/hooks/usePageGuard';
 import {
   Key, Globe, LogOut, Save, Eye, EyeOff, User,
   ChevronLeft, Database, CheckCircle2, XCircle,
@@ -18,7 +19,7 @@ import { toast } from 'sonner';
 import {
   STORAGE_KEYS,
   getSupabaseUrl, getSupabaseAnonKey,
-  isSupabaseConfigured, resetSupabaseClient,
+  isSupabaseConfigured, removeStoredAppSetting, resetSupabaseClient, setStoredAppSetting,
 } from '@/lib/supabase';
 
 interface SecretField {
@@ -60,12 +61,12 @@ function SecretInput({ field }: { field: SecretField }) {
   const [show, setShow] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const trimmed = value.trim();
     if (trimmed) {
-      localStorage.setItem(field.storageKey, trimmed);
+      await setStoredAppSetting(field.storageKey, trimmed);
     } else {
-      localStorage.removeItem(field.storageKey);
+      await removeStoredAppSetting(field.storageKey);
     }
     resetSupabaseClient();
     setSaved(true);
@@ -73,9 +74,9 @@ function SecretInput({ field }: { field: SecretField }) {
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const handleClear = () => {
+  const handleClear = async () => {
     setValue('');
-    localStorage.removeItem(field.storageKey);
+    await removeStoredAppSetting(field.storageKey);
     resetSupabaseClient();
     toast.info(`${field.label} 삭제됨`);
   };
@@ -395,6 +396,7 @@ CREATE POLICY "memos_all" ON public.memo_cards USING (counselor_id = public.get_
 
 export default function Settings() {
   const [, navigate] = useLocation();
+  const { canRender } = usePageGuard('authenticated');
   const { user, logout } = useAuth();
 
   const handleLogout = () => {
@@ -402,6 +404,8 @@ export default function Settings() {
     toast.success('로그아웃되었습니다.');
     navigate('/login');
   };
+
+  if (!canRender) return null;
 
   return (
     <div className="max-w-2xl mx-auto space-y-5">

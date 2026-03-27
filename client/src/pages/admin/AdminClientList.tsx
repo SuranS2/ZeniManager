@@ -4,6 +4,7 @@
  * Data: Supabase API with mock fallback
  */
 import { useState, useEffect } from 'react';
+import { usePageGuard } from '@/hooks/usePageGuard';
 import { fetchClients } from '@/lib/api';
 import type { ClientRow } from '@/lib/supabase';
 import { Search, Download, Filter, RefreshCw } from 'lucide-react';
@@ -20,6 +21,7 @@ const stageColors: Record<string, string> = {
 };
 
 export default function AdminClientList() {
+  const { canRender } = usePageGuard('admin');
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -79,6 +81,8 @@ export default function AdminClientList() {
     URL.revokeObjectURL(url);
     toast.success('CSV 파일이 다운로드되었습니다.');
   };
+
+  if (!canRender) return null;
 
   return (
     <div className="space-y-4">

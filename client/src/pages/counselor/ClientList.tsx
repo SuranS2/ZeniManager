@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { ROLE_COUNSELOR } from '@shared/const';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePageGuard } from '@/hooks/usePageGuard';
 import {
   Search, Plus, X, ChevronRight, Phone, User,
   Edit3, ClipboardList, Loader2, Trash2, Save,
@@ -595,7 +596,7 @@ function FilterTab({ label, active, count, onClick }: { label: string; active: b
 
 export default function ClientList() {
   const [, navigate] = useLocation();
-  const { user } = useAuth();
+  const { canRender, user } = usePageGuard('counselor');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterType>('all');
   const [clients, setClients] = useState<ClientRow[]>([]);
@@ -640,6 +641,8 @@ export default function ClientList() {
     '초기상담': 'badge-active', '심층상담': 'badge-pending',
     '취업지원': 'badge-pending', '취업완료': 'badge-completed', '사후관리': 'badge-active',
   };
+
+  if (!canRender) return null;
 
   return (
     <div className="space-y-4">

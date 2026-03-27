@@ -109,6 +109,23 @@ export async function bootstrapStoredAppSettings(): Promise<void> {
   }
 }
 
+/**
+ * Clears transient auth/session state on Electron launch.
+ * Persistent app settings remain in the shared app-settings store and are
+ * bootstrapped back into localStorage afterwards.
+ */
+export function resetTransientSessionOnLaunch(): void {
+  const electronAPI = getElectronApi();
+  if (!electronAPI?.isElectron) return;
+
+  [
+    STORAGE_KEYS.USER,
+    SUPABASE_SESSION_STORAGE_KEY,
+  ].forEach(key => localStorage.removeItem(key));
+
+  resetSupabaseClient();
+}
+
 export async function setStoredAppSetting(key: string, value: string): Promise<void> {
   const trimmed = value.trim();
   if (trimmed) {

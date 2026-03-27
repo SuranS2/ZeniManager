@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { ROLE_COUNSELOR } from '@shared/const';
-import { useAuth } from '@/contexts/AuthContext';
+import { usePageGuard } from '@/hooks/usePageGuard';
 import { fetchDashboardStats, fetchClients, type DashboardStats } from '@/lib/api';
 import { MONTHLY_STATS, INITIAL_KANBAN, type KanbanColumn, type MemoCard } from '@/lib/mockData';
 import { isSupabaseConfigured } from '@/lib/supabase';
@@ -205,7 +205,7 @@ function KanbanBoard() {
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function CounselorDashboard() {
-  const { user } = useAuth();
+  const { canRender, user } = usePageGuard('counselor');
   const [, navigate] = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'overview' | 'calendar' | 'memo'>('overview');
@@ -268,6 +268,8 @@ export default function CounselorDashboard() {
     '취업지원': '#F6AD55', '취업완료': PRIMARY_HEX, '사후관리': '#68D391',
   };
   const maxStageCount = Math.max(...processStages.map(s => s.count), 1);
+
+  if (!canRender) return null;
 
   return (
     <div className="space-y-5">

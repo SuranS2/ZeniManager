@@ -5,9 +5,10 @@
  */
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Redirect, Route, Router as WouterRouter, Switch, useLocation } from "wouter";
+import { Redirect, Route, Router as WouterRouter, Switch } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import { isAdminRole } from "@shared/const";
+import { matchesAccessRequirement, type PageAccessRequirement } from "@/lib/authAccess";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import DashboardLayout from "./components/DashboardLayout";
@@ -22,20 +23,22 @@ import AdminDashboard from "./pages/admin/AdminDashboard";
 import CounselorList from "./pages/admin/CounselorList";
 import AdminClientList from "./pages/admin/AdminClientList";
 
-// Protected route wrapper
-function ProtectedRoute({ component: Component, adminOnly = false }: {
+function GuardedRoute({ component: Component, requirement = "authenticated" }: {
   component: React.ComponentType;
-  adminOnly?: boolean;
+  requirement?: PageAccessRequirement;
 }) {
-  const { isAuthenticated, user } = useAuth();
-  const [location] = useLocation();
+  const { isAuthenticated, isLoading, user } = useAuth();
 
-  if (!isAuthenticated) {
+  if (isLoading) {
+    return null;
+  }
+
+  if (!isAuthenticated || !user) {
     return <Redirect to="/login" />;
   }
 
-  if (adminOnly && !isAdminRole(user?.role)) {
-    return <Redirect to="/dashboard" />;
+  if (!matchesAccessRequirement(user.role, requirement)) {
+    return <Redirect to="/login" />;
   }
 
   return (
@@ -45,21 +48,12 @@ function ProtectedRoute({ component: Component, adminOnly = false }: {
   );
 }
 
-// Counselor-only route
-function CounselorRoute({ component: Component }: { component: React.ComponentType }) {
-  const { isAuthenticated, user } = useAuth();
-
-  if (!isAuthenticated) return <Redirect to="/login" />;
-  if (isAdminRole(user?.role)) return <Redirect to="/admin/dashboard" />;
-
-  return (
-    <DashboardLayout>
-      <Component />
-    </DashboardLayout>
-  );
-}
 function AppRoutes() {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
+
+  if (isLoading) {
+    return null;
+  }
 
   return (
     <Switch>
@@ -76,38 +70,38 @@ function AppRoutes() {
 
       {/* Counselor routes */}
       <Route path="/dashboard">
-        <CounselorRoute component={CounselorDashboard} />
+        <GuardedRoute component={CounselorDashboard} requirement="counselor" />
       </Route>
       <Route path="/dashboard/:sub">
-        <CounselorRoute component={CounselorDashboard} />
+        <GuardedRoute component={CounselorDashboard} requirement="counselor" />
       </Route>
       <Route path="/clients">
-        <CounselorRoute component={ClientList} />
+        <GuardedRoute component={ClientList} requirement="counselor" />
       </Route>
       <Route path="/clients/list">
-        <CounselorRoute component={ClientList} />
+        <GuardedRoute component={ClientList} requirement="counselor" />
       </Route>
       <Route path="/clients/register">
-        <CounselorRoute component={ClientRegister} />
+        <GuardedRoute component={ClientRegister} requirement="counselor" />
       </Route>
 
       {/* Admin routes */}
       <Route path="/admin/dashboard">
-        <ProtectedRoute component={AdminDashboard} adminOnly />
+        <GuardedRoute component={AdminDashboard} requirement="admin" />
       </Route>
       <Route path="/admin/dashboard/:sub">
-        <ProtectedRoute component={AdminDashboard} adminOnly />
+        <GuardedRoute component={AdminDashboard} requirement="admin" />
       </Route>
       <Route path="/admin/counselors">
-        <ProtectedRoute component={CounselorList} adminOnly />
+        <GuardedRoute component={CounselorList} requirement="admin" />
       </Route>
       <Route path="/admin/clients">
-        <ProtectedRoute component={AdminClientList} adminOnly />
+        <GuardedRoute component={AdminClientList} requirement="admin" />
       </Route>
 
       {/* Settings */}
       <Route path="/settings">
-        <ProtectedRoute component={Settings} />
+        <GuardedRoute component={Settings} />
       </Route>
 
       {/* Fallback */}
