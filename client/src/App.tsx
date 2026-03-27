@@ -12,6 +12,7 @@ import { matchesAccessRequirement, type PageAccessRequirement } from "@/lib/auth
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import DashboardLayout from "./components/DashboardLayout";
+import ErrorBoundary from "./components/ErrorBoundary";
 
 // Pages
 import Login from "./pages/Login";
@@ -31,7 +32,11 @@ function GuardedRoute({ component: Component, requirement = "authenticated" }: {
   const { isAuthenticated, isLoading, user } = useAuth();
 
   if (isLoading) {
-    return null;
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
   }
 
   if (!isAuthenticated || !user) {
@@ -39,13 +44,15 @@ function GuardedRoute({ component: Component, requirement = "authenticated" }: {
   }
 
   if (!matchesAccessRequirement(user.role, requirement)) {
-    return <Redirect to="/login" />;
+    return <Redirect to={isAdminRole(user.role) ? '/admin/dashboard' : '/dashboard'} />;
   }
 
   return (
-    <DashboardLayout>
-      <Component />
-    </DashboardLayout>
+    <ErrorBoundary>
+      <DashboardLayout>
+        <Component />
+      </DashboardLayout>
+    </ErrorBoundary>
   );
 }
 
@@ -53,13 +60,22 @@ function AppRoutes() {
   const { isAuthenticated, isLoading, user } = useAuth();
 
   if (isLoading) {
-    return null;
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
   }
 
   return (
     <Switch>
       {/* Public */}
-      <Route path="/login" component={Login} />
+      <Route path="/login">
+        {isAuthenticated 
+          ? <Redirect to={isAdminRole(user?.role) ? '/admin/dashboard' : '/dashboard'} />
+          : <Login />
+        }
+      </Route>
 
       {/* Root redirect */}
       <Route path="/">
@@ -83,7 +99,7 @@ function AppRoutes() {
         <GuardedRoute component={ClientList} requirement="counselor" />
       </Route>
       <Route path="/clients/detail/:id">
-        <GuardedRoute component={ClientDetail} />
+        <GuardedRoute component={ClientDetail} requirement="counselor" />
       </Route>
       <Route path="/clients/register">
         <GuardedRoute component={ClientRegister} requirement="counselor" />

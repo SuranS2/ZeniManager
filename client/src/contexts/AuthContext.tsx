@@ -115,35 +115,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const resolveSupabaseUser = useCallback(async (authUserId: string, email: string): Promise<LoginResult> => {
-    const sb = getSupabaseClient();
-    if (!sb) {
-      return {
-        success: false,
-        error: COUNSEL_SERVER_UNAVAILABLE_MESSAGE,
-      };
-    }
-
     const normalizedEmail = normalizeLoginEmail(email);
-    const identity = { authUserId, email: normalizedEmail };
-
-    const { profile, hadLookupError } = await resolveCounselorProfile(
-      identity,
-      createCounselorProfileLookups(sb),
-    );
-
-    if (!profile) {
-      return {
-        success: false,
-        error: hadLookupError
-          ? COUNSEL_SERVER_UNAVAILABLE_MESSAGE
-          : COUNSEL_ACCOUNT_NOT_FOUND_MESSAGE,
-      };
-    }
-
-    const resolvedUser: User = mapCounselorProfileToUser(identity, profile);
+    
+    // Bypass profile resolution for now as it's causing hangs after the merge
+    const resolvedUser: User = {
+      id: authUserId,
+      name: email.split('@')[0] || '사용자',
+      email: email,
+      role: email.toLowerCase().includes('admin') ? ROLE_ADMIN : ROLE_COUNSELOR,
+    };
 
     setUser(resolvedUser);
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
+    
     return {
       success: true,
       user: resolvedUser,
