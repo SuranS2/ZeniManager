@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Client List Page (상담자 목록)
  * - Supabase 연동 (미설정 시 mock data fallback)
  * - 탭: 상담관리 / 상담이력 / 상담내용 입력 / 구직준비도 설문
@@ -739,61 +739,61 @@ export default function ClientList() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">순번</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">이름</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">연락처</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">담당 상담사</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">사업유형</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">단계</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">점수</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">후속</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">IAP 수립일</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground shrink-0">취업단계</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">사업유형</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">점수</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">사후관리</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">메모</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">액션</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={10} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     검색 결과가 없습니다.
                   </td>
                 </tr>
               ) : (
-                filtered.map(client => (
+                filtered.map((client, index) => (
                   <tr
                     key={client.id}
                     className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors cursor-pointer"
                     onClick={() => openClientModal(client)}
                   >
+                    <td className="px-4 py-3 text-muted-foreground">{index + 1}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-sm flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ background: PRIMARY }}>
                           {client.name.charAt(0)}
                         </div>
-                        <div>
-                          <div className="font-medium text-foreground">{client.name}</div>
-                          <div className="text-xs text-muted-foreground">{client.gender}{client.age ? `, ${client.age}세` : ''}</div>
-                        </div>
+                        <div className="font-medium text-foreground whitespace-nowrap">{client.name}</div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{client.phone || '-'}</td>
-                    <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">{client.counselor_name || '-'}</td>
-                    <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell">{client.business_type || '-'}</td>
+                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{client.phone || '-'}</td>
+                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{client.iap_to || '-'}</td>
                     <td className="px-4 py-3">
                       {client.participation_stage
                         ? <span className={stageColors[client.participation_stage] || 'badge-active'}>{client.participation_stage}</span>
                         : <span className="text-muted-foreground">-</span>
                       }
                     </td>
-                    <td className="px-4 py-3 hidden sm:table-cell">
-                      {client.score != null
-                        ? <span className="font-semibold" style={{ color: PRIMARY }}>{client.score}</span>
+                    <td className="px-4 py-3 text-muted-foreground">{client.participate_type || '-'}</td>
+                    <td className="px-4 py-3">
+                      {client.retest_stat != null
+                        ? <span className="font-semibold" style={{ color: PRIMARY }}>{client.retest_stat}</span>
                         : <span className="text-muted-foreground">-</span>
                       }
                     </td>
                     <td className="px-4 py-3">
-                      {client.follow_up
-                        ? <span className="badge-cancelled">필요</span>
-                        : <span className="text-muted-foreground text-xs">-</span>
-                      }
+                       <span className="text-xs">{client.continue_serv_1_stat || '-'}</span>
+                    </td>
+                    <td className="px-4 py-3 max-w-[200px] truncate text-muted-foreground text-xs">
+                      {client.memo || '-'}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
