@@ -354,14 +354,14 @@ export async function fetchCounselors(): Promise<CounselorRow[]> {
   if (!isSupabaseConfigured()) {
     return MOCK_COUNSELORS.map(c => mockCounselorToRow(c));
   }
-  const { data, error } = await sb().from('counselors').select('*').order('name');
-  if (error) {
-    if (isMissingSchemaError(error)) {
-      return MOCK_COUNSELORS.map(c => mockCounselorToRow(c));
-    }
-    throw error;
-  }
-  return data ?? [];
+  const { data, error } = await sb()
+    .from('user')
+    .select('user_name, department')
+    .neq('role', 5) // role 컬럼의 값이 5가 아닌 데이터만 필터링
+    .order('user_name');
+
+  if (error) throw error;
+  return (data ?? []).map(row => liveCounselorToRow(row));
 }
 
 export async function createCounselor(input: CounselorInsert): Promise<CounselorRow> {
@@ -879,16 +879,29 @@ function mockCounselorToRow(c: Counselor): CounselorRow {
   return {
     id: c.id,
     name: c.name,
-    email: c.email,
-    phone: c.phone,
-    branch: c.branch,
+    department: c.department,
     client_count: c.clientCount,
     completed_count: c.completedCount,
     joined_at: c.joinedAt,
-    status: c.status,
     role: ROLE_COUNSELOR,
     auth_user_id: null,
     created_at: c.joinedAt,
     update_at: c.joinedAt,
+  };
+}
+
+
+function liveCounselorToRow(c: Counselor): CounselorRow {
+  return {
+    id: c.id,
+    name: c.name,
+    department: c.department,
+    client_count: c.clientCount,
+    completed_count: c.completedCount,
+    joined_at: c.joinedAt,
+    role: 'counselor',
+    auth_user_id: null,
+    created_at: c.joinedAt,
+    updated_at: c.joinedAt,
   };
 }
