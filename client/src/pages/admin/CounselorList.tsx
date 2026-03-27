@@ -13,15 +13,12 @@ const PRIMARY_HEX = '#009C64';
 
 interface CounselorForm {
   name: string;
-  email: string;
-  phone: string;
-department: string;
-  status: '재직' | '휴직' | '퇴직';
+  department: string;
   role: 'counselor' | 'admin';
 }
 
 const EMPTY_FORM: CounselorForm = {
-  name: '', email: '', phone: '', department: '', status: '재직', role: 'counselor',
+  name: '', department: '', role: 'counselor',
 };
 
 function CounselorModal({
@@ -37,10 +34,7 @@ function CounselorModal({
     counselor
       ? {
           name: counselor.name,
-          email: counselor.email || '',
-          phone: counselor.phone || '',
-          department: counselor.de || '',
-          status: counselor.status || '재직',
+          department: counselor.department || '',
           role: counselor.role || 'counselor',
         }
       : EMPTY_FORM
@@ -84,48 +78,14 @@ function CounselorModal({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium mb-1.5">이메일</label>
-              <input
-                type="email"
-                value={form.email}
-                onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="email@example.com"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">연락처</label>
-              <input
-                type="tel"
-                value={form.phone}
-                onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="010-0000-0000"
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
               <label className="block text-sm font-medium mb-1.5">지점</label>
               <input
                 type="text"
                 value={form.department}
-                onChange={e => setForm(f => ({ ...f, department: e.target.value }))}
+                onChange={e => setForm(f => ({ ...f, branch: e.target.value }))}
                 className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="서울 강남지점"
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">상태</label>
-              <select
-                value={form.status}
-                onChange={e => setForm(f => ({ ...f, status: e.target.value as '재직' | '휴직' | '퇴직' }))}
-                className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="재직">재직</option>
-                <option value="휴직">휴직</option>
-                <option value="퇴직">퇴직</option>
-              </select>
             </div>
           </div>
           <div>
@@ -268,7 +228,7 @@ export default function CounselorList() {
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="이름, 지점으로 검색..."
+            placeholder="이름, 지점, 이메일로 검색..."
             className="w-full pl-9 pr-4 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
@@ -288,8 +248,9 @@ export default function CounselorList() {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">지점</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">담당자 수</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">완료</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">수정</th>
+                <th className="text-right px-4 py-3 font-medium text-muted-foreground">수정</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">삭제</th>
+
               </tr>
             </thead>
             <tbody>
