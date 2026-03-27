@@ -193,14 +193,12 @@ function StatCard({ icon, label, value, sub, color, onClick, actionLabel }: {
 function LiveCalendar({
   month,
   selectedDate,
-  activeRange,
   counts,
   onMonthChange,
   onSelectDate,
 }: {
   month: Date;
   selectedDate: string;
-  activeRange: { start: string; end: string };
   counts: Record<string, number>;
   onMonthChange: (nextMonth: Date) => void;
   onSelectDate: (dateKey: string, date: Date) => void;
@@ -209,58 +207,32 @@ function LiveCalendar({
   const cells = buildCalendarCells(month);
 
   return (
-    <div className="space-y-5">
-      <div className="rounded-md border border-border/70 bg-muted/10 p-4 shadow-sm sm:p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Schedule Calendar
-            </div>
-            <div className="mt-1 text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-              {month.getFullYear()}년 {month.getMonth() + 1}월
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() - 1, 1))}
-              className="flex h-10 w-10 items-center justify-center rounded-sm border border-border bg-background text-foreground transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-sm"
-              aria-label="이전 달"
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <button
-              type="button"
-              onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() + 1, 1))}
-              className="flex h-10 w-10 items-center justify-center rounded-sm border border-border bg-background text-foreground transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-sm"
-              aria-label="다음 달"
-            >
-              <ChevronRight size={18} />
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-          <span className="inline-flex items-center gap-2 rounded-sm bg-background px-3 py-1.5">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ background: PRIMARY_HEX }} />
-            선택된 날짜 범위를 강조 표시
-          </span>
-          <span className="inline-flex items-center gap-2 rounded-sm bg-background px-3 py-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-100" />
-            일정 수
-          </span>
-        </div>
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() - 1, 1))}
+          className="rounded-sm p-1 hover:bg-muted"
+          aria-label="이전 달"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <span className="text-sm font-semibold">
+          {month.getFullYear()}년 {month.getMonth() + 1}월
+        </span>
+        <button
+          type="button"
+          onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() + 1, 1))}
+          className="rounded-sm p-1 hover:bg-muted"
+          aria-label="다음 달"
+        >
+          <ChevronRight size={16} />
+        </button>
       </div>
 
-      <div className="grid grid-cols-7 gap-2 text-center sm:gap-3">
-        {['일', '월', '화', '수', '목', '금', '토'].map((label, index) => (
-          <div
-            key={label}
-            className={`py-1 text-xs font-semibold tracking-[0.16em] ${
-              index === 0 ? 'text-rose-500' : index === 6 ? 'text-sky-600' : 'text-muted-foreground'
-            }`}
-          >
+      <div className="grid grid-cols-7 gap-1 text-center xl:gap-1.5 2xl:gap-2">
+        {['일', '월', '화', '수', '목', '금', '토'].map(label => (
+          <div key={label} className="py-1 text-xs font-medium text-muted-foreground xl:py-1.5 xl:text-sm 2xl:py-2 2xl:text-base">
             {label}
           </div>
         ))}
@@ -269,79 +241,53 @@ function LiveCalendar({
           const count = counts[cell.key] ?? 0;
           const status = getDayStatus(cell.key, todayKey);
           const isSelected = cell.key === selectedDate;
-          const isInRange = cell.key >= activeRange.start && cell.key <= activeRange.end;
           const isToday = status === 'today';
-          const isDimmed = !cell.isCurrentMonth || status === 'past';
-          const showCount = count > 0 && cell.isCurrentMonth;
 
           return (
             <button
               key={cell.key}
               type="button"
               onClick={() => onSelectDate(cell.key, cell.date)}
-              className={`relative min-h-[74px] rounded-md border px-2.5 py-2.5 text-left transition-all sm:min-h-[86px] sm:px-3 sm:py-3 ${
-                cell.isCurrentMonth ? 'bg-background hover:bg-muted/35' : 'bg-muted/20 hover:bg-muted/30'
-              } ${
-                isInRange ? 'border-transparent shadow-md' : 'border-border/80 shadow-sm hover:border-emerald-200 hover:shadow-md'
+              className={`min-h-[52px] rounded-sm border p-1.5 text-left transition-colors xl:min-h-[78px] xl:p-2.5 2xl:min-h-[117px] 2xl:rounded-md 2xl:p-3.5 ${
+                cell.isCurrentMonth ? 'bg-background hover:bg-muted/40' : 'bg-muted/20 hover:bg-muted/40'
               }`}
-              style={isInRange ? { background: 'linear-gradient(180deg, rgba(0,156,100,0.10), rgba(255,255,255,0.98))', boxShadow: `0 0 0 1px ${PRIMARY_HEX}` } : undefined}
-              aria-pressed={isInRange}
+              style={{
+                borderColor: isSelected ? PRIMARY_HEX : undefined,
+                boxShadow: isSelected ? `0 0 0 1px ${PRIMARY_HEX}` : undefined,
+              }}
+              aria-pressed={isSelected}
             >
               <div className="flex items-start justify-between gap-2">
                 <span
-                  className={`inline-flex min-w-[2rem] items-center justify-center rounded-sm px-2 py-1 text-sm font-semibold leading-none sm:min-w-[2.25rem] sm:text-lg ${
+                  className={`text-xs font-medium xl:text-sm 2xl:text-lg ${
                     !cell.isCurrentMonth
-                      ? 'text-muted-foreground/45'
+                      ? 'text-muted-foreground/60'
                       : isToday
-                        ? 'text-white shadow-sm'
-                        : isInRange
-                          ? 'text-foreground'
-                          : isDimmed
-                            ? 'text-muted-foreground'
-                            : 'text-foreground'
+                        ? 'rounded-sm px-1.5 py-0.5 text-white xl:px-2 xl:py-1 2xl:px-2.5 2xl:py-1.5'
+                        : status === 'past'
+                          ? 'text-muted-foreground'
+                          : 'text-foreground'
                   }`}
-                  style={isToday ? { background: PRIMARY_HEX } : isInRange ? { background: 'rgba(0, 156, 100, 0.12)' } : undefined}
+                  style={isToday ? { background: PRIMARY_HEX } : undefined}
                 >
                   {cell.date.getDate()}
                 </span>
 
-                {showCount && (
+                {count > 0 && cell.isCurrentMonth && (
                   <span
-                    className={`inline-flex min-w-[2.2rem] items-center justify-center rounded-sm px-2.5 py-1.5 text-xs font-semibold leading-none sm:min-w-[2.4rem] sm:text-sm ${
-                      status === 'past' ? 'bg-muted text-muted-foreground' : 'text-white'
-                    }`}
-                    style={status === 'past' ? undefined : { background: PRIMARY_HEX }}
+                    className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold xl:px-2 xl:py-1 xl:text-xs 2xl:px-2.5 2xl:py-1.5 2xl:text-sm"
+                    style={{
+                      color: PRIMARY_HEX,
+                      background: 'rgba(0, 156, 100, 0.10)',
+                    }}
                   >
                     {count > 9 ? '9+' : count}
                   </span>
                 )}
               </div>
-
-              <div className="mt-4 flex items-end justify-between">
-                <div className="text-[11px] text-muted-foreground">
-                  {!cell.isCurrentMonth ? '다른 달' : showCount ? '담당 일정' : isToday ? '오늘' : '선택 가능'}
-                </div>
-                {showCount && (
-                  <div
-                    className="h-1.5 w-10 rounded-sm"
-                    style={{ background: status === 'past' ? 'rgba(148, 163, 184, 0.45)' : 'rgba(0, 156, 100, 0.24)' }}
-                  />
-                )}
-              </div>
             </button>
           );
         })}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-        <span className="inline-flex items-center gap-2 rounded-sm border border-border bg-background px-3 py-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/40" />
-          지난 일정
-        </span>
-        <span className="inline-flex items-center gap-2 rounded-sm border border-border bg-background px-3 py-1.5">
-          <span className="h-2.5 w-2.5 rounded-full" style={{ background: PRIMARY_HEX }} />
-          일정 수
-        </span>
       </div>
     </div>
   );
@@ -356,7 +302,6 @@ function PersonalMemoPanel({
   saving,
   dirty,
   error,
-  isDemoMode,
   onChange,
   onRefresh,
   onReset,
@@ -368,7 +313,6 @@ function PersonalMemoPanel({
   saving: boolean;
   dirty: boolean;
   error: string | null;
-  isDemoMode: boolean;
   onChange: (value: string) => void;
   onRefresh: () => void;
   onReset: () => void;
@@ -380,8 +324,7 @@ function PersonalMemoPanel({
         <div>
           <h3 className="text-sm font-semibold text-foreground">상담사 개인 메모</h3>
           <p className="text-xs text-muted-foreground mt-1">
-            {`${counselorName || '접속한 사용자'}님의 현재 메모입니다.`}
-            {isDemoMode && ' 데모 모드에서는 로컬 브라우저 저장소를 사용합니다.'}
+            {`${counselorName || '접속한 사용자'}님의 현재 DB 메모입니다.`}
           </p>
         </div>
 
@@ -477,6 +420,7 @@ export default function CounselorDashboard() {
   const processSectionRef = useRef<HTMLDivElement | null>(null);
 
   const counselorScopeId = user?.role === ROLE_COUNSELOR ? user.counselorId : undefined;
+  const calendarAuthUserId = user?.id;
   const memoAuthUserId = user?.id;
   const todayKey = toDateKey(new Date());
   const currentRange = buildRange(calendarMode, selectedDate, todayKey, selectedPeriod);
@@ -542,7 +486,7 @@ export default function CounselorDashboard() {
   }, [counselorScopeId, searchQuery]);
 
   const loadCalendarMonth = useCallback(async () => {
-    if (!counselorScopeId) {
+    if (!calendarAuthUserId) {
       setMonthCounts({});
       return;
     }
@@ -550,7 +494,7 @@ export default function CounselorDashboard() {
     setMonthLoading(true);
     try {
       const counts = await fetchDashboardCalendarMonthCounts(
-        counselorScopeId,
+        calendarAuthUserId,
         toDateKey(startOfMonth(calendarMonth)),
         toDateKey(endOfMonth(calendarMonth)),
       );
@@ -561,17 +505,17 @@ export default function CounselorDashboard() {
     } finally {
       setMonthLoading(false);
     }
-  }, [calendarMonth, counselorScopeId]);
+  }, [calendarAuthUserId, calendarMonth]);
 
   const loadCalendarEntries = useCallback(async () => {
-    if (!counselorScopeId) {
+    if (!calendarAuthUserId) {
       setCalendarEntries([]);
       return;
     }
 
     setEntriesLoading(true);
     try {
-      const entries = await fetchDashboardCalendarEntries(counselorScopeId, currentRange.start, currentRange.end);
+      const entries = await fetchDashboardCalendarEntries(calendarAuthUserId, currentRange.start, currentRange.end);
       setCalendarEntries(entries);
       setCalendarError(null);
     } catch (e: any) {
@@ -579,7 +523,7 @@ export default function CounselorDashboard() {
     } finally {
       setEntriesLoading(false);
     }
-  }, [counselorScopeId, currentRange.end, currentRange.start]);
+  }, [calendarAuthUserId, currentRange.end, currentRange.start]);
 
   useEffect(() => {
     if (activeTab !== 'calendar') return;
@@ -765,7 +709,7 @@ export default function CounselorDashboard() {
           <h1 className="text-xl font-bold text-foreground">업무 대시보드</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             안녕하세요, {user?.name}님. 오늘도 좋은 하루 되세요.
-            {!isSupabaseConfigured() && <span className="ml-2 text-amber-600 text-xs">(데모 모드)</span>}
+            {!isSupabaseConfigured() && <span className="ml-2 text-amber-600 text-xs">(일부 기능은 Supabase 설정 필요)</span>}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -788,14 +732,6 @@ export default function CounselorDashboard() {
           placeholder="상담자 검색 (이름, 전화번호, 희망직종...)"
           className="w-full pl-9 pr-4 py-2.5 rounded-sm border border-input bg-card text-sm focus:outline-none focus:ring-2 focus:ring-ring shadow-sm"
         />
-        <button
-          type="button"
-          onClick={() => openClientList()}
-          className="absolute right-10 top-1/2 hidden -translate-y-1/2 items-center gap-1 rounded-sm border border-border bg-background px-3 py-1 text-[11px] font-medium text-muted-foreground transition hover:border-emerald-300 hover:text-foreground sm:inline-flex"
-        >
-          피상담자 화면
-          <ChevronRight size={12} />
-        </button>
         {searchQuery && (
           <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
             <X size={14} />
@@ -866,7 +802,7 @@ export default function CounselorDashboard() {
               sub="담당 상담자"
               color="oklch(0.92 0.05 162.5)"
               onClick={() => openClientList()}
-              actionLabel="피상담자 목록 열기"
+              actionLabel="상담자 목록 열기"
             />
             <StatCard
               icon={<TrendingUp size={18} color="#4299E1" />}
@@ -996,37 +932,30 @@ export default function CounselorDashboard() {
       )}
 
       {activeTab === 'calendar' && (
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(420px,1.12fr)_minmax(0,1.55fr)]">
-          <div className="bg-card rounded-md border border-border/80 p-5 shadow-sm sm:p-6 lg:p-7">
-            <div className="mb-5 flex items-center justify-between gap-3">
-              <div>
-                <h3 className="text-base font-semibold text-foreground">캘린더</h3>
-                <p className="mt-1 text-xs text-muted-foreground">날짜를 눌러 범위를 만들고, 일별 일정 수를 한눈에 확인하세요.</p>
-              </div>
-              {monthLoading && (
-                <div className="inline-flex items-center gap-2 rounded-sm border border-border bg-muted/20 px-3 py-1.5 text-[11px] text-muted-foreground">
-                  <Loader2 size={13} className="animate-spin" />
-                  월 일정 집계 중
-                </div>
-              )}
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[540px_minmax(0,1fr)] 2xl:grid-cols-[810px_minmax(0,1fr)]">
+          <div className="rounded-md border border-border bg-card p-5 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">캘린더</h3>
+              {monthLoading && <Loader2 size={14} className="animate-spin text-muted-foreground" />}
             </div>
-            <LiveCalendar
-              month={calendarMonth}
-              selectedDate={selectedDate}
-              activeRange={currentRange}
-              counts={monthCounts}
-              onMonthChange={setCalendarMonth}
-              onSelectDate={handleDateSelect}
-            />
+            <div className="mx-auto w-full max-w-[360px] xl:max-w-none">
+              <LiveCalendar
+                month={calendarMonth}
+                selectedDate={selectedDate}
+                counts={monthCounts}
+                onMonthChange={setCalendarMonth}
+                onSelectDate={handleDateSelect}
+              />
+            </div>
           </div>
 
-          <div className="bg-card rounded-md border border-border/80 p-5 shadow-sm sm:p-6 lg:p-7">
-            <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="rounded-md border border-border bg-card p-5 shadow-sm">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h3 className="text-base font-semibold text-foreground">현재 담당 일정</h3>
+                <h3 className="text-sm font-semibold text-foreground">현재 담당 일정</h3>
                 <div className="mt-1 text-xs text-muted-foreground">
                   {calendarMode === 'today' && `기준일 ${formatPanelDate(currentRange.anchor)}`}
-                  {calendarMode === 'week' && `최근 7일 ${formatPanelDate(currentRange.start)} ~ ${formatPanelDate(currentRange.end)}`}
+                  {calendarMode === 'week' && ` · 최근 7일 ${formatPanelDate(currentRange.start)} ~ ${formatPanelDate(currentRange.end)}`}
                   {calendarMode === 'selected-period' && `선택 기간 ${formatPanelDate(currentRange.start)} ~ ${formatPanelDate(currentRange.end)}`}
                 </div>
               </div>
@@ -1037,7 +966,7 @@ export default function CounselorDashboard() {
                     setCalendarMode('today');
                     setShowPeriodSelector(false);
                   }}
-                  className="rounded-sm border px-3.5 py-2 text-xs font-medium transition-colors hover:border-emerald-300 hover:text-foreground"
+                  className="rounded-sm border px-3 py-1.5 text-xs font-medium"
                   style={calendarMode === 'today' ? { background: PRIMARY_HEX, borderColor: PRIMARY_HEX, color: 'white' } : undefined}
                 >
                   오늘
@@ -1047,7 +976,7 @@ export default function CounselorDashboard() {
                     setCalendarMode('week');
                     setShowPeriodSelector(false);
                   }}
-                  className="rounded-sm border px-3.5 py-2 text-xs font-medium transition-colors hover:border-emerald-300 hover:text-foreground"
+                  className="rounded-sm border px-3 py-1.5 text-xs font-medium"
                   style={calendarMode === 'week' ? { background: PRIMARY_HEX, borderColor: PRIMARY_HEX, color: 'white' } : undefined}
                 >
                   7일
@@ -1061,14 +990,14 @@ export default function CounselorDashboard() {
                     });
                     setShowPeriodSelector(prev => !prev);
                   }}
-                  className="rounded-sm border px-3.5 py-2 text-xs font-medium transition-colors hover:border-emerald-300 hover:text-foreground"
+                  className="rounded-sm border px-3 py-1.5 text-xs font-medium"
                   style={calendarMode === 'selected-period' ? { background: PRIMARY_HEX, borderColor: PRIMARY_HEX, color: 'white' } : undefined}
                 >
                   기간 선택
                 </button>
                 <button
                   onClick={refreshCalendar}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-sm border border-border bg-background transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-muted/30"
+                  className="rounded-sm border p-2 hover:bg-muted"
                   title="일정 새로고침"
                 >
                   <RefreshCw size={14} className={monthLoading || entriesLoading ? 'animate-spin' : ''} />
@@ -1077,7 +1006,7 @@ export default function CounselorDashboard() {
             </div>
 
             {calendarMode === 'selected-period' && showPeriodSelector && (
-              <div className="mb-5 rounded-md border border-border/80 bg-muted/15 p-4 shadow-sm">
+              <div className="mb-4 rounded-sm border border-border bg-muted/15 p-4">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="text-sm font-medium text-foreground">기간 범위 선택</div>
@@ -1126,26 +1055,22 @@ export default function CounselorDashboard() {
                     />
                   </label>
                 </div>
-
-                <div className="mt-3 text-[11px] text-muted-foreground">
-                  선택한 기간으로 현재 담당 일정 목록을 다시 조회합니다.
-                </div>
               </div>
             )}
 
             {calendarError && (
-              <div className="mb-4 rounded-md border border-destructive/20 bg-destructive/5 px-4 py-3 text-xs text-destructive">
+              <div className="mb-3 rounded-sm border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
                 {calendarError}
               </div>
             )}
 
             {entriesLoading ? (
-              <div className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/80 bg-muted/10 py-14 text-sm text-muted-foreground">
+              <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
                 <Loader2 size={16} className="animate-spin" />
                 일정 목록을 불러오는 중입니다.
               </div>
             ) : calendarEntries.length === 0 ? (
-              <div className="rounded-md border border-dashed border-border/80 bg-muted/10 py-14 text-center text-sm text-muted-foreground">
+              <div className="rounded-sm border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
                 선택한 범위에 표시할 일정이 없습니다.
               </div>
             ) : (
@@ -1200,7 +1125,6 @@ export default function CounselorDashboard() {
             saving={memoSaving}
             dirty={isMemoDirty}
             error={memoError}
-            isDemoMode={!isSupabaseConfigured()}
             onChange={setMemoValue}
             onRefresh={() => { void loadMyMemo(); }}
             onReset={() => setMemoValue(savedMemoValue)}

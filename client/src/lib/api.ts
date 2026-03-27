@@ -3,7 +3,7 @@
  * All functions read credentials from localStorage at call time.
  * Falls back to mock data when Supabase is not configured.
  */
-import { ROLE_COUNSELOR } from '@shared/const';
+import { ROLE_COUNSELOR, normalizeAppRole } from '@shared/const';
 import { getSupabaseClient, getSupabaseUrl, isSupabaseConfigured } from './supabase';
 import type {
   ClientRow, ClientInsert,
@@ -87,7 +87,13 @@ type LiveUserMemoRecord = {
   memo: string | null;
 };
 
-const DEMO_USER_MEMO_PREFIX = 'counsel_demo_user_memo:';
+type LiveCounselorRecord = {
+  user_id: string | null;
+  user_name: string | null;
+  department: string | null;
+  role: unknown;
+};
+
 const DEMO_CLIENT_MEMO_PREFIX = 'counsel_demo_client_memo:';
 const missingOptionalTablesByUrl = new Map<string, Set<string>>();
 
@@ -161,6 +167,12 @@ function createUnsupportedSurveySchemaError(): Error & { code: string } {
 function normalizeMemoValue(memo: string | null | undefined): string | null {
   if (memo == null) return null;
   return memo.trim().length > 0 ? memo : null;
+}
+
+function requireLiveDashboardScope(scopeLabel: string): void {
+  if (!isSupabaseConfigured()) {
+    throw new Error(`${scopeLabel} 기능을 사용하려면 Supabase 설정이 필요합니다.`);
+  }
 }
 
 // ─── Clients ─────────────────────────────────────────────────────────────────
@@ -420,9 +432,7 @@ export async function updateClientMemo(clientId: string, memo: string | null): P
 export async function fetchMyMemo(authUserId: string): Promise<string | null> {
   if (!authUserId) return null;
 
-  if (!isSupabaseConfigured()) {
-    return localStorage.getItem(`${DEMO_USER_MEMO_PREFIX}${authUserId}`) || null;
-  }
+  requireLiveDashboardScope('개인 메모');
 
   const { data, error } = await sb()
     .from('user')
@@ -444,13 +454,7 @@ export async function updateMyMemo(authUserId: string, memo: string | null): Pro
   const normalizedMemo = normalizeMemoValue(memo);
 
   if (!authUserId) throw new Error('로그인한 상담사 정보가 없습니다.');
-
-  if (!isSupabaseConfigured()) {
-    const key = `${DEMO_USER_MEMO_PREFIX}${authUserId}`;
-    if (normalizedMemo == null) localStorage.removeItem(key);
-    else localStorage.setItem(key, normalizedMemo);
-    return normalizedMemo;
-  }
+  requireLiveDashboardScope('개인 메모');
 
   const { error, count } = await sb()
     .from('user')
@@ -573,17 +577,27 @@ export async function fetchCounselors(): Promise<CounselorRow[]> {
   }
   const { data, error } = await sb()
     .from('user')
-    .select('user_name, department')
+    .select('user_id, user_name, department, role')
     .neq('role', 5) // role 컬럼의 값이 5가 아닌 데이터만 필터링
     .order('user_name');
 
   if (error) throw error;
-  return (data ?? []).map(row => liveCounselorToRow(row));
+  return ((data ?? []) as LiveCounselorRecord[]).map(row => liveCounselorToRow(row));
 }
 
-export async function createCounselor(input: CounselorInsert): Promise<CounselorRow> {
+export async function createCounselor(
+  input: Pick<CounselorInsert, 'name' | 'department' | 'role'> & Partial<CounselorInsert>,
+): Promise<CounselorRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { data, error } = await sb().from('counselors').insert(input).select().single();
+  const payload: CounselorInsert = {
+    client_count: 0,
+    completed_count: 0,
+    joined_at: new Date().toISOString(),
+    auth_user_id: null,
+    ...input,
+  };
+
+  const { data, error } = await sb().from('counselors').insert(payload).select().single();
   if (error) throw error;
   return data;
 }
@@ -791,17 +805,8 @@ export async function fetchDashboardCalendarMonthCounts(
   monthStart: string,
   monthEnd: string,
 ): Promise<Record<string, number>> {
-  if (!isSupabaseConfigured()) {
-    const normalizedCounselorId = normalizeMockCounselorId(authUserId);
-    return MOCK_CLIENTS
-      .filter(c => !normalizedCounselorId || c.counselorId === normalizedCounselorId)
-      .flatMap(c => c.sessions.map(s => ({ date: s.date })))
-      .filter(s => s.date >= monthStart && s.date <= monthEnd)
-      .reduce<Record<string, number>>((acc, row) => {
-        acc[row.date] = (acc[row.date] ?? 0) + 1;
-        return acc;
-      }, {});
-  }
+  if (!authUserId) return {};
+  requireLiveDashboardScope('캘린더');
 
   const { data: histories, error } = await sb()
     .from('counsel_history')
@@ -839,23 +844,8 @@ export async function fetchDashboardCalendarEntries(
   rangeStart: string,
   rangeEnd: string,
 ): Promise<DashboardCalendarEntry[]> {
-  if (!isSupabaseConfigured()) {
-    const normalizedCounselorId = normalizeMockCounselorId(authUserId);
-    return MOCK_CLIENTS
-      .filter(c => !normalizedCounselorId || c.counselorId === normalizedCounselorId)
-      .flatMap(c => c.sessions
-        .filter(s => s.date >= rangeStart && s.date <= rangeEnd)
-        .map(s => ({
-          counselId: s.id,
-          clientId: c.id,
-          clientName: c.name,
-          counselDate: s.date,
-          startTime: null,
-          endTime: null,
-          participationStage: c.processStage,
-        })))
-      .sort((a, b) => `${b.counselDate}${b.startTime ?? ''}`.localeCompare(`${a.counselDate}${a.startTime ?? ''}`));
-  }
+  if (!authUserId) return [];
+  requireLiveDashboardScope('캘린더');
 
   const { data: histories, error } = await sb()
     .from('counsel_history')
@@ -1119,17 +1109,19 @@ function mockCounselorToRow(c: Counselor): CounselorRow {
 }
 
 
-function liveCounselorToRow(c: Counselor): CounselorRow {
+function liveCounselorToRow(c: LiveCounselorRecord): CounselorRow {
+  const joinedAt = new Date().toISOString();
+
   return {
-    id: c.id,
-    name: c.name,
+    id: c.user_id ?? crypto.randomUUID(),
+    name: c.user_name ?? '이름 미상',
     department: c.department,
-    client_count: c.clientCount,
-    completed_count: c.completedCount,
-    joined_at: c.joinedAt,
-    role: 'counselor',
-    auth_user_id: null,
-    created_at: c.joinedAt,
-    updated_at: c.joinedAt,
+    client_count: 0,
+    completed_count: 0,
+    joined_at: joinedAt,
+    role: normalizeAppRole(c.role),
+    auth_user_id: c.user_id,
+    created_at: joinedAt,
+    update_at: joinedAt,
   };
 }
