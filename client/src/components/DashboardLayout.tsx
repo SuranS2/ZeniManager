@@ -10,9 +10,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   LayoutDashboard,
   Users,
-  UserPlus,
-  Calendar,
-  StickyNote,
   Settings,
   LogOut,
   ChevronDown,
@@ -20,7 +17,6 @@ import {
   Menu,
   X,
   Building2,
-  BarChart3,
   UserCog,
   Bell,
 } from 'lucide-react';
@@ -41,12 +37,18 @@ interface NavItem {
   children?: NavItem[];
 }
 
+function hasMatchingPath(item: NavItem, location: string): boolean {
+  if (item.path === location) return true;
+  if (!item.children) return false;
+  return item.children.some(child => hasMatchingPath(child, location));
+}
+
 const counselorNav: NavItem[] = [
   {
     label: '업무 대시보드',
     icon: <LayoutDashboard size={17} />,
     children: [
-      { label: '전체 상담자 수', path: '/dashboard', icon: <ChevronRight size={14} /> },
+      { label: '피상담자 목록 열기', path: '/clients/list', icon: <ChevronRight size={14} /> },
       { label: '상담자 검색', path: '/dashboard/search', icon: <ChevronRight size={14} /> },
       { label: '프로세스 현황', path: '/dashboard/process', icon: <ChevronRight size={14} /> },
       { label: '캘린더', path: '/dashboard/calendar', icon: <ChevronRight size={14} /> },
@@ -90,11 +92,12 @@ function NavGroup({ item, depth = 0 }: { item: NavItem; depth?: number }) {
   const [location] = useLocation();
   const [open, setOpen] = useState(() => {
     if (!item.children) return false;
-    return item.children.some(child => child.path === location || child.children?.some(c => c.path === location));
+    return item.children.some(child => hasMatchingPath(child, location));
   });
 
   const isActive = item.path === location;
   const hasChildren = item.children && item.children.length > 0;
+  const hasActiveChild = Boolean(hasChildren && item.children?.some(child => hasMatchingPath(child, location)));
 
   if (!hasChildren && item.path) {
     return (
@@ -111,7 +114,7 @@ function NavGroup({ item, depth = 0 }: { item: NavItem; depth?: number }) {
     <div>
       <button
         onClick={() => setOpen(!open)}
-        className="sidebar-item w-full"
+        className={`sidebar-item w-full ${hasActiveChild ? 'sidebar-item-active' : ''}`}
         style={{ paddingLeft: `${16 + depth * 16}px` }}
       >
         <span className="flex-shrink-0 opacity-70">{item.icon}</span>

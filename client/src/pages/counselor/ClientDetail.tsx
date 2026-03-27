@@ -12,7 +12,7 @@ import {
 import { toast } from 'sonner';
 import {
   fetchClientById, fetchSessions, createSession,
-  deleteSession, fetchSurveys, createSurvey, updateClient, updateSession
+  deleteSession, fetchSurveys, createSurvey, updateClient, updateClientMemo, updateSession
 } from '@/lib/api';
 import type { ClientRow, SessionRow, SurveyRow } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/lib/supabase';
@@ -269,6 +269,14 @@ export default function ClientDetail() {
     if (!id || !client) return;
     setSaving(true);
     try {
+      if (field === 'memo') {
+        const savedMemo = await updateClientMemo(id, editValue);
+        setClient({ ...client, memo: savedMemo } as ClientRow);
+        toast.success('적용되었습니다.');
+        setEditingField(null);
+        return;
+      }
+
       // Map frontend fields (ClientRow) back to Supabase column names
       let dbKey = field;
       let val: any = editValue;

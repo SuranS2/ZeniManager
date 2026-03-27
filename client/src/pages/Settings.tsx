@@ -149,6 +149,19 @@ function ConnectionStatus() {
   const [status, setStatus] = useState<'checking' | 'ok' | 'error' | 'unconfigured'>('checking');
   const [errorMsg, setErrorMsg] = useState('');
 
+  const toFriendlyErrorMessage = (error: { code?: string; message?: string; details?: string }) => {
+    if (error.code === '42P01') {
+      return 'public.user 테이블을 찾을 수 없습니다. (실 DB 스키마가 public.user 기반인지 확인하세요)';
+    }
+    if (error.code === '42501') {
+      return `권한 오류: ${error.message || 'public.user 조회 권한이 없습니다.'}`;
+    }
+    if (error.message?.includes('schema cache')) {
+      return `연결은 되었지만 스키마 캐시가 갱신되지 않았습니다. Supabase 프로젝트 및 스키마 설정을 확인하세요.`;
+    }
+    return error.message || '연결 실패';
+  };
+
   const check = async () => {
     setStatus('checking');
     setErrorMsg('');
@@ -160,16 +173,16 @@ function ConnectionStatus() {
       const { getSupabaseClient } = await import('@/lib/supabase');
       const sb = getSupabaseClient();
       if (!sb) { setStatus('unconfigured'); return; }
-      const { error } = await sb.from('counselors').select('id').limit(1);
+      const { error } = await sb.from('user').select('user_id').limit(1);
       if (error) {
         setStatus('error');
-        setErrorMsg(error.message);
+        setErrorMsg(toFriendlyErrorMessage(error));
       } else {
         setStatus('ok');
       }
     } catch (e: any) {
       setStatus('error');
-      setErrorMsg(e.message || '연결 실패');
+      setErrorMsg(toFriendlyErrorMessage(e) || '연결 실패');
     }
   };
 
@@ -201,10 +214,11 @@ function SqlSchemaSection() {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
-    const sql = `-- public.user 최소 조회 권한
+    const sql = `-- public.user 조회 + 개인 memo 수정 권한
 -- role: 관리자 = 4, 상담사 = 5
 
 grant select on table public."user" to authenticated;
+grant update (memo) on table public."user" to authenticated;
 revoke all on table public."user" from anon;
 
 create or replace function public.is_current_user_admin()
@@ -235,6 +249,20 @@ to authenticated
 using (
   user_id = auth.uid()
   or public.is_current_user_admin()
+);
+
+drop policy if exists user_update_own_memo_or_admin on public."user";
+create policy user_update_own_memo_or_admin
+on public."user"
+for update
+to authenticated
+using (
+  user_id = auth.uid()
+  or public.is_current_user_admin()
+)
+with check (
+  user_id = auth.uid()
+  or public.is_current_user_admin()
 );`;
 
     navigator.clipboard.writeText(sql).then(() => {
@@ -251,12 +279,12 @@ using (
         Supabase 권한 설정 안내
       </h2>
       <div className="text-sm text-muted-foreground space-y-1">
-        <p>현재 앱은 좌측 nav와 헤더 사용자 정보를 위해 <code>public.user</code> 조회 권한이 필요합니다.</p>
+        <p>현재 앱은 좌측 nav/헤더 사용자 정보 조회와 상담사 개인 메모 저장을 위해 <code>public.user</code>의 select/update 권한이 필요합니다.</p>
         <ol className="list-decimal list-inside space-y-1 text-xs mt-2">
           <li><a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer" className="text-primary underline">Supabase 대시보드</a> → 프로젝트 선택</li>
           <li>좌측 메뉴 <strong>SQL Editor</strong> 클릭</li>
-          <li>아래 SQL을 실행해 <code>authenticated</code> 사용자의 <code>public.user</code> 조회 정책을 적용</li>
-          <li>상담사는 본인 행만, 관리자는 모든 행을 조회할 수 있게 됩니다</li>
+          <li>아래 SQL을 실행해 <code>authenticated</code> 사용자의 <code>public.user</code> 조회/메모수정 정책을 적용</li>
+          <li>상담사는 본인 행만 조회/수정하고, 관리자는 모든 행을 조회/수정할 수 있게 됩니다</li>
         </ol>
       </div>
       <button
@@ -265,7 +293,7 @@ using (
         style={{ background: copied ? '#16a34a' : '#009C64' }}
       >
         {copied ? <Check size={14} /> : <Copy size={14} />}
-        {copied ? 'SQL 복사됨!' : 'user RLS SQL 복사'}
+        {copied ? 'SQL 복사됨!' : 'user 조회/메모 RLS SQL 복사'}
       </button>
     </div>
   );

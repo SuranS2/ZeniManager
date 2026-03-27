@@ -4,7 +4,7 @@
  * Falls back to mock data when Supabase is not configured.
  */
 import { ROLE_COUNSELOR } from '@shared/const';
-import { getSupabaseClient, isSupabaseConfigured } from './supabase';
+import { getSupabaseClient, getSupabaseUrl, isSupabaseConfigured } from './supabase';
 import type {
   ClientRow, ClientInsert,
   SessionRow, SessionInsert,
@@ -26,6 +26,8 @@ function sb() {
 }
 
 const SESSION_META_MARKER = '\n\n[__CALENDAR_FLOW_META__]\n';
+const SURVEY_RESPONSES_TABLE = 'survey_responses';
+const SURVEY_SCHEMA_UNAVAILABLE_CODE = 'SURVEY_SCHEMA_UNAVAILABLE';
 
 type LiveClientRecord = {
   client_id: number;
@@ -81,6 +83,14 @@ type LiveCounselHistoryRecord = {
   memo?: string | null;
 };
 
+type LiveUserMemoRecord = {
+  memo: string | null;
+};
+
+const DEMO_USER_MEMO_PREFIX = 'counsel_demo_user_memo:';
+const DEMO_CLIENT_MEMO_PREFIX = 'counsel_demo_client_memo:';
+const missingOptionalTablesByUrl = new Map<string, Set<string>>();
+
 function normalizeMockCounselorId(counselorId?: string): string | undefined {
   if (!counselorId) return undefined;
   const demoMatch = counselorId.match(/^demo-(c\d+)$/);
@@ -125,6 +135,32 @@ function isMissingSchemaError(error: unknown): boolean {
 
   const code = 'code' in error ? error.code : undefined;
   return code === 'PGRST202' || code === 'PGRST205';
+}
+
+function getCurrentSchemaCacheKey(): string {
+  return getSupabaseUrl() || 'unconfigured';
+}
+
+function isOptionalTableMarkedMissing(tableName: string): boolean {
+  return missingOptionalTablesByUrl.get(getCurrentSchemaCacheKey())?.has(tableName) ?? false;
+}
+
+function markOptionalTableMissing(tableName: string): void {
+  const cacheKey = getCurrentSchemaCacheKey();
+  const missingTables = missingOptionalTablesByUrl.get(cacheKey) ?? new Set<string>();
+  missingTables.add(tableName);
+  missingOptionalTablesByUrl.set(cacheKey, missingTables);
+}
+
+function createUnsupportedSurveySchemaError(): Error & { code: string } {
+  const error = new Error('현재 연결된 DB 스키마에서는 구직준비도 설문 기능을 지원하지 않습니다.') as Error & { code: string };
+  error.code = SURVEY_SCHEMA_UNAVAILABLE_CODE;
+  return error;
+}
+
+function normalizeMemoValue(memo: string | null | undefined): string | null {
+  if (memo == null) return null;
+  return memo.trim().length > 0 ? memo : null;
 }
 
 // ─── Clients ─────────────────────────────────────────────────────────────────
@@ -231,11 +267,74 @@ export async function fetchClientById(id: string): Promise<ClientRow | null> {
   return liveClientToRow(data as LiveClientRecord);
 }
 
-export async function createClient(input: ClientInsert): Promise<ClientRow> {
+export async function createClient(
+  input: Partial<ClientInsert> & Pick<ClientInsert, 'name' | 'phone'>,
+): Promise<ClientRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { data, error } = await sb().from('client').insert(input).select().single();
+  const normalizedName = input.name.trim();
+  const normalizedPhone = input.phone?.trim() ?? '';
+
+  if (!normalizedName || !normalizedPhone) {
+    throw new Error('이름과 연락처는 필수 입력 항목입니다.');
+  }
+
+  const businessTypeCode = input.business_type ? Number(input.business_type) : null;
+  const payload = {
+    client_name: normalizedName,
+    counselor_id: input.counselor_id || null,
+    age: input.age ?? null,
+    gender_code:
+      input.gender === '남' ? 'M' :
+      input.gender === '여' ? 'F' :
+      null,
+    phone_encrypted: normalizedPhone,
+    education_level: input.education_level ?? null,
+    school_name: input.school ?? null,
+    major: input.major ?? null,
+    business_type_code: Number.isNaN(businessTypeCode) ? null : businessTypeCode,
+    participation_type: input.participation_type ?? input.business_type ?? null,
+    participation_stage: input.participation_stage ?? null,
+    desired_job_1: input.desired_job ?? null,
+    iap_to: input.iap_to ?? null,
+    retest_stat: input.retest_stat ?? null,
+    continue_serv_1_stat: input.continue_serv_1_stat ?? null,
+    memo: input.memo ?? input.counsel_notes ?? null,
+    update_at: new Date().toISOString().slice(0, 10),
+  };
+
+  const { data, error } = await sb()
+    .from('client')
+    .insert(payload)
+    .select(`
+      client_id,
+      client_name,
+      counselor_id,
+      age,
+      gender_code,
+      phone_encrypted,
+      education_level,
+      school_name,
+      major,
+      business_type_code,
+      participation_type,
+      participation_stage,
+      desired_job_1,
+      hire_type,
+      job_place_start,
+      job_place_end,
+      iap_to,
+      retest_stat,
+      continue_serv_1_stat,
+      memo,
+      business_code (
+        participate_type
+      ),
+      created_at,
+      update_at
+    `)
+    .single();
   if (error) throw error;
-  return data;
+  return liveClientToRow(data as LiveClientRecord);
 }
 
 export async function updateClient(id: string, input: Partial<ClientInsert>): Promise<ClientRow> {
@@ -254,6 +353,124 @@ export async function deleteClient(id: string): Promise<void> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
   const { error } = await sb().from('client').delete().eq('client_id', Number(id));
   if (error) throw error;
+}
+
+export async function fetchClientMemo(clientId: string): Promise<string | null> {
+  if (!clientId) return null;
+
+  if (!isSupabaseConfigured()) {
+    return localStorage.getItem(`${DEMO_CLIENT_MEMO_PREFIX}${clientId}`) || null;
+  }
+
+  const numericId = Number(clientId);
+  if (Number.isNaN(numericId)) return null;
+
+  const { data, error } = await sb()
+    .from('client')
+    .select('memo')
+    .eq('client_id', numericId)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingSchemaError(error)) {
+      return null;
+    }
+    throw error;
+  }
+
+  return normalizeMemoValue((data as LiveUserMemoRecord | null)?.memo ?? null);
+}
+
+export async function updateClientMemo(clientId: string, memo: string | null): Promise<string | null> {
+  const normalizedMemo = normalizeMemoValue(memo);
+
+  if (!clientId) throw new Error('유효한 상담자 ID가 아닙니다.');
+
+  if (!isSupabaseConfigured()) {
+    const key = `${DEMO_CLIENT_MEMO_PREFIX}${clientId}`;
+    if (normalizedMemo == null) localStorage.removeItem(key);
+    else localStorage.setItem(key, normalizedMemo);
+    return normalizedMemo;
+  }
+
+  const numericId = Number(clientId);
+  if (Number.isNaN(numericId)) throw new Error('유효한 상담자 ID가 아닙니다.');
+
+  const { error } = await sb()
+    .from('client')
+    .update({
+      memo: normalizedMemo,
+      update_at: new Date().toISOString().slice(0, 10),
+    })
+    .eq('client_id', numericId);
+
+  if (error) throw error;
+
+  const refreshedMemo = await fetchClientMemo(clientId);
+  if (refreshedMemo !== normalizedMemo) {
+    if (refreshedMemo == null && normalizedMemo == null) {
+      return null;
+    }
+    throw new Error('피상담자 메모 저장 후 값을 다시 확인하지 못했습니다.');
+  }
+
+  return refreshedMemo;
+}
+
+export async function fetchMyMemo(authUserId: string): Promise<string | null> {
+  if (!authUserId) return null;
+
+  if (!isSupabaseConfigured()) {
+    return localStorage.getItem(`${DEMO_USER_MEMO_PREFIX}${authUserId}`) || null;
+  }
+
+  const { data, error } = await sb()
+    .from('user')
+    .select('memo')
+    .eq('user_id', authUserId)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingSchemaError(error)) {
+      return null;
+    }
+    throw error;
+  }
+
+  return normalizeMemoValue((data as LiveUserMemoRecord | null)?.memo ?? null);
+}
+
+export async function updateMyMemo(authUserId: string, memo: string | null): Promise<string | null> {
+  const normalizedMemo = normalizeMemoValue(memo);
+
+  if (!authUserId) throw new Error('로그인한 상담사 정보가 없습니다.');
+
+  if (!isSupabaseConfigured()) {
+    const key = `${DEMO_USER_MEMO_PREFIX}${authUserId}`;
+    if (normalizedMemo == null) localStorage.removeItem(key);
+    else localStorage.setItem(key, normalizedMemo);
+    return normalizedMemo;
+  }
+
+  const { error, count } = await sb()
+    .from('user')
+    .update({ memo: normalizedMemo }, { count: 'exact' })
+    .eq('user_id', authUserId);
+
+  if (error) throw error;
+  if (count === 0) {
+    throw new Error('상담사 메모 UPDATE가 적용되지 않았습니다. public.user의 UPDATE 정책과 user_id/auth.uid() 매핑을 확인하세요.');
+  }
+
+  const refreshedMemo = await fetchMyMemo(authUserId);
+  if (refreshedMemo !== normalizedMemo) {
+    if (refreshedMemo == null && normalizedMemo == null) {
+      return null;
+    }
+    throw new Error('상담사 메모 저장 후 재조회가 되지 않았습니다. public.user SELECT/UPDATE 정책을 함께 확인하세요.');
+  }
+
+  return refreshedMemo;
 }
 
 // ─── Sessions ─────────────────────────────────────────────────────────────────
@@ -393,13 +610,15 @@ export async function deleteCounselor(id: string): Promise<void> {
 
 export async function fetchSurveys(clientId: string): Promise<SurveyRow[]> {
   if (!isSupabaseConfigured()) return [];
+  if (isOptionalTableMarkedMissing(SURVEY_RESPONSES_TABLE)) return [];
   const { data, error } = await sb()
-    .from('survey_responses')
+    .from(SURVEY_RESPONSES_TABLE)
     .select('*')
     .eq('client_id', clientId)
     .order('survey_date', { ascending: false });
   if (error) {
     if (isMissingSchemaError(error)) {
+      markOptionalTableMissing(SURVEY_RESPONSES_TABLE);
       return [];
     }
     throw error;
@@ -409,8 +628,17 @@ export async function fetchSurveys(clientId: string): Promise<SurveyRow[]> {
 
 export async function createSurvey(input: SurveyInsert): Promise<SurveyRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { data, error } = await sb().from('survey_responses').insert(input).select().single();
-  if (error) throw error;
+  if (isOptionalTableMarkedMissing(SURVEY_RESPONSES_TABLE)) {
+    throw createUnsupportedSurveySchemaError();
+  }
+  const { data, error } = await sb().from(SURVEY_RESPONSES_TABLE).insert(input).select().single();
+  if (error) {
+    if (isMissingSchemaError(error)) {
+      markOptionalTableMissing(SURVEY_RESPONSES_TABLE);
+      throw createUnsupportedSurveySchemaError();
+    }
+    throw error;
+  }
   return data;
 }
 

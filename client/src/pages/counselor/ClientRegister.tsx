@@ -7,11 +7,24 @@ import { useLocation } from 'wouter';
 import { toast } from 'sonner';
 import { ChevronLeft, User, Phone, Mail, Calendar, Building2, Briefcase } from 'lucide-react';
 import { usePageGuard } from '@/hooks/usePageGuard';
+import { useAuth } from '@/contexts/AuthContext';
+import { createClient } from '@/lib/api';
 
 export default function ClientRegister() {
   const { canRender } = usePageGuard('counselor');
+  const { user } = useAuth();
   const [, navigate] = useLocation();
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    name: string;
+    phone: string;
+    email: string;
+    age: string;
+    gender: '남' | '여';
+    branch: string;
+    businessType: string;
+    processStage: string;
+    notes: string;
+  }>({
     name: '',
     phone: '',
     email: '',
@@ -32,11 +45,32 @@ export default function ClientRegister() {
       toast.error('이름과 연락처는 필수 입력 항목입니다.');
       return;
     }
+
+    const age = form.age.trim() ? Number(form.age) : null;
+    if (form.age.trim() && Number.isNaN(age)) {
+      toast.error('나이는 숫자로 입력해주세요.');
+      return;
+    }
+
     setLoading(true);
-    await new Promise(r => setTimeout(r, 600));
-    setLoading(false);
-    toast.success(`${form.name}님이 등록되었습니다.`);
-    navigate('/clients/list');
+    try {
+      await createClient({
+        name: form.name,
+        phone: form.phone,
+        age,
+        gender: form.gender,
+        counselor_id: user?.counselorId || user?.id || null,
+        participation_type: form.businessType,
+        participation_stage: form.processStage,
+        memo: form.notes || null,
+      });
+      toast.success(`${form.name}님이 등록되었습니다.`);
+      navigate('/clients/list');
+    } catch (e: any) {
+      toast.error(`등록 실패: ${e.message || '상담자 등록 중 오류가 발생했습니다.'}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (!canRender) return null;
