@@ -13,7 +13,7 @@ import {
   AlertTriangle, RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { fetchClients, fetchSessions, createSession, deleteSession, fetchSurveys, createSurvey } from '@/lib/api';
+import { fetchClients, fetchSessions, createSession, deleteSession, fetchSurveys, createSurvey, updateClient } from '@/lib/api';
 import type { ClientRow, SessionRow, SurveyRow } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/lib/supabase';
 
@@ -617,9 +617,6 @@ export default function ClientList() {
   const [filter, setFilter] = useState<FilterType>('all');
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedClient, setSelectedClient] = useState<ClientRow | null>(null);
-  const [initialModalTab, setInitialModalTab] = useState<ClientModalTab | undefined>();
-  const [initialModalDate, setInitialModalDate] = useState<string | undefined>();
   const deepLinkHandledRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -636,33 +633,35 @@ export default function ClientList() {
 
   useEffect(() => { load(); }, [load]);
 
-  const openClientModal = useCallback((client: ClientRow, options?: { tab?: ClientModalTab; date?: string }) => {
-    setSelectedClient(client);
-    setInitialModalTab(options?.tab);
-    setInitialModalDate(options?.date);
-  }, []);
+  const handleStageUpdate = async (clientId: string, newStage: string) => {
+    if (!isSupabaseConfigured()) {
+      setClients(prev => prev.map(c => c.id === clientId ? { ...c, participation_stage: newStage } : c));
+      toast.success('데모 모드: 취업단계가 업데이트되었습니다.');
+      return;
+    }
+    try {
+      await updateClient(clientId, { participation_stage: newStage });
+      setClients(prev => prev.map(c => c.id === clientId ? { ...c, participation_stage: newStage } : c));
+      toast.success('취업단계가 업데이트되었습니다.');
+    } catch (e: any) {
+      toast.error('업데이트 실패: ' + e.message);
+    }
+  };
 
   useEffect(() => {
     if (loading || deepLinkHandledRef.current) return;
 
     const params = new URLSearchParams(window.location.search);
     const clientId = params.get('clientId');
-    const requestedTab = params.get('tab');
-    const requestedDate = params.get('date');
-
-    if (!clientId || !requestedTab) return;
-    if (requestedTab !== 'input' && requestedTab !== 'history') return;
+    if (!clientId) return;
 
     const targetClient = clients.find(client => client.id === clientId);
     if (!targetClient) return;
 
-    openClientModal(targetClient, {
-      tab: requestedTab,
-      date: requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : undefined,
-    });
+    navigate(`/clients/detail/${clientId}`);
     deepLinkHandledRef.current = true;
     window.history.replaceState({}, '', window.location.pathname);
-  }, [clients, loading, openClientModal]);
+  }, [clients, loading, navigate]);
 
   const filtered = clients.filter(c => {
     const matchSearch = !search ||
@@ -736,7 +735,8 @@ export default function ClientList() {
             <span className="text-sm text-muted-foreground">데이터 로드 중...</span>
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[1000px]">
             <thead>
               <tr className="border-b border-border bg-muted/30">
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">순번</th>
@@ -762,8 +762,7 @@ export default function ClientList() {
                 filtered.map((client, index) => (
                   <tr
                     key={client.id}
-                    className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors cursor-pointer"
-                    onClick={() => openClientModal(client)}
+                    className="border-b border-border last:border-0 hover:bg-muted/5 transition-colors"
                   >
                     <td className="px-4 py-3 text-muted-foreground">{index + 1}</td>
                     <td className="px-4 py-3">
@@ -771,16 +770,28 @@ export default function ClientList() {
                         <div className="w-7 h-7 rounded-sm flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ background: PRIMARY }}>
                           {client.name.charAt(0)}
                         </div>
-                        <div className="font-medium text-foreground whitespace-nowrap">{client.name}</div>
+                        <div 
+                          className="font-medium text-foreground whitespace-nowrap cursor-pointer hover:underline"
+                          onClick={() => navigate(`/clients/detail/${client.id}`)}
+                        >
+                          {client.name}
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{client.phone || '-'}</td>
                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{client.iap_to || '-'}</td>
                     <td className="px-4 py-3">
-                      {client.participation_stage
-                        ? <span className={stageColors[client.participation_stage] || 'badge-active'}>{client.participation_stage}</span>
-                        : <span className="text-muted-foreground">-</span>
-                      }
+                      <select
+                        value={client.participation_stage || ''}
+                        onChange={e => handleStageUpdate(client.id, e.target.value)}
+                        className={`text-xs px-2 py-1 rounded-sm border-none focus:ring-0 cursor-pointer appearance-none ${stageColors[client.participation_stage || ''] || 'badge-active'}`}
+                        style={{ width: 'fit-content' }}
+                      >
+                        <option value="" disabled>단계 선택</option>
+                        {Object.keys(stageColors).map(s => (
+                          <option key={s} value={s} className="bg-background text-foreground">{s}</option>
+                        ))}
+                      </select>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{client.participate_type || '-'}</td>
                     <td className="px-4 py-3">
@@ -797,7 +808,7 @@ export default function ClientList() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
-                        onClick={e => { e.stopPropagation(); openClientModal(client); }}
+                        onClick={e => { e.stopPropagation(); navigate(`/clients/detail/${client.id}`); }}
                         className="p-1.5 rounded-sm hover:bg-muted transition-colors"
                       >
                         <Edit3 size={14} />
@@ -808,21 +819,10 @@ export default function ClientList() {
               )}
             </tbody>
           </table>
+        </div>
         )}
       </div>
 
-      {selectedClient && (
-        <ClientDetailModal
-          client={selectedClient}
-          initialTab={initialModalTab}
-          initialDate={initialModalDate}
-          onClose={() => {
-            setSelectedClient(null);
-            setInitialModalTab(undefined);
-            setInitialModalDate(undefined);
-          }}
-        />
-      )}
     </div>
   );
 }

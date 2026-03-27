@@ -20,6 +20,7 @@ import ClientRegister from "./pages/counselor/ClientRegister";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import CounselorList from "./pages/admin/CounselorList";
 import AdminClientList from "./pages/admin/AdminClientList";
+import ClientDetail from "./pages/counselor/ClientDetail";
 
 // Protected route wrapper
 function ProtectedRoute({ component: Component, adminOnly = false }: {
@@ -85,6 +86,9 @@ function AppRoutes() {
       </Route>
       <Route path="/clients/list">
         <CounselorRoute component={ClientList} />
+      </Route>
+      <Route path="/clients/detail/:id">
+        <CounselorRoute component={ClientDetail} />
       </Route>
       <Route path="/clients/register">
         <CounselorRoute component={ClientRegister} />
