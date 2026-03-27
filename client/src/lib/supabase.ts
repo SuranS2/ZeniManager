@@ -29,12 +29,12 @@ function getElectronApi() {
 
 /** Returns the Supabase URL stored by the user in Settings, or null if not set. */
 export function getSupabaseUrl(): string | null {
-  return localStorage.getItem(STORAGE_KEYS.SUPABASE_URL) || null;
+  return localStorage.getItem(STORAGE_KEYS.SUPABASE_URL) || (import.meta.env.VITE_SUPABASE_URL as string) || null;
 }
 
 /** Returns the Supabase anon key stored by the user in Settings, or null if not set. */
 export function getSupabaseAnonKey(): string | null {
-  return localStorage.getItem(STORAGE_KEYS.SUPABASE_ANON_KEY) || null;
+  return localStorage.getItem(STORAGE_KEYS.SUPABASE_ANON_KEY) || (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || null;
 }
 
 /** Returns the OpenAI API key stored by the user in Settings, or null if not set. */

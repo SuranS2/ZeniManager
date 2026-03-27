@@ -6,13 +6,9 @@ import {
   resetTransientSessionOnLaunch,
 } from "./lib/supabase";
 
-async function bootstrap() {
-  await bootstrapStoredAppSettings();
-  resetTransientSessionOnLaunch();
+bootstrapStoredAppSettings();
+resetTransientSessionOnLaunch();
 
-  createRoot(document.getElementById("root")!).render(
-    <App />
-  );
-}
-
-void bootstrap();
+createRoot(document.getElementById("root")!).render(
+  <App />
+);
