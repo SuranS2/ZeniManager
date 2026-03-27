@@ -219,7 +219,7 @@ export default function ComponentsShowcase() {
     setTimeout(() => {
       const aiResponse: Message = {
         role: "assistant",
-        content: `This is a **demo response**. In a real app, you would call a tRPC mutation here:\n\n\`\`\`typescript\nconst chatMutation = trpc.ai.chat.useMutation({\n  onSuccess: (response) => {\n    setChatMessages(prev => [...prev, {\n      role: "assistant",\n      content: response.choices[0].message.content\n    }]);\n  }\n});\n\nchatMutation.mutate({ messages: newMessages });\n\`\`\`\n\nYour message was: "${content}"`,
+        content: `This is a **demo response**. In a real app, you would call your AI endpoint or Supabase Edge Function here:\n\n\`\`\`typescript\nconst response = await fetch("/functions/v1/chat", {\n  method: "POST",\n  body: JSON.stringify({ messages: newMessages })\n});\n\nconst reply = await response.text();\nsetChatMessages(prev => [...prev, {\n  role: "assistant",\n  content: reply\n}]);\n\`\`\`\n\nYour message was: "${content}"`,
       };
       setChatMessages([...newMessages, aiResponse]);
       setIsChatLoading(false);
@@ -1403,7 +1403,7 @@ export default function ComponentsShowcase() {
                       Features markdown rendering, auto-scrolling, and loading states.
                     </p>
                     <p className="mt-2">
-                      This is a demo with simulated responses. In a real app, you'd connect it to a tRPC mutation.
+                      This is a demo with simulated responses. In a real app, you'd connect it to your AI endpoint or a Supabase Edge Function.
                     </p>
                   </div>
                   <AIChatBox
@@ -1416,7 +1416,7 @@ export default function ComponentsShowcase() {
                     suggestedPrompts={[
                       "What is React?",
                       "Explain TypeScript",
-                      "How to use tRPC?",
+                      "How to use Supabase?",
                       "Best practices for web development",
                     ]}
                   />

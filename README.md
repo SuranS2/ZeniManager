@@ -53,9 +53,8 @@
 |------|------|
 | 프론트엔드 | React 19, TypeScript, Vite 7, TailwindCSS 4 |
 | UI 컴포넌트 | shadcn/ui (Radix UI), Recharts, Lucide Icons |
-| 백엔드 | Express 4, tRPC 11, Drizzle ORM |
-| 데이터베이스 | Supabase (PostgreSQL) + TiDB (내장 DB) |
-| 인증 | Supabase Auth + Manus OAuth |
+| 데이터베이스 | Supabase (PostgreSQL) |
+| 인증 | Supabase Auth |
 | 데스크탑 | Electron 41, electron-builder |
 | 폰트 | Noto Sans KR (Google Fonts) |
 | 테스트 | Vitest |
@@ -136,7 +135,7 @@ PowerShell에서 `npm` 또는 `pnpm` 스크립트 실행이 막히면 새 터미
 
 `pnpm install` 시 Electron 바이너리가 누락된 상태면 `postinstall`에서 자동 복구합니다. 이미 설치를 마친 뒤 `Electron failed to install correctly` 오류가 발생하면 `pnpm electron:ensure`를 한 번 실행한 뒤 다시 `pnpm electron:dev`를 실행하세요.
 
-`pnpm dev`는 Express 서버와 Vite 미들웨어를 함께 구동하므로 브라우저에서는 `http://localhost:3000`으로 접속합니다. `3000` 포트가 이미 사용 중이면 `3001`부터 순차적으로 빈 포트를 찾아 실행됩니다.
+`pnpm dev`는 Vite 개발 서버를 구동하며 기본 접속 주소는 `http://localhost:5173`입니다.
 
 Windows에서도 `pnpm dev`가 동작하도록 `package.json`의 개발/실행 스크립트는 `cross-env`를 사용합니다.
 
@@ -216,12 +215,10 @@ ZeniManager/
 │           ├── Login.tsx
 │           └── Settings.tsx
 ├── electron/                  # Electron 메인 프로세스
-│   ├── main.js                # BrowserWindow, IPC, 네이티브 메뉴
-│   ├── preload.js             # contextBridge IPC 브릿지
+│   ├── main.cjs               # BrowserWindow, IPC, 네이티브 메뉴
+│   ├── preload.cjs            # contextBridge IPC 브릿지
 │   ├── entitlements.mac.plist # macOS 권한 설정
 │   └── icons/                 # 앱 아이콘 (빌드 전 추가 필요)
-├── server/                    # 백엔드 (Express + tRPC)
-├── drizzle/                   # DB 스키마 및 마이그레이션
 ├── supabase_setup.sql         # Supabase 스키마 + RLS 정책
 ├── electron-builder.yml       # Electron 빌드 설정
 ├── vite.electron.config.ts    # Electron 전용 Vite 설정
@@ -253,7 +250,6 @@ ZeniManager/
 | `pnpm electron:build:mac` | macOS DMG 빌드 |
 | `pnpm electron:build:linux` | Linux AppImage 빌드 |
 | `pnpm test` | 단위 테스트 실행 |
-| `pnpm db:push` | DB 스키마 마이그레이션 |
 
 ---
 

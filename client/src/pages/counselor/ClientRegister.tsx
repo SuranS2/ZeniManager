@@ -6,8 +6,10 @@ import { useState } from 'react';
 import { useLocation } from 'wouter';
 import { toast } from 'sonner';
 import { ChevronLeft, User, Phone, Mail, Calendar, Building2, Briefcase } from 'lucide-react';
+import { usePageGuard } from '@/hooks/usePageGuard';
 
 export default function ClientRegister() {
+  const { canRender } = usePageGuard('counselor');
   const [, navigate] = useLocation();
   const [form, setForm] = useState({
     name: '',
@@ -36,6 +38,8 @@ export default function ClientRegister() {
     toast.success(`${form.name}님이 등록되었습니다.`);
     navigate('/clients/list');
   };
+
+  if (!canRender) return null;
 
   return (
     <div className="max-w-2xl mx-auto space-y-5">
