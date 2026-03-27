@@ -3,6 +3,7 @@
  * All functions read credentials from localStorage at call time.
  * Falls back to mock data when Supabase is not configured.
  */
+import { ROLE_COUNSELOR } from '@shared/const';
 import { getSupabaseClient, isSupabaseConfigured } from './supabase';
 import type {
   ClientRow, ClientInsert,
@@ -119,6 +120,13 @@ function decodeSessionPayload(
   }
 }
 
+function isMissingSchemaError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+
+  const code = 'code' in error ? error.code : undefined;
+  return code === 'PGRST202' || code === 'PGRST205';
+}
+
 // ─── Clients ─────────────────────────────────────────────────────────────────
 
 export async function fetchClients(counselorId?: string): Promise<ClientRow[]> {
@@ -163,7 +171,15 @@ export async function fetchClients(counselorId?: string): Promise<ClientRow[]> {
   if (counselorId) q = q.eq('counselor_id', counselorId);
 
   const { data, error } = await q;
-  if (error) throw error;
+  if (error) {
+    if (isMissingSchemaError(error)) {
+      const mockClients = MOCK_CLIENTS.map(c => mockClientToRow(c));
+      return counselorId
+        ? mockClients.filter(client => client.counselor_id === counselorId)
+        : mockClients;
+    }
+    throw error;
+  }
   return ((data ?? []) as LiveClientRecord[]).map(row => liveClientToRow(row));
 }
 
@@ -205,7 +221,13 @@ export async function fetchClientById(id: string): Promise<ClientRow | null> {
     .eq('client_id', numericId)
     .single();
 
-  if (error) throw error;
+  if (error) {
+    if (isMissingSchemaError(error)) {
+      const c = MOCK_CLIENTS.find(client => client.id === id);
+      return c ? mockClientToRow(c) : null;
+    }
+    throw error;
+  }
   return liveClientToRow(data as LiveClientRecord);
 }
 
@@ -252,7 +274,13 @@ export async function fetchSessions(clientId: string): Promise<SessionRow[]> {
     .order('counsel_date', { ascending: false })
     .order('start_time', { ascending: false });
 
-  if (error) throw error;
+  if (error) {
+    if (isMissingSchemaError(error)) {
+      const c = MOCK_CLIENTS.find(client => client.id === clientId);
+      return (c?.sessions ?? []).map(s => mockSessionToRow(s, clientId));
+    }
+    throw error;
+  }
   return ((data ?? []) as LiveCounselHistoryRecord[]).map(row => liveCounselHistoryToSessionRow(row));
 }
 
@@ -327,7 +355,12 @@ export async function fetchCounselors(): Promise<CounselorRow[]> {
     return MOCK_COUNSELORS.map(c => mockCounselorToRow(c));
   }
   const { data, error } = await sb().from('counselors').select('*').order('name');
-  if (error) throw error;
+  if (error) {
+    if (isMissingSchemaError(error)) {
+      return MOCK_COUNSELORS.map(c => mockCounselorToRow(c));
+    }
+    throw error;
+  }
   return data ?? [];
 }
 
@@ -365,7 +398,12 @@ export async function fetchSurveys(clientId: string): Promise<SurveyRow[]> {
     .select('*')
     .eq('client_id', clientId)
     .order('survey_date', { ascending: false });
-  if (error) throw error;
+  if (error) {
+    if (isMissingSchemaError(error)) {
+      return [];
+    }
+    throw error;
+  }
   return data ?? [];
 }
 
@@ -406,8 +444,30 @@ export async function fetchMemoCards(counselorId: string): Promise<MemoCardRow[]
     .select('*')
     .eq('counselor_id', counselorId)
     .order('sort_order');
-
-  if (error) throw error;
+  if (error) {
+    if (isMissingSchemaError(error)) {
+      const all: MemoCardRow[] = [];
+      INITIAL_KANBAN.forEach(col => {
+        col.cards.forEach((card, idx) => {
+          all.push({
+            id: card.id,
+            counselor_id: counselorId,
+            column_id: col.id,
+            title: card.title,
+            content: card.content,
+            priority: card.priority,
+            due_date: card.dueDate ?? null,
+            client_name: card.clientName ?? null,
+            sort_order: idx,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        });
+      });
+      return all;
+    }
+    throw error;
+  }
   return data ?? [];
 }
 
@@ -467,7 +527,22 @@ export async function fetchDashboardStats(counselorId?: string): Promise<Dashboa
   let q = sb().from('client').select('participation_stage, hire_type');
   if (counselorId) q = q.eq('counselor_id', counselorId);
   const { data, error } = await q;
-  if (error) throw error;
+  if (error) {
+    if (isMissingSchemaError(error)) {
+      const clients = counselorId
+        ? MOCK_CLIENTS.filter(c => c.counselorId === counselorId)
+        : MOCK_CLIENTS;
+      const stages = ['초기상담', '심층상담', '취업지원', '취업완료', '사후관리'];
+      return {
+        totalClients: clients.length,
+        inProgress: clients.filter(c => c.processStage !== '취업완료').length,
+        employed: clients.filter(c => c.processStage === '취업완료').length,
+        followUpNeeded: clients.filter(c => c.followUp).length,
+        stageBreakdown: stages.map(s => ({ stage: s, count: clients.filter(c => c.processStage === s).length })),
+      };
+    }
+    throw error;
+  }
 
   const rows = data ?? [];
   const stages = ['초기상담', '심층상담', '취업지원', '취업완료', '사후관리'];
@@ -811,7 +886,7 @@ function mockCounselorToRow(c: Counselor): CounselorRow {
     completed_count: c.completedCount,
     joined_at: c.joinedAt,
     status: c.status,
-    role: 'counselor',
+    role: ROLE_COUNSELOR,
     auth_user_id: null,
     created_at: c.joinedAt,
     update_at: c.joinedAt,

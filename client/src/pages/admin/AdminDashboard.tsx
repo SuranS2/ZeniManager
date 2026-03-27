@@ -5,6 +5,7 @@
  * Data: Supabase API with mock fallback
  */
 import { useState, useEffect } from 'react';
+import { usePageGuard } from '@/hooks/usePageGuard';
 import { BRANCH_STATS } from '@/lib/mockData';
 import { fetchClients } from '@/lib/api';
 import type { ClientRow } from '@/lib/supabase';
@@ -58,6 +59,7 @@ const employmentData = [
 ];
 
 export default function AdminDashboard() {
+  const { canRender } = usePageGuard('admin');
   const [activeTab, setActiveTab] = useState<'branch' | 'business' | 'employment'>('branch');
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,6 +110,8 @@ export default function AdminDashboard() {
     { name: '창업지원', value: 42, rate: 54.8 },
     { name: '직업훈련', value: 89, rate: 63.1 },
   ];
+
+  if (!canRender) return null;
 
   return (
     <div className="space-y-5">
