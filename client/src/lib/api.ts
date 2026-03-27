@@ -1,4 +1,4 @@
-﻿/**
+/**
  * api.ts — Supabase data access layer
  * All functions read credentials from localStorage at call time.
  * Falls back to mock data when Supabase is not configured.
@@ -44,6 +44,13 @@ type LiveClientRecord = {
   hire_type: string | null;
   job_place_start: string | null;
   job_place_end: string | null;
+  iap_to: string | null;
+  retest_stat: number | null;
+  continue_serv_1_stat: string | null;
+  driving_yn?: string | null;
+  own_car_yn?: string | null;
+  memo: string | null;
+  business_code?: { participate_type: string | null }[] | null;
   created_at: string | null;
   update_at: string | null;
 };
@@ -57,7 +64,21 @@ type LiveCounselHistoryRecord = {
   end_time: string | null;
   session_number: number | null;
   counselor_opinion: string | null;
+  counsel_type: string | null;
   create_at: string | null;
+  document_link?: string | null;
+  economic_situation?: number | null;
+  social_situation_family?: number | null;
+  social_situation_society?: number | null;
+  self_esteem?: number | null;
+  self_efficacy?: number | null;
+  holland_code?: string | null;
+  career_fluidity?: number | null;
+  info_gathering?: number | null;
+  personality_test_result?: string | null;
+  life_history_result?: string | null;
+  profiling_grade?: string | null;
+  memo?: string | null;
 };
 
 function normalizeMockCounselorId(counselorId?: string): string | undefined {
@@ -135,10 +156,17 @@ export async function fetchClients(counselorId?: string): Promise<ClientRow[]> {
       hire_type,
       job_place_start,
       job_place_end,
+      iap_to,
+      retest_stat,
+      continue_serv_1_stat,
+      memo,
+      business_code (
+        participate_type
+      ),
       created_at,
       update_at
     `)
-    .order('created_at', { ascending: false });
+    .order('iap_to', { ascending: true, nullsFirst: false });
 
   if (counselorId) q = q.eq('counselor_id', counselorId);
 
@@ -183,6 +211,10 @@ export async function fetchClientById(id: string): Promise<ClientRow | null> {
       hire_type,
       job_place_start,
       job_place_end,
+      iap_to,
+      retest_stat,
+      continue_serv_1_stat,
+      memo,
       created_at,
       update_at
     `)
@@ -201,7 +233,7 @@ export async function fetchClientById(id: string): Promise<ClientRow | null> {
 
 export async function createClient(input: ClientInsert): Promise<ClientRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { data, error } = await sb().from('clients').insert(input).select().single();
+  const { data, error } = await sb().from('client').insert(input).select().single();
   if (error) throw error;
   return data;
 }
@@ -209,9 +241,9 @@ export async function createClient(input: ClientInsert): Promise<ClientRow> {
 export async function updateClient(id: string, input: Partial<ClientInsert>): Promise<ClientRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
   const { data, error } = await sb()
-    .from('clients')
-    .update({ ...input, updated_at: new Date().toISOString() })
-    .eq('id', id)
+    .from('client')
+    .update({ ...input, update_at: new Date().toISOString() })
+    .eq('client_id', Number(id))
     .select()
     .single();
   if (error) throw error;
@@ -220,7 +252,7 @@ export async function updateClient(id: string, input: Partial<ClientInsert>): Pr
 
 export async function deleteClient(id: string): Promise<void> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { error } = await sb().from('clients').delete().eq('id', id);
+  const { error } = await sb().from('client').delete().eq('client_id', Number(id));
   if (error) throw error;
 }
 
@@ -237,7 +269,7 @@ export async function fetchSessions(clientId: string): Promise<SessionRow[]> {
 
   const { data, error } = await sb()
     .from('counsel_history')
-    .select('counsel_id, client_id, user_id, counsel_date, start_time, end_time, session_number, counselor_opinion, create_at')
+    .select('counsel_id, client_id, user_id, counsel_date, start_time, end_time, session_number, counselor_opinion, counsel_type, document_link, economic_situation, social_situation_family, social_situation_society, self_esteem, self_efficacy, holland_code, career_fluidity, info_gathering, personality_test_result, life_history_result, profiling_grade, memo, create_at')
     .eq('client_id', numericClientId)
     .order('counsel_date', { ascending: false })
     .order('start_time', { ascending: false });
@@ -259,22 +291,53 @@ export async function createSession(input: SessionInsert): Promise<SessionRow> {
   if (Number.isNaN(numericClientId)) throw new Error('유효한 상담자 ID가 아닙니다.');
   if (!input.counselor_id) throw new Error('로그인한 상담사 정보가 없습니다.');
 
-  const payload = {
+  const payload: any = {
     client_id: numericClientId,
     user_id: input.counselor_id,
     counsel_date: input.date,
     create_at: input.date,
-    counselor_opinion: encodeSessionPayload(input.type, input.content || '', input.next_action),
+    counselor_opinion: input.content || '',
+    counsel_type: input.type || '상담기록',
+    start_time: input.start_time || null,
+    end_time: input.end_time || null,
+    document_link: input.document_link || null,
+    economic_situation: input.economic_situation ?? null,
+    social_situation_family: input.social_situation_family ?? null,
+    social_situation_society: input.social_situation_society ?? null,
+    self_esteem: input.self_esteem ?? null,
+    self_efficacy: input.self_efficacy ?? null,
+    holland_code: input.holland_code || null,
+    career_fluidity: input.career_fluidity ?? null,
+    info_gathering: input.info_gathering ?? null,
+    personality_test_result: input.personality_test_result || null,
+    life_history_result: input.life_history_result || null,
+    profiling_grade: input.profiling_grade || null,
+    memo: input.memo || null,
   };
 
   const { data, error } = await sb()
     .from('counsel_history')
     .insert(payload)
-    .select('counsel_id, client_id, user_id, counsel_date, start_time, end_time, session_number, counselor_opinion, create_at')
+    .select('counsel_id, client_id, user_id, counsel_date, start_time, end_time, session_number, counselor_opinion, counsel_type, document_link, economic_situation, social_situation_family, social_situation_society, self_esteem, self_efficacy, holland_code, career_fluidity, info_gathering, personality_test_result, life_history_result, profiling_grade, memo, create_at')
     .single();
 
   if (error) throw error;
   return liveCounselHistoryToSessionRow(data as LiveCounselHistoryRecord);
+}
+
+export async function updateSession(id: string, input: Partial<SessionInsert>): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+
+  const { error } = await sb()
+    .from('counsel_history')
+    .update({ 
+      counselor_opinion: input.content || '',
+      counsel_type: input.type || '상담기록',
+      counsel_date: input.date,
+    })
+    .eq('counsel_id', Number(id));
+
+  if (error) throw error;
 }
 
 export async function deleteSession(id: string): Promise<void> {
@@ -312,7 +375,7 @@ export async function updateCounselor(id: string, input: Partial<CounselorInsert
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
   const { data, error } = await sb()
     .from('counselors')
-    .update({ ...input, updated_at: new Date().toISOString() })
+    .update({ ...input, update_at: new Date().toISOString() })
     .eq('id', id)
     .select()
     .single();
@@ -369,7 +432,7 @@ export async function fetchMemoCards(counselorId: string): Promise<MemoCardRow[]
           client_name: card.clientName ?? null,
           sort_order: idx,
           created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+          update_at: new Date().toISOString(),
         });
       });
     });
@@ -412,7 +475,7 @@ export async function upsertMemoCard(input: MemoCardInsert): Promise<MemoCardRow
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
   const { data, error } = await sb()
     .from('memo_cards')
-    .upsert({ ...input, updated_at: new Date().toISOString() })
+    .upsert({ ...input, update_at: new Date().toISOString() })
     .select()
     .single();
   if (error) throw error;
@@ -568,7 +631,7 @@ export async function fetchDashboardCalendarEntries(
 
   const { data: histories, error } = await sb()
     .from('counsel_history')
-    .select('counsel_id, client_id, counsel_date, start_time, end_time')
+    .select('counsel_id, client_id, user_id, counsel_date, start_time, end_time, session_number, counselor_opinion, counsel_type, document_link, economic_situation, social_situation_family, social_situation_society, self_esteem, self_efficacy, holland_code, career_fluidity, info_gathering, personality_test_result, life_history_result, profiling_grade, memo, create_at')
     .eq('user_id', authUserId)
     .gte('counsel_date', rangeStart)
     .lte('counsel_date', rangeEnd)
@@ -672,8 +735,15 @@ function mockClientToRow(c: Client): ClientRow {
     branch: c.branch,
     follow_up: c.followUp,
     score: c.score ?? null,
+    iap_to: null,
+    retest_stat: null,
+    continue_serv_1_stat: null,
+    driving_yn: null,
+    own_car_yn: null,
+    memo: null,
+    participate_type: null,
     created_at: c.registeredAt,
-    updated_at: c.registeredAt,
+    update_at: c.registeredAt,
   };
 }
 
@@ -743,8 +813,15 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
     branch: null,
     follow_up: false,
     score: null,
+    iap_to: row.iap_to ?? null,
+    retest_stat: row.retest_stat ?? null,
+    continue_serv_1_stat: row.continue_serv_1_stat ?? null,
+    driving_yn: row.driving_yn ?? null,
+    own_car_yn: row.own_car_yn ?? null,
+    memo: row.memo ?? null,
+    participate_type: Array.isArray(row.business_code) ? row.business_code[0]?.participate_type ?? null : null,
     created_at: createdAt,
-    updated_at: updatedAt,
+    update_at: updatedAt,
   };
 }
 
@@ -758,6 +835,7 @@ function mockSessionToRow(s: Session, clientId: string): SessionRow {
     counselor_name: s.counselorName,
     counselor_id: null,
     next_action: s.nextAction ?? null,
+    session_number: null,
     created_at: s.date,
   };
 }
@@ -765,18 +843,34 @@ function mockSessionToRow(s: Session, clientId: string): SessionRow {
 function liveCounselHistoryToSessionRow(row: LiveCounselHistoryRecord): SessionRow {
   const decoded = decodeSessionPayload(
     row.counselor_opinion,
-    row.session_number != null ? `${row.session_number}회차` : '상담기록',
+    '일반상담',
   );
 
   return {
     id: String(row.counsel_id),
     client_id: String(row.client_id),
     date: row.counsel_date,
-    type: decoded.type,
-    content: decoded.content,
+    type: row.counsel_type || decoded.type, // prioritization
+    content: row.counsel_type ? row.counselor_opinion : decoded.content, // only use decoder if no new column data
     counselor_name: null,
     counselor_id: row.user_id ?? null,
     next_action: decoded.nextAction,
+    session_number: row.session_number ?? null,
+    start_time: row.start_time ?? null,
+    end_time: row.end_time ?? null,
+    document_link: row.document_link ?? null,
+    economic_situation: row.economic_situation ?? null,
+    social_situation_family: row.social_situation_family ?? null,
+    social_situation_society: row.social_situation_society ?? null,
+    self_esteem: row.self_esteem ?? null,
+    self_efficacy: row.self_efficacy ?? null,
+    holland_code: row.holland_code ?? null,
+    career_fluidity: row.career_fluidity ?? null,
+    info_gathering: row.info_gathering ?? null,
+    personality_test_result: row.personality_test_result ?? null,
+    life_history_result: row.life_history_result ?? null,
+    profiling_grade: row.profiling_grade ?? null,
+    memo: row.memo ?? null,
     created_at: row.create_at ?? row.counsel_date,
   };
 }
@@ -795,6 +889,6 @@ function mockCounselorToRow(c: Counselor): CounselorRow {
     role: ROLE_COUNSELOR,
     auth_user_id: null,
     created_at: c.joinedAt,
-    updated_at: c.joinedAt,
+    update_at: c.joinedAt,
   };
 }

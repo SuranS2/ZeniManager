@@ -244,11 +244,18 @@ export interface ClientRow {
   branch: string | null;
   follow_up: boolean;
   score: number | null;
+  iap_to: string | null;
+  retest_stat: number | null;
+  continue_serv_1_stat: string | null;
+  driving_yn: string | null;
+  own_car_yn: string | null;
+  memo: string | null;
+  participate_type: string | null;
   created_at: string;
-  updated_at: string;
+  update_at: string;
 }
 
-export type ClientInsert = Omit<ClientRow, 'id' | 'created_at' | 'updated_at'> & {
+export type ClientInsert = Omit<ClientRow, 'id' | 'created_at' | 'update_at'> & {
   id?: string;
 };
 
@@ -261,10 +268,26 @@ export interface SessionRow {
   counselor_name: string | null;
   counselor_id: string | null;
   next_action: string | null;
+  session_number: number | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  document_link?: string | null;
+  economic_situation?: number | null;
+  social_situation_family?: number | null;
+  social_situation_society?: number | null;
+  self_esteem?: number | null;
+  self_efficacy?: number | null;
+  holland_code?: string | null;
+  career_fluidity?: number | null;
+  info_gathering?: number | null;
+  personality_test_result?: string | null;
+  life_history_result?: string | null;
+  profiling_grade?: string | null;
+  memo?: string | null;
   created_at: string;
 }
 
-export type SessionInsert = Omit<SessionRow, 'id' | 'created_at'> & { id?: string };
+export type SessionInsert = Omit<SessionRow, 'id' | 'created_at' | 'session_number'> & { id?: string; session_number?: number | null };
 
 export interface CounselorRow {
   id: string;
@@ -279,10 +302,10 @@ export interface CounselorRow {
   role: AppRole | null;
   auth_user_id: string | null;
   created_at: string;
-  updated_at: string;
+  update_at: string;
 }
 
-export type CounselorInsert = Omit<CounselorRow, 'id' | 'created_at' | 'updated_at'> & { id?: string };
+export type CounselorInsert = Omit<CounselorRow, 'id' | 'created_at' | 'update_at'> & { id?: string };
 
 export interface SurveyRow {
   id: string;
@@ -314,7 +337,7 @@ export interface MemoCardRow {
   client_name: string | null;
   sort_order: number;
   created_at: string;
-  updated_at: string;
+  update_at: string;
 }
 
-export type MemoCardInsert = Omit<MemoCardRow, 'id' | 'created_at' | 'updated_at'> & { id?: string };
+export type MemoCardInsert = Omit<MemoCardRow, 'id' | 'created_at' | 'update_at'> & { id?: string };

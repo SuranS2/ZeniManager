@@ -22,6 +22,7 @@ import ClientRegister from "./pages/counselor/ClientRegister";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import CounselorList from "./pages/admin/CounselorList";
 import AdminClientList from "./pages/admin/AdminClientList";
+import ClientDetail from "./pages/counselor/ClientDetail";
 
 function GuardedRoute({ component: Component, requirement = "authenticated" }: {
   component: React.ComponentType;
@@ -80,6 +81,9 @@ function AppRoutes() {
       </Route>
       <Route path="/clients/list">
         <GuardedRoute component={ClientList} requirement="counselor" />
+      </Route>
+      <Route path="/clients/detail/:id">
+        <CounselorRoute component={ClientDetail} />
       </Route>
       <Route path="/clients/register">
         <GuardedRoute component={ClientRegister} requirement="counselor" />
