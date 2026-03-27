@@ -6,6 +6,7 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'wouter';
+import { ROLE_COUNSELOR } from '@shared/const';
 import { useAuth } from '@/contexts/AuthContext';
 import { fetchDashboardStats, fetchClients, type DashboardStats } from '@/lib/api';
 import { MONTHLY_STATS, INITIAL_KANBAN, type KanbanColumn, type MemoCard } from '@/lib/mockData';
@@ -233,7 +234,7 @@ export default function CounselorDashboard() {
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
-        const all = await fetchClients(user?.role === 'counselor' ? user.counselorId : undefined);
+        const all = await fetchClients(user?.role === ROLE_COUNSELOR ? user.counselorId : undefined);
         const q = searchQuery.toLowerCase();
         setSearchResults(all.filter(c =>
           c.name.toLowerCase().includes(q) ||

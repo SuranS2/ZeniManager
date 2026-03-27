@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
 import { COOKIE_NAME } from "../shared/const";
+import { ROLE_COUNSELOR } from "@shared/const";
 import type { TrpcContext } from "./_core/context";
 
 type CookieCall = {
@@ -19,7 +20,7 @@ function createAuthContext(): { ctx: TrpcContext; clearedCookies: CookieCall[] }
     email: "sample@example.com",
     name: "Sample User",
     loginMethod: "manus",
-    role: "user",
+    role: ROLE_COUNSELOR,
     createdAt: new Date(),
     updatedAt: new Date(),
     lastSignedIn: new Date(),

@@ -8,9 +8,10 @@
  * SECURITY: No API keys are hardcoded. All credentials come from localStorage.
  */
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { normalizeAppRole, ROLE_ADMIN, ROLE_COUNSELOR, type AppRole } from '@shared/const';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase';
 
-export type UserRole = 'counselor' | 'admin';
+export type UserRole = AppRole;
 
 export interface User {
   id: string;
@@ -45,7 +46,7 @@ const DEMO_USERS: Record<string, User & { password: string }> = {
     name: '최인수',
     email: 'counselor@demo.com',
     password: 'demo1234',
-    role: 'counselor',
+    role: ROLE_COUNSELOR,
     branch: '울산지점',
   },
   'admin@demo.com': {
@@ -53,7 +54,7 @@ const DEMO_USERS: Record<string, User & { password: string }> = {
     name: '관리자',
     email: 'admin@demo.com',
     password: 'demo1234',
-    role: 'admin',
+    role: ROLE_ADMIN,
     branch: '본사',
   },
 };
@@ -64,7 +65,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
     try {
       const stored = localStorage.getItem(USER_STORAGE_KEY);
-      return stored ? JSON.parse(stored) : null;
+      if (!stored) return null;
+      const parsed = JSON.parse(stored) as Partial<User> & { role?: unknown };
+      return {
+        ...parsed,
+        role: normalizeAppRole(parsed.role),
+      } as User;
     } catch {
       return null;
     }
@@ -112,7 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           id: authUserId,
           name: data.name,
           email,
-          role: (data.role as UserRole) || 'counselor',
+          role: normalizeAppRole(data.role),
           branch: data.branch || undefined,
           counselorId: data.id,
         };
@@ -128,7 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       id: authUserId,
       name: email.split('@')[0] || '사용자',
       email,
-      role: 'counselor',
+      role: ROLE_COUNSELOR,
     };
     setUser(fallbackUser);
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(fallbackUser));
@@ -174,7 +180,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         id: `local_${Date.now()}`,
         name: email.split('@')[0] || '상담사',
         email,
-        role: 'counselor',
+        role: ROLE_COUNSELOR,
         branch: '서울지점',
       };
       setUser(fallbackUser);

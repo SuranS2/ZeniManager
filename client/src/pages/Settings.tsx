@@ -7,6 +7,7 @@
  */
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
+import { isAdminRole, ROLE_ADMIN, ROLE_COUNSELOR } from '@shared/const';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   Key, Globe, LogOut, Save, Eye, EyeOff, User,
@@ -214,7 +215,7 @@ CREATE TABLE IF NOT EXISTS public.counselors (
   email TEXT UNIQUE,
   phone TEXT,
   branch TEXT,
-  role TEXT NOT NULL DEFAULT 'counselor' CHECK (role IN ('counselor', 'admin')),
+  role INTEGER NOT NULL DEFAULT ${ROLE_COUNSELOR} CHECK (role IN (${ROLE_ADMIN}, ${ROLE_COUNSELOR})),
   client_count INTEGER NOT NULL DEFAULT 0,
   completed_count INTEGER NOT NULL DEFAULT 0,
   joined_at DATE,
@@ -328,7 +329,7 @@ CREATE OR REPLACE FUNCTION public.get_my_counselor_id() RETURNS UUID AS $$
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
 CREATE OR REPLACE FUNCTION public.is_admin() RETURNS BOOLEAN AS $$
-  SELECT EXISTS (SELECT 1 FROM public.counselors WHERE auth_user_id = auth.uid() AND role = 'admin');
+  SELECT EXISTS (SELECT 1 FROM public.counselors WHERE auth_user_id = auth.uid() AND role = ${ROLE_ADMIN});
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
 -- RLS Policies: counselors
@@ -444,8 +445,8 @@ export default function Settings() {
             <div className="font-semibold text-foreground">{user?.name}</div>
             <div className="text-sm text-muted-foreground">{user?.email}</div>
             <div className="flex items-center gap-2 mt-1">
-              <span className={user?.role === 'admin' ? 'badge-pending' : 'badge-active'}>
-                {user?.role === 'admin' ? '관리자' : '상담사'}
+              <span className={isAdminRole(user?.role) ? 'badge-pending' : 'badge-active'}>
+                {isAdminRole(user?.role) ? '관리자' : '상담사'}
               </span>
               {user?.branch && (
                 <span className="text-xs text-muted-foreground">{user.branch}</span>

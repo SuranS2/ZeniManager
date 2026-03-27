@@ -6,6 +6,7 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'wouter';
+import { ROLE_COUNSELOR } from '@shared/const';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   Search, Plus, X, ChevronRight, Phone, User,
@@ -604,7 +605,7 @@ export default function ClientList() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchClients(user?.role === 'counselor' ? user.counselorId : undefined);
+      const data = await fetchClients(user?.role === ROLE_COUNSELOR ? user.counselorId : undefined);
       setClients(data);
     } catch (e: any) {
       toast.error('데이터 로드 실패: ' + e.message);

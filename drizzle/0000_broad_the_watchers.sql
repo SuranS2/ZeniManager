@@ -4,7 +4,7 @@ CREATE TABLE `users` (
 	`name` text,
 	`email` varchar(320),
 	`loginMethod` varchar(64),
-	`role` enum('user','admin') NOT NULL DEFAULT 'user',
+	`role` int NOT NULL DEFAULT 5,
 	`createdAt` timestamp NOT NULL DEFAULT (now()),
 	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
 	`lastSignedIn` timestamp NOT NULL DEFAULT (now()),

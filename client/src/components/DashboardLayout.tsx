@@ -5,6 +5,7 @@
  */
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
+import { isAdminRole } from '@shared/const';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   LayoutDashboard,
@@ -137,7 +138,8 @@ interface DashboardLayoutProps {
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const { user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const navItems = user?.role === 'admin' ? adminNav : counselorNav;
+  const isAdmin = isAdminRole(user?.role);
+  const navItems = isAdmin ? adminNav : counselorNav;
 
   const handleLogout = () => {
     logout();
@@ -162,8 +164,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
         {/* Role badge */}
         <div className="px-4 py-2.5 border-b border-border">
-          <span className={user?.role === 'admin' ? 'badge-pending' : 'badge-active'}>
-            {user?.role === 'admin' ? '관리자' : '상담사'}
+          <span className={isAdmin ? 'badge-pending' : 'badge-active'}>
+            {isAdmin ? '관리자' : '상담사'}
           </span>
           {user?.branch && (
             <span className="ml-2 text-xs text-muted-foreground">{user.branch}</span>
@@ -211,7 +213,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               />
             )}
             <div className="text-sm text-muted-foreground hidden sm:block">
-              {user?.role === 'admin' ? '관리자 포털' : '상담사 포털'}
+              {isAdmin ? '관리자 포털' : '상담사 포털'}
             </div>
           </div>
 
