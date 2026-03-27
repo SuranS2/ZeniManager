@@ -1,10 +1,10 @@
-/**
+﻿/**
  * Client List Page (상담자 목록)
  * - Supabase 연동 (미설정 시 mock data fallback)
  * - 탭: 상담관리 / 상담이력 / 상담내용 입력 / 구직준비도 설문
  * - 필터: 전체 / 점수미확정 / 후속상담 / 취업처리
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -16,11 +16,11 @@ import { toast } from 'sonner';
 import { fetchClients, fetchSessions, createSession, deleteSession, fetchSurveys, createSurvey } from '@/lib/api';
 import type { ClientRow, SessionRow, SurveyRow } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import { MOCK_CLIENTS } from '@/lib/mockData';
 
 const PRIMARY = '#009C64';
 
 type FilterType = 'all' | 'no-score' | 'follow-up' | 'employed';
+type ClientModalTab = 'manage' | 'history' | 'input' | 'survey';
 
 // ─── Survey Questions from 구직준비도점검설문지 ─────────────────────────────────
 
@@ -256,12 +256,27 @@ function SurveyTab({ clientId, counselorId }: { clientId: string; counselorId?: 
 
 // ─── Client Detail Modal ──────────────────────────────────────────────────────
 
-function ClientDetailModal({ client, onClose }: { client: ClientRow; onClose: () => void }) {
+function ClientDetailModal({
+  client,
+  onClose,
+  initialTab,
+  initialDate,
+}: {
+  client: ClientRow;
+  onClose: () => void;
+  initialTab?: ClientModalTab;
+  initialDate?: string;
+}) {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'manage' | 'history' | 'input' | 'survey'>('manage');
+  const [activeTab, setActiveTab] = useState<ClientModalTab>(initialTab ?? 'manage');
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
-  const [newSession, setNewSession] = useState({ type: '초기상담', content: '', nextAction: '', date: new Date().toISOString().split('T')[0] });
+  const [newSession, setNewSession] = useState({
+    type: '초기상담',
+    content: '',
+    nextAction: '',
+    date: initialDate || new Date().toISOString().split('T')[0],
+  });
   const [saving, setSaving] = useState(false);
 
   const loadSessions = useCallback(async () => {
@@ -280,6 +295,16 @@ function ClientDetailModal({ client, onClose }: { client: ClientRow; onClose: ()
     if (activeTab === 'history' || activeTab === 'input') loadSessions();
   }, [activeTab, loadSessions]);
 
+  useEffect(() => {
+    setActiveTab(initialTab ?? 'manage');
+    setNewSession({
+      type: '초기상담',
+      content: '',
+      nextAction: '',
+      date: initialDate || new Date().toISOString().split('T')[0],
+    });
+  }, [client.id, initialDate, initialTab]);
+
   const handleSaveSession = async () => {
     if (!newSession.content.trim()) { toast.error('상담 내용을 입력해주세요.'); return; }
     if (!isSupabaseConfigured()) { toast.error('Supabase 설정이 필요합니다.'); return; }
@@ -291,7 +316,7 @@ function ClientDetailModal({ client, onClose }: { client: ClientRow; onClose: ()
         type: newSession.type,
         content: newSession.content,
         counselor_name: user?.name || null,
-        counselor_id: user?.counselorId || null,
+        counselor_id: user?.id || null,
         next_action: newSession.nextAction || null,
       });
       toast.success('상담 내용이 저장되었습니다.');
@@ -321,7 +346,7 @@ function ClientDetailModal({ client, onClose }: { client: ClientRow; onClose: ()
     '취업지원': 'badge-pending', '취업완료': 'badge-completed', '사후관리': 'badge-active',
   };
 
-  const tabs = [
+  const tabs: { id: ClientModalTab; label: string }[] = [
     { id: 'manage', label: '상담관리' },
     { id: 'history', label: '상담이력' },
     { id: 'input', label: '상담내용 입력' },
@@ -331,7 +356,6 @@ function ClientDetailModal({ client, onClose }: { client: ClientRow; onClose: ()
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.4)' }}>
       <div className="bg-card rounded-md shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-sm flex items-center justify-center text-white font-bold text-sm" style={{ background: PRIMARY }}>
@@ -345,12 +369,11 @@ function ClientDetailModal({ client, onClose }: { client: ClientRow; onClose: ()
           <button onClick={onClose} className="p-1.5 rounded-sm hover:bg-muted"><X size={18} /></button>
         </div>
 
-        {/* Tabs */}
         <div className="flex border-b border-border px-5 overflow-x-auto">
           {tabs.map(tab => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => setActiveTab(tab.id)}
               className="px-4 py-2.5 text-sm font-medium border-b-2 transition-all -mb-px whitespace-nowrap"
               style={activeTab === tab.id
                 ? { borderColor: PRIMARY, color: PRIMARY }
@@ -362,9 +385,7 @@ function ClientDetailModal({ client, onClose }: { client: ClientRow; onClose: ()
           ))}
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto p-5">
-          {/* ── 상담관리 탭 ── */}
           {activeTab === 'manage' && (
             <div className="space-y-5">
               <div className="grid grid-cols-2 gap-4">
@@ -457,7 +478,6 @@ function ClientDetailModal({ client, onClose }: { client: ClientRow; onClose: ()
             </div>
           )}
 
-          {/* ── 상담이력 탭 ── */}
           {activeTab === 'history' && (
             <div className="space-y-3">
               {sessionsLoading ? (
@@ -497,7 +517,6 @@ function ClientDetailModal({ client, onClose }: { client: ClientRow; onClose: ()
             </div>
           )}
 
-          {/* ── 상담내용 입력 탭 ── */}
           {activeTab === 'input' && (
             <div className="space-y-4">
               {!isSupabaseConfigured() && (
@@ -563,7 +582,6 @@ function ClientDetailModal({ client, onClose }: { client: ClientRow; onClose: ()
             </div>
           )}
 
-          {/* ── 구직준비도 설문 탭 ── */}
           {activeTab === 'survey' && (
             <SurveyTab clientId={client.id} counselorId={user?.counselorId} />
           )}
@@ -600,11 +618,14 @@ export default function ClientList() {
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedClient, setSelectedClient] = useState<ClientRow | null>(null);
+  const [initialModalTab, setInitialModalTab] = useState<ClientModalTab | undefined>();
+  const [initialModalDate, setInitialModalDate] = useState<string | undefined>();
+  const deepLinkHandledRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchClients(user?.role === 'counselor' ? user.counselorId : undefined);
+      const data = await fetchClients(user?.role === 'counselor' ? user.id : undefined);
       setClients(data);
     } catch (e: any) {
       toast.error('데이터 로드 실패: ' + e.message);
@@ -614,6 +635,34 @@ export default function ClientList() {
   }, [user]);
 
   useEffect(() => { load(); }, [load]);
+
+  const openClientModal = useCallback((client: ClientRow, options?: { tab?: ClientModalTab; date?: string }) => {
+    setSelectedClient(client);
+    setInitialModalTab(options?.tab);
+    setInitialModalDate(options?.date);
+  }, []);
+
+  useEffect(() => {
+    if (loading || deepLinkHandledRef.current) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const clientId = params.get('clientId');
+    const requestedTab = params.get('tab');
+    const requestedDate = params.get('date');
+
+    if (!clientId || !requestedTab) return;
+    if (requestedTab !== 'input' && requestedTab !== 'history') return;
+
+    const targetClient = clients.find(client => client.id === clientId);
+    if (!targetClient) return;
+
+    openClientModal(targetClient, {
+      tab: requestedTab,
+      date: requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : undefined,
+    });
+    deepLinkHandledRef.current = true;
+    window.history.replaceState({}, '', window.location.pathname);
+  }, [clients, loading, openClientModal]);
 
   const filtered = clients.filter(c => {
     const matchSearch = !search ||
@@ -642,7 +691,6 @@ export default function ClientList() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-foreground">상담자 목록</h1>
@@ -662,7 +710,6 @@ export default function ClientList() {
         </div>
       </div>
 
-      {/* Search & Filter */}
       <div className="bg-card rounded-md p-4 shadow-sm border border-border space-y-3">
         <div className="relative">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -682,7 +729,6 @@ export default function ClientList() {
         </div>
       </div>
 
-      {/* Table */}
       <div className="bg-card rounded-md shadow-sm border border-border overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -715,7 +761,7 @@ export default function ClientList() {
                   <tr
                     key={client.id}
                     className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors cursor-pointer"
-                    onClick={() => setSelectedClient(client)}
+                    onClick={() => openClientModal(client)}
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -751,7 +797,7 @@ export default function ClientList() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
-                        onClick={e => { e.stopPropagation(); setSelectedClient(client); }}
+                        onClick={e => { e.stopPropagation(); openClientModal(client); }}
                         className="p-1.5 rounded-sm hover:bg-muted transition-colors"
                       >
                         <Edit3 size={14} />
@@ -765,9 +811,17 @@ export default function ClientList() {
         )}
       </div>
 
-      {/* Detail Modal */}
       {selectedClient && (
-        <ClientDetailModal client={selectedClient} onClose={() => setSelectedClient(null)} />
+        <ClientDetailModal
+          client={selectedClient}
+          initialTab={initialModalTab}
+          initialDate={initialModalDate}
+          onClose={() => {
+            setSelectedClient(null);
+            setInitialModalTab(undefined);
+            setInitialModalDate(undefined);
+          }}
+        />
       )}
     </div>
   );
