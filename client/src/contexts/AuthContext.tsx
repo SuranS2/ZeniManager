@@ -20,7 +20,6 @@ import {
   persistAuthNotice,
 } from '@/lib/authAccess';
 import {
-  buildAuthSchemaFallbackUser,
   createCounselorProfileLookups,
   mapCounselorProfileToUser,
   normalizeLoginEmail,
@@ -35,6 +34,7 @@ export interface User {
   email: string;
   role: UserRole;
   profileImage?: string;
+  department?: string;
   branch?: string;
   counselorId?: string; // Current profile key used by downstream filters
 }
@@ -133,16 +133,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
 
     if (!profile) {
-      const authFallbackUser = buildAuthSchemaFallbackUser(identity);
-      if (authFallbackUser) {
-        setUser(authFallbackUser);
-        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(authFallbackUser));
-        return {
-          success: true,
-          user: authFallbackUser,
-        };
-      }
-
       return {
         success: false,
         error: hadLookupError
