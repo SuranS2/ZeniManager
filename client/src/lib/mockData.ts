@@ -34,7 +34,7 @@ export interface Counselor {
   name: string;
   email: string;
   phone: string;
-  branch: string;
+  department: string;
   clientCount: number;
   completedCount: number;
   joinedAt: string;
@@ -42,11 +42,11 @@ export interface Counselor {
 }
 
 export const MOCK_COUNSELORS: Counselor[] = [
-  { id: 'c001', name: '김상담', email: 'kim@counsel.com', phone: '010-1234-5678', branch: '서울 강남지점', clientCount: 24, completedCount: 18, joinedAt: '2022-03-15', status: '재직' },
-  { id: 'c002', name: '이민준', email: 'lee@counsel.com', phone: '010-2345-6789', branch: '서울 강북지점', clientCount: 31, completedCount: 22, joinedAt: '2021-07-01', status: '재직' },
-  { id: 'c003', name: '박지영', email: 'park@counsel.com', phone: '010-3456-7890', branch: '경기 수원지점', clientCount: 19, completedCount: 15, joinedAt: '2023-01-10', status: '재직' },
-  { id: 'c004', name: '최수연', email: 'choi@counsel.com', phone: '010-4567-8901', branch: '부산지점', clientCount: 27, completedCount: 20, joinedAt: '2022-09-05', status: '재직' },
-  { id: 'c005', name: '정태호', email: 'jung@counsel.com', phone: '010-5678-9012', branch: '대구지점', clientCount: 15, completedCount: 10, joinedAt: '2023-06-20', status: '재직' },
+  { id: 'c001', name: '김상담', email: 'kim@counsel.com', phone: '010-1234-5678', department: '서울 강남지점', clientCount: 24, completedCount: 18, joinedAt: '2022-03-15', status: '재직' },
+  { id: 'c002', name: '이민준', email: 'lee@counsel.com', phone: '010-2345-6789', department: '서울 강북지점', clientCount: 31, completedCount: 22, joinedAt: '2021-07-01', status: '재직' },
+  { id: 'c003', name: '박지영', email: 'park@counsel.com', phone: '010-3456-7890', department: '경기 수원지점', clientCount: 19, completedCount: 15, joinedAt: '2023-01-10', status: '재직' },
+  { id: 'c004', name: '최수연', email: 'choi@counsel.com', phone: '010-4567-8901', department: '부산지점', clientCount: 27, completedCount: 20, joinedAt: '2022-09-05', status: '재직' },
+  { id: 'c005', name: '정태호', email: 'jung@counsel.com', phone: '010-5678-9012', department: '대구지점', clientCount: 15, completedCount: 10, joinedAt: '2023-06-20', status: '재직' },
 ];
 
 export const MOCK_CLIENTS: Client[] = [

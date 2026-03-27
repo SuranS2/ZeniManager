@@ -15,13 +15,13 @@ interface CounselorForm {
   name: string;
   email: string;
   phone: string;
-  branch: string;
+department: string;
   status: '재직' | '휴직' | '퇴직';
   role: 'counselor' | 'admin';
 }
 
 const EMPTY_FORM: CounselorForm = {
-  name: '', email: '', phone: '', branch: '', status: '재직', role: 'counselor',
+  name: '', email: '', phone: '', department: '', status: '재직', role: 'counselor',
 };
 
 function CounselorModal({
@@ -39,7 +39,7 @@ function CounselorModal({
           name: counselor.name,
           email: counselor.email || '',
           phone: counselor.phone || '',
-          branch: counselor.branch || '',
+          department: counselor.de || '',
           status: counselor.status || '재직',
           role: counselor.role || 'counselor',
         }
@@ -109,8 +109,8 @@ function CounselorModal({
               <label className="block text-sm font-medium mb-1.5">지점</label>
               <input
                 type="text"
-                value={form.branch}
-                onChange={e => setForm(f => ({ ...f, branch: e.target.value }))}
+                value={form.department}
+                onChange={e => setForm(f => ({ ...f, department: e.target.value }))}
                 className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="서울 강남지점"
               />
@@ -177,8 +177,7 @@ export default function CounselorList() {
   const filtered = counselors.filter(c =>
     !search ||
     c.name.toLowerCase().includes(search.toLowerCase()) ||
-    (c.email || '').toLowerCase().includes(search.toLowerCase()) ||
-    (c.branch || '').includes(search)
+    (c.department || '').includes(search)
   );
 
   const handleSave = async (form: CounselorForm) => {
@@ -269,7 +268,7 @@ export default function CounselorList() {
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="이름, 지점, 이메일로 검색..."
+            placeholder="이름, 지점으로 검색..."
             className="w-full pl-9 pr-4 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
@@ -286,12 +285,11 @@ export default function CounselorList() {
             <thead>
               <tr className="border-b border-border bg-muted/30">
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">이름</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">연락처</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">지점</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">담당자 수</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">완료</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">상태</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">액션</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">수정</th>
+                <th className="text-right px-4 py-3 font-medium text-muted-foreground">삭제</th>
               </tr>
             </thead>
             <tbody>
@@ -311,34 +309,29 @@ export default function CounselorList() {
                         </div>
                         <div>
                           <div className="font-medium text-foreground">{c.name}</div>
-                          <div className="text-xs text-muted-foreground">{c.email || '-'}</div>
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">{c.phone || '-'}</td>
-                    <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell">{c.branch || '-'}</td>
+                    <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell">{c.department || '-'}</td>
                     <td className="px-4 py-3 text-right font-semibold text-foreground">{c.client_count ?? 0}</td>
                     <td className="px-4 py-3 text-right hidden sm:table-cell">
                       <span style={{ color: PRIMARY_HEX }} className="font-semibold">{c.completed_count ?? 0}</span>
                     </td>
-                    <td className="px-4 py-3">
-                      <span className={statusColor(c.status || '재직')}>{c.status || '재직'}</span>
+                    <td className="px-4 py-3 text-right w-[40px]">
+                      <button
+                        onClick={() => { setEditTarget(c); setShowModal(true); }}
+                        className="p-1.5 rounded-sm hover:bg-muted transition-colors inline-flex items-center"
+                      >
+                        <Edit3 size={14} />
+                      </button>
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => { setEditTarget(c); setShowModal(true); }}
-                          className="p-1.5 rounded-sm hover:bg-muted transition-colors"
-                        >
-                          <Edit3 size={14} />
-                        </button>
-                        <button
-                          onClick={() => setDeleteTarget(c)}
-                          className="p-1.5 rounded-sm hover:bg-destructive/10 transition-colors text-destructive"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
+                    <td className="px-4 py-3 text-left w-[40px]">
+                      <button
+                        onClick={() => setDeleteTarget(c)}
+                        className="p-1.5 rounded-sm hover:bg-destructive/10 transition-colors text-destructive inline-flex items-center"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </td>
                   </tr>
                 ))

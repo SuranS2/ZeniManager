@@ -6,7 +6,7 @@
  */
 import { useState, useEffect } from 'react';
 import { BRANCH_STATS } from '@/lib/mockData';
-import { fetchClients } from '@/lib/api';
+import { fetchClients, fetchDashboardStats, type DashboardStats } from '@/lib/api';
 import type { ClientRow } from '@/lib/supabase';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -42,35 +42,22 @@ function StatCard({ icon, label, value, change, changeType }: {
   );
 }
 
-const employmentData = [
-  { month: '1월', rate: 58.2 },
-  { month: '2월', rate: 61.5 },
-  { month: '3월', rate: 63.8 },
-  { month: '4월', rate: 65.2 },
-  { month: '5월', rate: 67.1 },
-  { month: '6월', rate: 69.4 },
-  { month: '7월', rate: 68.9 },
-  { month: '8월', rate: 71.2 },
-  { month: '9월', rate: 72.5 },
-  { month: '10월', rate: 74.1 },
-  { month: '11월', rate: 73.8 },
-  { month: '12월', rate: 75.5 },
-];
-
+// employmentData is derived at runtime from client employment_date values.
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<'branch' | 'business' | 'employment'>('branch');
   const [clients, setClients] = useState<ClientRow[]>([]);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchClients().then((data: ClientRow[]) => {
-      setClients(data);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    Promise.all([
+      fetchClients().then((data: ClientRow[]) => setClients(data)),
+      fetchDashboardStats().then(setStats),
+    ]).then(() => setLoading(false)).catch(() => setLoading(false));
   }, []);
 
-  const totalClients = clients.length;
-  const totalCompleted = clients.filter(c => c.employment_type && c.employment_type !== '').length;
+  const totalClients = stats?.totalClients ?? 0;
+  const totalCompleted = stats?.employed ?? 0;
   const avgRate = totalClients > 0 ? Math.round(totalCompleted / totalClients * 100) : 0;
 
   // Build branch stats from real data
@@ -108,6 +95,55 @@ export default function AdminDashboard() {
     { name: '창업지원', value: 42, rate: 54.8 },
     { name: '직업훈련', value: 89, rate: 63.1 },
   ];
+
+  // 월별 취업 성사율 계산
+  const employmentRateMap: Record<string, { completed: number; total: number }> = {};
+  clients.forEach(c => {
+    if (!c.employment_date) return;
+    const date = new Date(c.employment_date);
+    if (Number.isNaN(date.getTime())) return;
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    if (!employmentRateMap[key]) employmentRateMap[key] = { completed: 0, total: 0 };
+    employmentRateMap[key].total += 1;
+    if (c.employment_type && c.employment_type !== '') {
+      employmentRateMap[key].completed += 1;
+    }
+  });
+
+  const dynamicEmploymentData = Object.entries(employmentRateMap)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, stats]) => {
+      const [year, mon] = month.split('-');
+      return {
+        month: `${parseInt(mon, 10)}월`,
+        rate: stats.total > 0 ? Math.round((stats.completed / stats.total) * 1000) / 10 : 0,
+      };
+    });
+
+  const employmentData = dynamicEmploymentData.length > 0
+    ? dynamicEmploymentData
+    : [
+      { month: '1월', rate: 58.2 },
+      { month: '2월', rate: 61.5 },
+      { month: '3월', rate: 63.8 },
+      { month: '4월', rate: 65.2 },
+      { month: '5월', rate: 67.1 },
+      { month: '6월', rate: 69.4 },
+      { month: '7월', rate: 68.9 },
+      { month: '8월', rate: 71.2 },
+      { month: '9월', rate: 72.5 },
+      { month: '10월', rate: 74.1 },
+      { month: '11월', rate: 73.8 },
+      { month: '12월', rate: 75.5 },
+    ];
+
+  const currentEmployment = employmentData[employmentData.length - 1];
+  const previousEmployment = employmentData[employmentData.length - 2] ?? null;
+  const currentMonthRate = currentEmployment ? currentEmployment.rate : 0;
+  const previousMonthRate = previousEmployment ? previousEmployment.rate : null;
+  const monthDiff = previousMonthRate !== null ? currentMonthRate - previousMonthRate : 0;
+  const monthDiffText = previousMonthRate !== null ? `${monthDiff >= 0 ? '+' : ''}${monthDiff.toFixed(1)}%` : '-';
+
 
   return (
     <div className="space-y-5">
@@ -322,11 +358,13 @@ export default function AdminDashboard() {
             {[
               { label: '취업 성공', value: totalCompleted, unit: '명', color: PRIMARY_HEX },
               { label: '진행 중', value: totalClients - totalCompleted, unit: '명', color: '#4299E1' },
-              { label: '이번 달 성사율', value: '75.5', unit: '%', color: '#009C64' },
-              { label: '전월 대비', value: '+1.7', unit: '%', color: '#48BB78' },
+              { label: '이번 달 성사율', value: `${currentMonthRate.toFixed(1)}`, unit: '%', color: '#009C64' },
+              { label: '전월 대비', value: monthDiffText, unit: '', color: monthDiff >= 0 ? '#48BB78' : '#E53E3E' },
             ].map(item => (
               <div key={item.label} className="stat-card text-center">
-                <div className="text-2xl font-bold" style={{ color: item.color }}>{item.value}<span className="text-base">{item.unit}</span></div>
+                <div className="text-2xl font-bold" style={{ color: item.color }}>
+                  {item.value}<span className="text-base">{item.unit}</span>
+                </div>
                 <div className="text-xs text-muted-foreground mt-1">{item.label}</div>
               </div>
             ))}

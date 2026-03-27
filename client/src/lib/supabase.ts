@@ -94,7 +94,7 @@ export function resetStoredAppSettings(): void {
   resetSupabaseClient();
 }
 
-export type Database = {
+export type Database = { 
   public: {
     Tables: {
       clients: { Row: ClientRow; Insert: ClientInsert; Update: Partial<ClientInsert> };
@@ -102,6 +102,7 @@ export type Database = {
       counselors: { Row: CounselorRow; Insert: CounselorInsert; Update: Partial<CounselorInsert> };
       survey_responses: { Row: SurveyRow; Insert: SurveyInsert; Update: Partial<SurveyInsert> };
       memo_cards: { Row: MemoCardRow; Insert: MemoCardInsert; Update: Partial<MemoCardInsert> };
+      users: { Row: UserRow; Insert: UserInsert; Update: UserUpdate };
     };
   };
 };
@@ -195,7 +196,7 @@ export interface CounselorRow {
   name: string;
   email: string | null;
   phone: string | null;
-  branch: string | null;
+  department: string | null;
   client_count: number;
   completed_count: number;
   joined_at: string | null;
@@ -226,6 +227,17 @@ export interface SurveyRow {
 }
 
 export type SurveyInsert = Omit<SurveyRow, 'id' | 'created_at'> & { id?: string };
+
+export interface UserRow {
+  user_id: string;
+  role: number; // 5: 상담사 / 4: 관리자
+  user_name: string;
+  department: string | null;
+  memo: string | null;
+}
+
+export type UserInsert = Omit<UserRow, 'user_id'> & { user_id?: string };
+export type UserUpdate = Partial<UserInsert>;
 
 export interface MemoCardRow {
   id: string;
