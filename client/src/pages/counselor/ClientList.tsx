@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Client List Page (상담자 목록)
  * - Supabase 연동 (미설정 시 mock data fallback)
  * - 탭: 상담관리 / 상담이력 / 상담내용 입력 / 구직준비도 설문
@@ -6,7 +6,9 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation } from 'wouter';
+import { ROLE_COUNSELOR } from '@shared/const';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePageGuard } from '@/hooks/usePageGuard';
 import {
   Search, Plus, X, ChevronRight, Phone, User,
   Edit3, ClipboardList, Loader2, Trash2, Save,
@@ -612,7 +614,7 @@ function FilterTab({ label, active, count, onClick }: { label: string; active: b
 
 export default function ClientList() {
   const [, navigate] = useLocation();
-  const { user } = useAuth();
+  const { canRender, user } = usePageGuard('counselor');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterType>('all');
   const [clients, setClients] = useState<ClientRow[]>([]);
@@ -625,7 +627,7 @@ export default function ClientList() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchClients(user?.role === 'counselor' ? user.id : undefined);
+      const data = await fetchClients(user?.role === ROLE_COUNSELOR ? user.counselorId : undefined);
       setClients(data);
     } catch (e: any) {
       toast.error('데이터 로드 실패: ' + e.message);
@@ -688,6 +690,8 @@ export default function ClientList() {
     '초기상담': 'badge-active', '심층상담': 'badge-pending',
     '취업지원': 'badge-pending', '취업완료': 'badge-completed', '사후관리': 'badge-active',
   };
+
+  if (!canRender) return null;
 
   return (
     <div className="space-y-4">
