@@ -947,15 +947,15 @@ export default function CounselorDashboard() {
             </div>
           )}
           <div className="lg:col-span-2 bg-card rounded-md p-5 shadow-sm border border-border">
-            <h3 className="text-sm font-semibold text-foreground mb-4">월별 상담 현황</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-4">월별 세션/진행 인원</h3>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={monthlyStats} barSize={14}>
                 <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.88 0.008 75)" vertical={false} />
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'oklch(0.55 0.015 65)' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: 'oklch(0.55 0.015 65)' }} axisLine={false} tickLine={false} />
                 <Tooltip contentStyle={{ borderRadius: '6px', border: '1px solid oklch(0.88 0.008 75)', fontSize: '12px' }} />
-                <Bar dataKey="clients" name="상담자" fill={PRIMARY_HEX} radius={[3, 3, 0, 0]} />
-                <Bar dataKey="completed" name="취업완료" fill="#4299E1" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="sessions" name="세션 수" fill={PRIMARY_HEX} radius={[3, 3, 0, 0]} />
+                <Bar dataKey="clients" name="상담 진행 인원" fill="#4299E1" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -999,20 +999,20 @@ export default function CounselorDashboard() {
           </div>
 
           <div className="lg:col-span-3 bg-card rounded-md p-5 shadow-sm border border-border">
-            <h3 className="text-sm font-semibold text-foreground mb-4">상담 세션 추이</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-4">월별 상담 진행 인원 추이</h3>
             <ResponsiveContainer width="100%" height={160}>
               <AreaChart data={monthlyStats}>
                 <defs>
-                  <linearGradient id="sessionGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={PRIMARY_HEX} stopOpacity={0.15} />
-                    <stop offset="95%" stopColor={PRIMARY_HEX} stopOpacity={0} />
+                  <linearGradient id="clientGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#4299E1" stopOpacity={0.18} />
+                    <stop offset="95%" stopColor="#4299E1" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.88 0.008 75)" vertical={false} />
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'oklch(0.55 0.015 65)' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: 'oklch(0.55 0.015 65)' }} axisLine={false} tickLine={false} />
                 <Tooltip contentStyle={{ borderRadius: '6px', border: '1px solid oklch(0.88 0.008 75)', fontSize: '12px' }} />
-                <Area type="monotone" dataKey="sessions" name="세션 수" stroke={PRIMARY_HEX} strokeWidth={2} fill="url(#sessionGrad)" />
+                <Area type="monotone" dataKey="clients" name="상담 진행 인원" stroke="#4299E1" strokeWidth={2} fill="url(#clientGrad)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>

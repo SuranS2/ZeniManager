@@ -235,7 +235,7 @@ describe('dashboard runtime APIs', () => {
     ]);
   });
 
-  it('aggregates live monthly dashboard stats from sessions, unique clients, and completions', async () => {
+  it('aggregates live monthly dashboard stats from sessions and unique clients only', async () => {
     supabaseState.client = createMockSupabaseClient({
       counsel_history: {
         select: {
@@ -248,36 +248,25 @@ describe('dashboard runtime APIs', () => {
           error: null,
         },
       },
-      client: {
-        select: [
-          {
-            data: [
-              { notificate_date: '2026-02-12' },
-              { notificate_date: '2026-03-25' },
-            ],
-            error: null,
-          },
-        ],
-      },
     });
 
     const result = await fetchDashboardMonthlyStats('auth-1');
 
     expect(result).toHaveLength(12);
-    expect(result.at(-2)).toEqual({ month: '2월', clients: 1, completed: 1, sessions: 1 });
-    expect(result.at(-1)).toEqual({ month: '3월', clients: 2, completed: 1, sessions: 3 });
+    expect(result.at(-2)).toEqual({ month: '2월', clients: 1, sessions: 1 });
+    expect(result.at(-1)).toEqual({ month: '3월', clients: 2, sessions: 3 });
   });
 
-  it('aggregates score KPIs and score-range distribution from live dashboard stats', async () => {
+  it('aggregates score KPIs, score-range distribution, and follow-up counts from live dashboard stats', async () => {
     supabaseState.client = createMockSupabaseClient({
       client: {
         select: {
           data: [
-            { participation_stage: '초기상담', retest_stat: null },
-            { participation_stage: '취업지원', retest_stat: 65 },
-            { participation_stage: '취업완료', retest_stat: 72 },
-            { participation_stage: '취업완료', retest_stat: 88 },
-            { participation_stage: '사후관리', retest_stat: 91 },
+            { participation_stage: '초기상담', retest_stat: null, continue_serv_1_stat: null },
+            { participation_stage: '취업지원', retest_stat: 65, continue_serv_1_stat: 0 },
+            { participation_stage: '취업완료', retest_stat: 72, continue_serv_1_stat: 1 },
+            { participation_stage: '취업완료', retest_stat: 88, continue_serv_1_stat: 0 },
+            { participation_stage: '사후관리', retest_stat: 91, continue_serv_1_stat: 2 },
           ],
           error: null,
         },
@@ -288,7 +277,7 @@ describe('dashboard runtime APIs', () => {
       totalClients: 5,
       inProgress: 3,
       employed: 2,
-      followUpNeeded: 1,
+      followUpNeeded: 2,
       averageScore: 79,
       scoredClients: 4,
       unscoredClients: 1,
