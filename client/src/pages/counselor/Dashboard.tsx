@@ -28,11 +28,18 @@ import {
 } from 'recharts';
 import {
   Users, TrendingUp, CheckCircle2, Search, X, ChevronLeft, ChevronRight,
-  AlertCircle, Calendar as CalendarIcon, StickyNote, Loader2, RefreshCw,
+  AlertCircle, Calendar as CalendarIcon, StickyNote, Loader2, RefreshCw, BarChart3,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const PRIMARY_HEX = '#009C64';
+const SCORE_RANGE_FALLBACK = [
+  { range: '0-59', count: 0 },
+  { range: '60-69', count: 0 },
+  { range: '70-79', count: 0 },
+  { range: '80-89', count: 0 },
+  { range: '90-100', count: 0 },
+];
 
 type CalendarRangeMode = 'today' | 'week' | 'selected-period';
 type DashboardTab = 'overview' | 'calendar' | 'memo';
@@ -717,6 +724,11 @@ export default function CounselorDashboard() {
   const completedClients = stats?.employed ?? 0;
   const pendingClients = stats?.followUpNeeded ?? 0;
   const activeProcesses = stats?.inProgress ?? 0;
+  const averageScore = stats?.averageScore ?? null;
+  const scoredClients = stats?.scoredClients ?? 0;
+  const unscoredClients = stats?.unscoredClients ?? 0;
+  const scoreDistribution = stats?.scoreDistribution ?? SCORE_RANGE_FALLBACK;
+  const hasScoreDistribution = scoreDistribution.some(item => item.count > 0);
 
   const processStages = stats?.stageBreakdown ?? [
     { stage: '초기상담', count: 0 },
@@ -868,6 +880,44 @@ export default function CounselorDashboard() {
         )}
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {statsLoading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="stat-card animate-pulse">
+              <div className="w-10 h-10 rounded-sm bg-muted" />
+              <div className="flex-1 space-y-2">
+                <div className="h-3 bg-muted rounded w-2/3" />
+                <div className="h-6 bg-muted rounded w-1/2" />
+              </div>
+            </div>
+          ))
+        ) : (
+          <>
+            <StatCard
+              icon={<BarChart3 size={18} color={PRIMARY_HEX} />}
+              label="평균 점수"
+              value={averageScore != null ? `${averageScore}점` : '-'}
+              sub={scoredClients > 0 ? `입력된 ${scoredClients}명 기준` : '입력된 점수 없음'}
+              color="oklch(0.93 0.03 162.5)"
+            />
+            <StatCard
+              icon={<CheckCircle2 size={18} color="#4299E1" />}
+              label="점수 입력 완료"
+              value={scoredClients}
+              sub={totalClients > 0 ? `입력률 ${Math.round((scoredClients / totalClients) * 100)}%` : '-'}
+              color="oklch(0.92 0.04 240)"
+            />
+            <StatCard
+              icon={<AlertCircle size={18} color="#F6AD55" />}
+              label="점수 미확정"
+              value={unscoredClients}
+              sub={totalClients > 0 ? `전체 대비 ${Math.round((unscoredClients / totalClients) * 100)}%` : '-'}
+              color="oklch(0.95 0.06 85)"
+            />
+          </>
+        )}
+      </div>
+
       <div className="flex gap-2 overflow-x-auto border-b border-border pb-px">
         {[
           { id: 'overview', label: '현황', icon: <TrendingUp size={14} /> },
@@ -965,6 +1015,25 @@ export default function CounselorDashboard() {
                 <Area type="monotone" dataKey="sessions" name="세션 수" stroke={PRIMARY_HEX} strokeWidth={2} fill="url(#sessionGrad)" />
               </AreaChart>
             </ResponsiveContainer>
+          </div>
+
+          <div className="lg:col-span-3 bg-card rounded-md p-5 shadow-sm border border-border">
+            <h3 className="text-sm font-semibold text-foreground mb-4">점수 구간별 분포</h3>
+            {hasScoreDistribution ? (
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={scoreDistribution} barSize={32}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.88 0.008 75)" vertical={false} />
+                  <XAxis dataKey="range" tick={{ fontSize: 11, fill: 'oklch(0.55 0.015 65)' }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'oklch(0.55 0.015 65)' }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ borderRadius: '6px', border: '1px solid oklch(0.88 0.008 75)', fontSize: '12px' }} />
+                  <Bar dataKey="count" name="상담자 수" fill={PRIMARY_HEX} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-[180px] items-center justify-center rounded-sm border border-dashed border-border bg-muted/10 text-sm text-muted-foreground">
+                입력된 점수 데이터가 없습니다.
+              </div>
+            )}
           </div>
         </div>
       )}

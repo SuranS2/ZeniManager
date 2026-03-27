@@ -756,6 +756,10 @@ export interface DashboardStats {
   inProgress: number;
   employed: number;
   followUpNeeded: number;
+  averageScore: number | null;
+  scoredClients: number;
+  unscoredClients: number;
+  scoreDistribution: { range: string; count: number }[];
   stageBreakdown: { stage: string; count: number }[];
 }
 
@@ -794,6 +798,21 @@ function compareDashboardStage(a: string, b: string): number {
   if (aIndex >= 0) return -1;
   if (bIndex >= 0) return 1;
   return a.localeCompare(b, 'ko');
+}
+
+const DASHBOARD_SCORE_RANGES = [
+  { label: '0-59', min: 0, max: 59 },
+  { label: '60-69', min: 60, max: 69 },
+  { label: '70-79', min: 70, max: 79 },
+  { label: '80-89', min: 80, max: 89 },
+  { label: '90-100', min: 90, max: 100 },
+];
+
+function buildDashboardScoreDistribution(scores: number[]): { range: string; count: number }[] {
+  return DASHBOARD_SCORE_RANGES.map(range => ({
+    range: range.label,
+    count: scores.filter(score => score >= range.min && score <= range.max).length,
+  }));
 }
 
 function formatDashboardMonthLabel(monthKey: string): string {
@@ -878,7 +897,7 @@ export async function fetchDashboardStats(authUserId?: string): Promise<Dashboar
 
   let query = sb()
     .from('client')
-    .select('participation_stage');
+    .select('participation_stage, retest_stat');
 
   if (scopedAuthUserId) {
     query = query.eq('counselor_id', scopedAuthUserId);
@@ -888,8 +907,11 @@ export async function fetchDashboardStats(authUserId?: string): Promise<Dashboar
 
   if (error) throw error;
 
-  const rows = (data ?? []) as Array<{ participation_stage: string | null }>;
+  const rows = (data ?? []) as Array<{ participation_stage: string | null; retest_stat: number | null }>;
   const stageCounts = new Map<string, number>();
+  const scores = rows
+    .map(row => (typeof row.retest_stat === 'number' ? row.retest_stat : null))
+    .filter((score): score is number => score != null);
 
   rows.forEach(row => {
     const stage = row.participation_stage?.trim();
@@ -906,6 +928,10 @@ export async function fetchDashboardStats(authUserId?: string): Promise<Dashboar
     inProgress: rows.filter(row => row.participation_stage !== '취업완료').length,
     employed: rows.filter(row => row.participation_stage === '취업완료').length,
     followUpNeeded: rows.filter(row => row.participation_stage === '사후관리').length,
+    averageScore: scores.length > 0 ? Number((scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(1)) : null,
+    scoredClients: scores.length,
+    unscoredClients: rows.length - scores.length,
+    scoreDistribution: buildDashboardScoreDistribution(scores),
     stageBreakdown,
   };
 }
