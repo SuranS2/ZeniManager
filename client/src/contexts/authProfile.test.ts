@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ROLE_ADMIN, ROLE_COUNSELOR } from '@shared/const';
 import {
+  buildAuthSchemaFallbackUser,
   buildFallbackUser,
   mapCounselorProfileToUser,
   normalizeLoginEmail,
@@ -38,7 +39,7 @@ describe('authProfile', () => {
       branch: null,
       role: ROLE_ADMIN,
     });
-    const profile = await resolveCounselorProfile(
+    const result = await resolveCounselorProfile(
       {
         authUserId: 'auth-admin-1',
         email: 'senior@test.com',
@@ -55,8 +56,25 @@ describe('authProfile', () => {
       ],
     );
 
-    expect(profile?.role).toBe(ROLE_ADMIN);
+    expect(result.profile?.role).toBe(ROLE_ADMIN);
+    expect(result.hadLookupError).toBe(false);
     expect(legacyLookup).toHaveBeenCalledOnce();
+  });
+
+  it('marks lookup failure when every strategy errors or misses', async () => {
+    const result = await resolveCounselorProfile(
+      {
+        authUserId: 'auth-user-1',
+        email: 'counselor@test.com',
+      },
+      [
+        vi.fn().mockRejectedValue(new Error('network error')),
+        vi.fn().mockResolvedValue(null),
+      ],
+    );
+
+    expect(result.profile).toBeNull();
+    expect(result.hadLookupError).toBe(true);
   });
 
   it('uses counselor fallback when no profile can be resolved', () => {
@@ -67,5 +85,31 @@ describe('authProfile', () => {
 
     expect(user.role).toBe(ROLE_COUNSELOR);
     expect(user.name).toBe('counselor');
+  });
+
+  it('maps known auth-only email accounts when profile tables are unavailable', () => {
+    const adminUser = buildAuthSchemaFallbackUser({
+      authUserId: 'auth-admin-1',
+      email: 'senior@test.com',
+    });
+    const counselorUser = buildAuthSchemaFallbackUser({
+      authUserId: 'auth-user-1',
+      email: 'counselor@test.com',
+    });
+
+    expect(adminUser?.role).toBe(ROLE_ADMIN);
+    expect(adminUser?.name).toBe('관리자');
+    expect(counselorUser?.role).toBe(ROLE_COUNSELOR);
+    expect(counselorUser?.name).toBe('김상담');
+    expect(counselorUser?.counselorId).toBe('c001');
+  });
+
+  it('does not allow unknown auth-only accounts without a profile row', () => {
+    const user = buildAuthSchemaFallbackUser({
+      authUserId: 'auth-user-1',
+      email: 'someone@test.com',
+    });
+
+    expect(user).toBeNull();
   });
 });

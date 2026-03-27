@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
+  ROLE_ADMIN,
   normalizeAppRole,
   ROLE_COUNSELOR,
   type AppRole,
@@ -26,10 +27,34 @@ export interface AuthenticatedUserProfile {
   counselorId?: string;
 }
 
+export interface CounselorProfileResolution {
+  profile: CounselorProfileRecord | null;
+  hadLookupError: boolean;
+}
+
 type SupabaseLike = Pick<SupabaseClient, 'from' | 'rpc'>;
 export type ProfileLookup = (
   identity: UserIdentity,
 ) => Promise<CounselorProfileRecord | null>;
+
+const AUTH_EMAIL_FALLBACKS: Record<string, {
+  name: string;
+  role: AppRole;
+  branch?: string;
+  counselorId?: string;
+}> = {
+  'senior@test.com': {
+    name: '관리자',
+    role: ROLE_ADMIN,
+    branch: '본사',
+  },
+  'counselor@test.com': {
+    name: '김상담',
+    role: ROLE_COUNSELOR,
+    branch: '서울 강남지점',
+    counselorId: 'c001',
+  },
+};
 
 export function normalizeLoginEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -60,22 +85,48 @@ export function buildFallbackUser(
   };
 }
 
+export function buildAuthSchemaFallbackUser(
+  identity: UserIdentity,
+): AuthenticatedUserProfile | null {
+  const mapped = AUTH_EMAIL_FALLBACKS[identity.email];
+  if (!mapped) {
+    return null;
+  }
+
+  return {
+    id: identity.authUserId,
+    name: mapped.name,
+    email: identity.email,
+    role: mapped.role,
+    branch: mapped.branch,
+    counselorId: mapped.counselorId,
+  };
+}
+
 export async function resolveCounselorProfile(
   identity: UserIdentity,
   lookups: ProfileLookup[],
-): Promise<CounselorProfileRecord | null> {
+): Promise<CounselorProfileResolution> {
+  let hadLookupError = false;
+
   for (const lookup of lookups) {
     try {
       const profile = await lookup(identity);
       if (profile) {
-        return profile;
+        return {
+          profile,
+          hadLookupError,
+        };
       }
     } catch {
-      // Fall through so older environments can continue to the next strategy.
+      hadLookupError = true;
     }
   }
 
-  return null;
+  return {
+    profile: null,
+    hadLookupError,
+  };
 }
 
 export function createCounselorProfileLookups(
