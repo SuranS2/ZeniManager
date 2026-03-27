@@ -194,13 +194,10 @@ export type SessionInsert = Omit<SessionRow, 'id' | 'created_at'> & { id?: strin
 export interface CounselorRow {
   id: string;
   name: string;
-  email: string | null;
-  phone: string | null;
   department: string | null;
   client_count: number;
   completed_count: number;
   joined_at: string | null;
-  status: '재직' | '휴직' | '퇴직' | null;
   role: 'counselor' | 'admin' | null;
   auth_user_id: string | null;
   created_at: string;
