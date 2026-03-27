@@ -460,7 +460,7 @@ export async function fetchMemoCards(counselorId: string): Promise<MemoCardRow[]
             client_name: card.clientName ?? null,
             sort_order: idx,
             created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
+            update_at: new Date().toISOString(),
           });
         });
       });
