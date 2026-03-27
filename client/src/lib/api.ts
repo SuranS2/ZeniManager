@@ -1,4 +1,4 @@
-/**
+﻿/**
  * api.ts — Supabase data access layer
  * All functions read credentials from localStorage at call time.
  * Falls back to mock data when Supabase is not configured.
@@ -13,7 +13,7 @@ import type {
 } from './supabase';
 import {
   MOCK_CLIENTS, MOCK_COUNSELORS, INITIAL_KANBAN,
-  type Client, type Counselor, type Session, type KanbanColumn, type MemoCard,
+  type Client, type Counselor, type Session,
 } from './mockData';
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
@@ -24,18 +24,119 @@ function sb() {
   return client;
 }
 
+const SESSION_META_MARKER = '\n\n[__CALENDAR_FLOW_META__]\n';
+
+type LiveClientRecord = {
+  client_id: number;
+  client_name: string;
+  counselor_id: string | null;
+  age: number | null;
+  gender_code: string | null;
+  phone_encrypted: string | null;
+  education_level: string | null;
+  school_name: string | null;
+  major: string | null;
+  business_type_code: number | null;
+  participation_type: string | null;
+  participation_stage: string | null;
+  desired_job_1: string | null;
+  hire_type: string | null;
+  job_place_start: string | null;
+  job_place_end: string | null;
+  created_at: string | null;
+  update_at: string | null;
+};
+
+type LiveCounselHistoryRecord = {
+  counsel_id: number;
+  client_id: number;
+  user_id: string | null;
+  counsel_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  session_number: number | null;
+  counselor_opinion: string | null;
+  create_at: string | null;
+};
+
+function normalizeMockCounselorId(counselorId?: string): string | undefined {
+  if (!counselorId) return undefined;
+  const demoMatch = counselorId.match(/^demo-(c\d+)$/);
+  return demoMatch?.[1] ?? counselorId;
+}
+
+function encodeSessionPayload(type: string, content: string, nextAction?: string | null): string {
+  const meta = JSON.stringify({ type, nextAction: nextAction || null });
+  return `${content}${SESSION_META_MARKER}${meta}`;
+}
+
+function decodeSessionPayload(
+  rawContent: string | null | undefined,
+  fallbackType?: string | null,
+): { content: string | null; type: string; nextAction: string | null } {
+  if (!rawContent) {
+    return { content: null, type: fallbackType || '상담기록', nextAction: null };
+  }
+
+  const markerIndex = rawContent.indexOf(SESSION_META_MARKER);
+  if (markerIndex < 0) {
+    return { content: rawContent, type: fallbackType || '상담기록', nextAction: null };
+  }
+
+  const content = rawContent.slice(0, markerIndex);
+  const metaRaw = rawContent.slice(markerIndex + SESSION_META_MARKER.length);
+
+  try {
+    const meta = JSON.parse(metaRaw) as { type?: string; nextAction?: string | null };
+    return {
+      content,
+      type: meta.type || fallbackType || '상담기록',
+      nextAction: meta.nextAction || null,
+    };
+  } catch {
+    return { content: rawContent, type: fallbackType || '상담기록', nextAction: null };
+  }
+}
+
 // ─── Clients ─────────────────────────────────────────────────────────────────
 
 export async function fetchClients(counselorId?: string): Promise<ClientRow[]> {
   if (!isSupabaseConfigured()) {
-    // Return mock data mapped to ClientRow shape
-    return MOCK_CLIENTS.map(c => mockClientToRow(c));
+    const normalizedCounselorId = normalizeMockCounselorId(counselorId);
+    return MOCK_CLIENTS
+      .filter(c => !normalizedCounselorId || c.counselorId === normalizedCounselorId)
+      .map(c => mockClientToRow(c));
   }
-  let q = sb().from('clients').select('*').order('created_at', { ascending: false });
+
+  let q = sb()
+    .from('client')
+    .select(`
+      client_id,
+      client_name,
+      counselor_id,
+      age,
+      gender_code,
+      phone_encrypted,
+      education_level,
+      school_name,
+      major,
+      business_type_code,
+      participation_type,
+      participation_stage,
+      desired_job_1,
+      hire_type,
+      job_place_start,
+      job_place_end,
+      created_at,
+      update_at
+    `)
+    .order('created_at', { ascending: false });
+
   if (counselorId) q = q.eq('counselor_id', counselorId);
+
   const { data, error } = await q;
   if (error) throw error;
-  return data ?? [];
+  return ((data ?? []) as LiveClientRecord[]).map(row => liveClientToRow(row));
 }
 
 export async function fetchClientById(id: string): Promise<ClientRow | null> {
@@ -43,9 +144,37 @@ export async function fetchClientById(id: string): Promise<ClientRow | null> {
     const c = MOCK_CLIENTS.find(c => c.id === id);
     return c ? mockClientToRow(c) : null;
   }
-  const { data, error } = await sb().from('clients').select('*').eq('id', id).single();
+
+  const numericId = Number(id);
+  if (Number.isNaN(numericId)) return null;
+
+  const { data, error } = await sb()
+    .from('client')
+    .select(`
+      client_id,
+      client_name,
+      counselor_id,
+      age,
+      gender_code,
+      phone_encrypted,
+      education_level,
+      school_name,
+      major,
+      business_type_code,
+      participation_type,
+      participation_stage,
+      desired_job_1,
+      hire_type,
+      job_place_start,
+      job_place_end,
+      created_at,
+      update_at
+    `)
+    .eq('client_id', numericId)
+    .single();
+
   if (error) throw error;
-  return data;
+  return liveClientToRow(data as LiveClientRecord);
 }
 
 export async function createClient(input: ClientInsert): Promise<ClientRow> {
@@ -80,25 +209,51 @@ export async function fetchSessions(clientId: string): Promise<SessionRow[]> {
     const c = MOCK_CLIENTS.find(c => c.id === clientId);
     return (c?.sessions ?? []).map(s => mockSessionToRow(s, clientId));
   }
+
+  const numericClientId = Number(clientId);
+  if (Number.isNaN(numericClientId)) return [];
+
   const { data, error } = await sb()
-    .from('sessions')
-    .select('*')
-    .eq('client_id', clientId)
-    .order('date', { ascending: false });
+    .from('counsel_history')
+    .select('counsel_id, client_id, user_id, counsel_date, start_time, end_time, session_number, counselor_opinion, create_at')
+    .eq('client_id', numericClientId)
+    .order('counsel_date', { ascending: false })
+    .order('start_time', { ascending: false });
+
   if (error) throw error;
-  return data ?? [];
+  return ((data ?? []) as LiveCounselHistoryRecord[]).map(row => liveCounselHistoryToSessionRow(row));
 }
 
 export async function createSession(input: SessionInsert): Promise<SessionRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { data, error } = await sb().from('sessions').insert(input).select().single();
+
+  const numericClientId = Number(input.client_id);
+  if (Number.isNaN(numericClientId)) throw new Error('유효한 상담자 ID가 아닙니다.');
+  if (!input.counselor_id) throw new Error('로그인한 상담사 정보가 없습니다.');
+
+  const payload = {
+    client_id: numericClientId,
+    user_id: input.counselor_id,
+    counsel_date: input.date,
+    create_at: input.date,
+    counselor_opinion: encodeSessionPayload(input.type, input.content || '', input.next_action),
+  };
+
+  const { data, error } = await sb()
+    .from('counsel_history')
+    .insert(payload)
+    .select('counsel_id, client_id, user_id, counsel_date, start_time, end_time, session_number, counselor_opinion, create_at')
+    .single();
+
   if (error) throw error;
-  return data;
+  return liveCounselHistoryToSessionRow(data as LiveCounselHistoryRecord);
 }
 
 export async function deleteSession(id: string): Promise<void> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { error } = await sb().from('sessions').delete().eq('id', id);
+  const counselId = Number(id);
+  if (Number.isNaN(counselId)) throw new Error('유효한 상담 이력 ID가 아닙니다.');
+  const { error } = await sb().from('counsel_history').delete().eq('counsel_id', counselId);
   if (error) throw error;
 }
 
@@ -182,11 +337,13 @@ export async function fetchMemoCards(counselorId: string): Promise<MemoCardRow[]
     });
     return all;
   }
+
   const { data, error } = await sb()
     .from('memo_cards')
     .select('*')
     .eq('counselor_id', counselorId)
     .order('sort_order');
+
   if (error) throw error;
   return data ?? [];
 }
@@ -218,10 +375,21 @@ export interface DashboardStats {
   stageBreakdown: { stage: string; count: number }[];
 }
 
+export interface DashboardCalendarEntry {
+  counselId: string;
+  clientId: string;
+  clientName: string;
+  counselDate: string;
+  startTime: string | null;
+  endTime: string | null;
+  participationStage: string | null;
+}
+
 export async function fetchDashboardStats(counselorId?: string): Promise<DashboardStats> {
   if (!isSupabaseConfigured()) {
-    const clients = counselorId
-      ? MOCK_CLIENTS.filter(c => c.counselorId === counselorId)
+    const normalizedCounselorId = normalizeMockCounselorId(counselorId);
+    const clients = normalizedCounselorId
+      ? MOCK_CLIENTS.filter(c => c.counselorId === normalizedCounselorId)
       : MOCK_CLIENTS;
     const stages = ['초기상담', '심층상담', '취업지원', '취업완료', '사후관리'];
     return {
@@ -233,7 +401,7 @@ export async function fetchDashboardStats(counselorId?: string): Promise<Dashboa
     };
   }
 
-  let q = sb().from('clients').select('participation_stage, follow_up, employment_type');
+  let q = sb().from('client').select('participation_stage, hire_type');
   if (counselorId) q = q.eq('counselor_id', counselorId);
   const { data, error } = await q;
   if (error) throw error;
@@ -243,13 +411,127 @@ export async function fetchDashboardStats(counselorId?: string): Promise<Dashboa
   return {
     totalClients: rows.length,
     inProgress: rows.filter(r => r.participation_stage !== '취업완료').length,
-    employed: rows.filter(r => r.employment_type != null).length,
-    followUpNeeded: rows.filter(r => r.follow_up).length,
+    employed: rows.filter(r => r.hire_type != null).length,
+    followUpNeeded: 0,
     stageBreakdown: stages.map(s => ({
       stage: s,
       count: rows.filter(r => r.participation_stage === s).length,
     })),
   };
+}
+
+export async function fetchDashboardCalendarMonthCounts(
+  authUserId: string,
+  monthStart: string,
+  monthEnd: string,
+): Promise<Record<string, number>> {
+  if (!isSupabaseConfigured()) {
+    const normalizedCounselorId = normalizeMockCounselorId(authUserId);
+    return MOCK_CLIENTS
+      .filter(c => !normalizedCounselorId || c.counselorId === normalizedCounselorId)
+      .flatMap(c => c.sessions.map(s => ({ date: s.date })))
+      .filter(s => s.date >= monthStart && s.date <= monthEnd)
+      .reduce<Record<string, number>>((acc, row) => {
+        acc[row.date] = (acc[row.date] ?? 0) + 1;
+        return acc;
+      }, {});
+  }
+
+  const { data: histories, error } = await sb()
+    .from('counsel_history')
+    .select('client_id, counsel_date')
+    .eq('user_id', authUserId)
+    .gte('counsel_date', monthStart)
+    .lte('counsel_date', monthEnd);
+
+  if (error) throw error;
+
+  const clientIds = Array.from(
+    new Set((histories ?? []).map(row => row.client_id).filter((id): id is number => typeof id === 'number')),
+  );
+  if (clientIds.length === 0) return {};
+
+  const { data: clients, error: clientError } = await sb()
+    .from('client')
+    .select('client_id')
+    .eq('counselor_id', authUserId)
+    .in('client_id', clientIds);
+
+  if (clientError) throw clientError;
+
+  const allowedClientIds = new Set((clients ?? []).map(row => row.client_id));
+
+  return (histories ?? []).reduce<Record<string, number>>((acc, row) => {
+    if (!row.counsel_date || !allowedClientIds.has(row.client_id)) return acc;
+    acc[row.counsel_date] = (acc[row.counsel_date] ?? 0) + 1;
+    return acc;
+  }, {});
+}
+
+export async function fetchDashboardCalendarEntries(
+  authUserId: string,
+  rangeStart: string,
+  rangeEnd: string,
+): Promise<DashboardCalendarEntry[]> {
+  if (!isSupabaseConfigured()) {
+    const normalizedCounselorId = normalizeMockCounselorId(authUserId);
+    return MOCK_CLIENTS
+      .filter(c => !normalizedCounselorId || c.counselorId === normalizedCounselorId)
+      .flatMap(c => c.sessions
+        .filter(s => s.date >= rangeStart && s.date <= rangeEnd)
+        .map(s => ({
+          counselId: s.id,
+          clientId: c.id,
+          clientName: c.name,
+          counselDate: s.date,
+          startTime: null,
+          endTime: null,
+          participationStage: c.processStage,
+        })))
+      .sort((a, b) => `${b.counselDate}${b.startTime ?? ''}`.localeCompare(`${a.counselDate}${a.startTime ?? ''}`));
+  }
+
+  const { data: histories, error } = await sb()
+    .from('counsel_history')
+    .select('counsel_id, client_id, counsel_date, start_time, end_time')
+    .eq('user_id', authUserId)
+    .gte('counsel_date', rangeStart)
+    .lte('counsel_date', rangeEnd)
+    .order('counsel_date', { ascending: false })
+    .order('start_time', { ascending: false });
+
+  if (error) throw error;
+
+  const clientIds = Array.from(
+    new Set((histories ?? []).map(row => row.client_id).filter((id): id is number => typeof id === 'number')),
+  );
+  if (clientIds.length === 0) return [];
+
+  const { data: clients, error: clientError } = await sb()
+    .from('client')
+    .select('client_id, client_name, counselor_id, participation_stage')
+    .eq('counselor_id', authUserId)
+    .in('client_id', clientIds);
+
+  if (clientError) throw clientError;
+
+  const clientMap = new Map((clients ?? []).map(client => [client.client_id, client]));
+
+  return (histories ?? [])
+    .map(row => {
+      const client = row.client_id != null ? clientMap.get(row.client_id) : undefined;
+      if (!client || !row.counsel_date) return null;
+      return {
+        counselId: String(row.counsel_id),
+        clientId: String(client.client_id),
+        clientName: client.client_name,
+        counselDate: row.counsel_date,
+        startTime: row.start_time,
+        endTime: row.end_time,
+        participationStage: client.participation_stage,
+      } satisfies DashboardCalendarEntry;
+    })
+    .filter((row): row is DashboardCalendarEntry => row !== null);
 }
 
 // ─── Mock → Row converters ────────────────────────────────────────────────────
@@ -320,6 +602,77 @@ function mockClientToRow(c: Client): ClientRow {
   };
 }
 
+function liveClientToRow(row: LiveClientRecord): ClientRow {
+  const createdAt = row.created_at ?? new Date().toISOString();
+  const updatedAt = row.update_at
+    ? new Date(`${row.update_at}T00:00:00`).toISOString()
+    : createdAt;
+
+  return {
+    id: String(row.client_id),
+    seq_no: row.client_id ?? null,
+    year: createdAt ? new Date(createdAt).getFullYear() : null,
+    assignment_type: null,
+    name: row.client_name,
+    resident_id_masked: null,
+    phone: row.phone_encrypted ?? null,
+    last_counsel_date: null,
+    age: row.age ?? null,
+    gender: row.gender_code === 'M' ? '남' : row.gender_code === 'F' ? '여' : null,
+    business_type: row.business_type_code != null ? String(row.business_type_code) : null,
+    participation_type: row.participation_type ?? null,
+    participation_stage: row.participation_stage ?? null,
+    competency_grade: null,
+    recognition_date: null,
+    desired_job: row.desired_job_1 ?? null,
+    counsel_notes: null,
+    address: null,
+    school: row.school_name ?? null,
+    major: row.major ?? null,
+    education_level: row.education_level ?? null,
+    initial_counsel_date: createdAt ? createdAt.split('T')[0] : null,
+    iap_date: null,
+    iap_duration: null,
+    allowance_apply_date: null,
+    rediagnosis_date: null,
+    rediagnosis_yn: null,
+    work_exp_type: null,
+    work_exp_intent: null,
+    work_exp_company: null,
+    work_exp_period: null,
+    work_exp_completed: null,
+    training_name: null,
+    training_start: null,
+    training_end: row.job_place_end ?? null,
+    training_allowance: null,
+    intensive_start: null,
+    intensive_end: null,
+    support_end_date: null,
+    employment_type: row.hire_type ?? null,
+    employment_date: row.job_place_start ?? null,
+    employer: null,
+    job_title: null,
+    salary: null,
+    employment_duration: null,
+    resignation_date: null,
+    retention_1m_date: null,
+    retention_1m_yn: null,
+    retention_6m_date: null,
+    retention_6m_yn: null,
+    retention_12m_date: null,
+    retention_12m_yn: null,
+    retention_18m_date: null,
+    retention_18m_yn: null,
+    counselor_name: null,
+    counselor_id: row.counselor_id ?? null,
+    branch: null,
+    follow_up: false,
+    score: null,
+    created_at: createdAt,
+    updated_at: updatedAt,
+  };
+}
+
 function mockSessionToRow(s: Session, clientId: string): SessionRow {
   return {
     id: s.id,
@@ -331,6 +684,25 @@ function mockSessionToRow(s: Session, clientId: string): SessionRow {
     counselor_id: null,
     next_action: s.nextAction ?? null,
     created_at: s.date,
+  };
+}
+
+function liveCounselHistoryToSessionRow(row: LiveCounselHistoryRecord): SessionRow {
+  const decoded = decodeSessionPayload(
+    row.counselor_opinion,
+    row.session_number != null ? `${row.session_number}회차` : '상담기록',
+  );
+
+  return {
+    id: String(row.counsel_id),
+    client_id: String(row.client_id),
+    date: row.counsel_date,
+    type: decoded.type,
+    content: decoded.content,
+    counselor_name: null,
+    counselor_id: row.user_id ?? null,
+    next_action: decoded.nextAction,
+    created_at: row.create_at ?? row.counsel_date,
   };
 }
 
