@@ -28,11 +28,18 @@ import {
 } from 'recharts';
 import {
   Users, TrendingUp, CheckCircle2, Search, X, ChevronLeft, ChevronRight,
-  AlertCircle, Calendar as CalendarIcon, StickyNote, Loader2, RefreshCw,
+  AlertCircle, Calendar as CalendarIcon, StickyNote, Loader2, RefreshCw, BarChart3,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const PRIMARY_HEX = '#009C64';
+const SCORE_RANGE_FALLBACK = [
+  { range: '0-59', count: 0 },
+  { range: '60-69', count: 0 },
+  { range: '70-79', count: 0 },
+  { range: '80-89', count: 0 },
+  { range: '90-100', count: 0 },
+];
 
 type CalendarRangeMode = 'today' | 'week' | 'selected-period';
 type DashboardTab = 'overview' | 'calendar' | 'memo';
@@ -248,7 +255,7 @@ function LiveCalendar({
               key={cell.key}
               type="button"
               onClick={() => onSelectDate(cell.key, cell.date)}
-              className={`min-h-[52px] rounded-sm border p-1.5 text-left transition-colors xl:min-h-[78px] xl:p-2.5 2xl:min-h-[117px] 2xl:rounded-md 2xl:p-3.5 ${
+              className={`relative min-h-[52px] overflow-hidden rounded-sm border p-1.5 text-left transition-colors xl:min-h-[78px] xl:p-2.5 2xl:min-h-[117px] 2xl:rounded-md 2xl:p-3.5 ${
                 cell.isCurrentMonth ? 'bg-background hover:bg-muted/40' : 'bg-muted/20 hover:bg-muted/40'
               }`}
               style={{
@@ -257,25 +264,25 @@ function LiveCalendar({
               }}
               aria-pressed={isSelected}
             >
-              <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start justify-between gap-1">
                 <span
                   className={`text-xs font-medium xl:text-sm 2xl:text-lg ${
                     !cell.isCurrentMonth
                       ? 'text-muted-foreground/60'
                       : isToday
-                        ? 'rounded-sm px-1.5 py-0.5 text-white xl:px-2 xl:py-1 2xl:px-2.5 2xl:py-1.5'
+                        ? 'font-semibold'
                         : status === 'past'
                           ? 'text-muted-foreground'
                           : 'text-foreground'
                   }`}
-                  style={isToday ? { background: PRIMARY_HEX } : undefined}
+                  style={isToday ? { color: PRIMARY_HEX } : undefined}
                 >
                   {cell.date.getDate()}
                 </span>
 
                 {count > 0 && cell.isCurrentMonth && (
                   <span
-                    className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold xl:px-2 xl:py-1 xl:text-xs 2xl:px-2.5 2xl:py-1.5 2xl:text-sm"
+                    className="inline-flex min-h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full px-1 py-0.5 text-[10px] font-semibold xl:min-h-[20px] xl:min-w-[20px] xl:px-1.5 xl:py-0.5 xl:text-[11px] 2xl:min-h-[24px] 2xl:min-w-[24px] 2xl:px-2 2xl:py-1 2xl:text-sm"
                     style={{
                       color: PRIMARY_HEX,
                       background: 'rgba(0, 156, 100, 0.10)',
@@ -717,6 +724,11 @@ export default function CounselorDashboard() {
   const completedClients = stats?.employed ?? 0;
   const pendingClients = stats?.followUpNeeded ?? 0;
   const activeProcesses = stats?.inProgress ?? 0;
+  const averageScore = stats?.averageScore ?? null;
+  const scoredClients = stats?.scoredClients ?? 0;
+  const unscoredClients = stats?.unscoredClients ?? 0;
+  const scoreDistribution = stats?.scoreDistribution ?? SCORE_RANGE_FALLBACK;
+  const hasScoreDistribution = scoreDistribution.some(item => item.count > 0);
 
   const processStages = stats?.stageBreakdown ?? [
     { stage: '초기상담', count: 0 },
@@ -760,7 +772,7 @@ export default function CounselorDashboard() {
           type="text"
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
-          placeholder="피상담자 검색 (이름, 전화번호, 희망직종...)"
+          placeholder="피상담자 검색 (이름, 연락처, 희망직종)"
           className="w-full pl-9 pr-4 py-2.5 rounded-sm border border-input bg-card text-sm focus:outline-none focus:ring-2 focus:ring-ring shadow-sm"
         />
         {searchQuery && (
@@ -775,20 +787,20 @@ export default function CounselorDashboard() {
           {searching ? (
             <div className="flex items-center justify-center p-4">
               <Loader2 size={16} className="animate-spin text-muted-foreground mr-2" />
-              <span className="text-sm text-muted-foreground">검색 중...</span>
+              <span className="text-sm text-muted-foreground">검색 결과를 불러오는 중...</span>
             </div>
           ) : searchError ? (
             <div className="p-4 text-sm text-destructive text-center">{searchError}</div>
           ) : searchResults.length === 0 ? (
-            <div className="p-4 text-sm text-muted-foreground text-center">검색 결과가 없습니다.</div>
+            <div className="p-4 text-sm text-muted-foreground text-center">일치하는 피상담자가 없습니다.</div>
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">이름</th>
                   <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">연락처</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">담당 상담사</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">단계</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">희망직종</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">현재 단계</th>
                 </tr>
               </thead>
               <tbody>
@@ -803,7 +815,7 @@ export default function CounselorDashboard() {
                   >
                     <td className="px-4 py-2.5 font-medium">{c.name}</td>
                     <td className="px-4 py-2.5 text-muted-foreground">{c.phone || '-'}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{c.counselor_name || '-'}</td>
+                    <td className="px-4 py-2.5 text-muted-foreground">{c.desired_job || '-'}</td>
                     <td className="px-4 py-2.5">
                       <span className="badge-active">{c.participation_stage || '-'}</span>
                     </td>
@@ -868,6 +880,44 @@ export default function CounselorDashboard() {
         )}
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {statsLoading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="stat-card animate-pulse">
+              <div className="w-10 h-10 rounded-sm bg-muted" />
+              <div className="flex-1 space-y-2">
+                <div className="h-3 bg-muted rounded w-2/3" />
+                <div className="h-6 bg-muted rounded w-1/2" />
+              </div>
+            </div>
+          ))
+        ) : (
+          <>
+            <StatCard
+              icon={<BarChart3 size={18} color={PRIMARY_HEX} />}
+              label="평균 점수"
+              value={averageScore != null ? `${averageScore}점` : '-'}
+              sub={scoredClients > 0 ? `입력된 ${scoredClients}명 기준` : '입력된 점수 없음'}
+              color="oklch(0.93 0.03 162.5)"
+            />
+            <StatCard
+              icon={<CheckCircle2 size={18} color="#4299E1" />}
+              label="점수 입력 완료"
+              value={scoredClients}
+              sub={totalClients > 0 ? `입력률 ${Math.round((scoredClients / totalClients) * 100)}%` : '-'}
+              color="oklch(0.92 0.04 240)"
+            />
+            <StatCard
+              icon={<AlertCircle size={18} color="#F6AD55" />}
+              label="점수 미확정"
+              value={unscoredClients}
+              sub={totalClients > 0 ? `전체 대비 ${Math.round((unscoredClients / totalClients) * 100)}%` : '-'}
+              color="oklch(0.95 0.06 85)"
+            />
+          </>
+        )}
+      </div>
+
       <div className="flex gap-2 overflow-x-auto border-b border-border pb-px">
         {[
           { id: 'overview', label: '현황', icon: <TrendingUp size={14} /> },
@@ -897,15 +947,15 @@ export default function CounselorDashboard() {
             </div>
           )}
           <div className="lg:col-span-2 bg-card rounded-md p-5 shadow-sm border border-border">
-            <h3 className="text-sm font-semibold text-foreground mb-4">월별 상담 현황</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-4">월별 세션/진행 인원</h3>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={monthlyStats} barSize={14}>
                 <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.88 0.008 75)" vertical={false} />
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'oklch(0.55 0.015 65)' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: 'oklch(0.55 0.015 65)' }} axisLine={false} tickLine={false} />
                 <Tooltip contentStyle={{ borderRadius: '6px', border: '1px solid oklch(0.88 0.008 75)', fontSize: '12px' }} />
-                <Bar dataKey="clients" name="상담자" fill={PRIMARY_HEX} radius={[3, 3, 0, 0]} />
-                <Bar dataKey="completed" name="취업완료" fill="#4299E1" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="sessions" name="세션 수" fill={PRIMARY_HEX} radius={[3, 3, 0, 0]} />
+                <Bar dataKey="clients" name="상담 진행 인원" fill="#4299E1" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -949,22 +999,41 @@ export default function CounselorDashboard() {
           </div>
 
           <div className="lg:col-span-3 bg-card rounded-md p-5 shadow-sm border border-border">
-            <h3 className="text-sm font-semibold text-foreground mb-4">상담 세션 추이</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-4">월별 상담 진행 인원 추이</h3>
             <ResponsiveContainer width="100%" height={160}>
               <AreaChart data={monthlyStats}>
                 <defs>
-                  <linearGradient id="sessionGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={PRIMARY_HEX} stopOpacity={0.15} />
-                    <stop offset="95%" stopColor={PRIMARY_HEX} stopOpacity={0} />
+                  <linearGradient id="clientGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#4299E1" stopOpacity={0.18} />
+                    <stop offset="95%" stopColor="#4299E1" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.88 0.008 75)" vertical={false} />
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'oklch(0.55 0.015 65)' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: 'oklch(0.55 0.015 65)' }} axisLine={false} tickLine={false} />
                 <Tooltip contentStyle={{ borderRadius: '6px', border: '1px solid oklch(0.88 0.008 75)', fontSize: '12px' }} />
-                <Area type="monotone" dataKey="sessions" name="세션 수" stroke={PRIMARY_HEX} strokeWidth={2} fill="url(#sessionGrad)" />
+                <Area type="monotone" dataKey="clients" name="상담 진행 인원" stroke="#4299E1" strokeWidth={2} fill="url(#clientGrad)" />
               </AreaChart>
             </ResponsiveContainer>
+          </div>
+
+          <div className="lg:col-span-3 bg-card rounded-md p-5 shadow-sm border border-border">
+            <h3 className="text-sm font-semibold text-foreground mb-4">점수 구간별 분포</h3>
+            {hasScoreDistribution ? (
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={scoreDistribution} barSize={32}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.88 0.008 75)" vertical={false} />
+                  <XAxis dataKey="range" tick={{ fontSize: 11, fill: 'oklch(0.55 0.015 65)' }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'oklch(0.55 0.015 65)' }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ borderRadius: '6px', border: '1px solid oklch(0.88 0.008 75)', fontSize: '12px' }} />
+                  <Bar dataKey="count" name="상담자 수" fill={PRIMARY_HEX} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-[180px] items-center justify-center rounded-sm border border-dashed border-border bg-muted/10 text-sm text-muted-foreground">
+                입력된 점수 데이터가 없습니다.
+              </div>
+            )}
           </div>
         </div>
       )}
