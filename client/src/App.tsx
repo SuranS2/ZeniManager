@@ -82,6 +82,8 @@ function AppRoutes() {
       <Route path="/clients/list">
         <GuardedRoute component={ClientList} requirement="counselor" />
       </Route>
+      {/* 수정된 부분: CounselorRoute -> GuardedRoute 
+      */}
       <Route path="/clients/detail/:id">
         <GuardedRoute component={ClientDetail} />
       </Route>
