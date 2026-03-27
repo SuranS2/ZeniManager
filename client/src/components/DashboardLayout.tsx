@@ -3,7 +3,7 @@
  * Design: 모던 웰니스 미니멀리즘
  * Primary: #009C64 | Background: #F0EEE9
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { isAdminRole } from '@shared/const';
 import { useAuth } from '@/contexts/AuthContext';
@@ -48,7 +48,7 @@ const counselorNav: NavItem[] = [
     label: '업무 대시보드',
     icon: <LayoutDashboard size={17} />,
     children: [
-      { label: '피상담자 목록 열기', path: '/clients/list', icon: <ChevronRight size={14} /> },
+      { label: '상담자 목록 열기', path: '/clients/list', icon: <ChevronRight size={14} /> },
       { label: '상담자 검색', path: '/dashboard/search', icon: <ChevronRight size={14} /> },
       { label: '프로세스 현황', path: '/dashboard/process', icon: <ChevronRight size={14} /> },
       { label: '캘린더', path: '/dashboard/calendar', icon: <ChevronRight size={14} /> },
@@ -98,6 +98,11 @@ function NavGroup({ item, depth = 0 }: { item: NavItem; depth?: number }) {
   const isActive = item.path === location;
   const hasChildren = item.children && item.children.length > 0;
   const hasActiveChild = Boolean(hasChildren && item.children?.some(child => hasMatchingPath(child, location)));
+
+  useEffect(() => {
+    if (!hasChildren) return;
+    setOpen(hasActiveChild);
+  }, [hasChildren, hasActiveChild]);
 
   if (!hasChildren && item.path) {
     return (
