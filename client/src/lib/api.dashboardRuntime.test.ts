@@ -20,6 +20,7 @@ import {
   fetchDashboardCalendarEntries,
   fetchDashboardCalendarMonthCounts,
   fetchDashboardMonthlyStats,
+  fetchDashboardStats,
   fetchMyMemo,
   searchDashboardClients,
   updateMyMemo,
@@ -265,6 +266,46 @@ describe('dashboard runtime APIs', () => {
     expect(result).toHaveLength(12);
     expect(result.at(-2)).toEqual({ month: '2월', clients: 1, completed: 1, sessions: 1 });
     expect(result.at(-1)).toEqual({ month: '3월', clients: 2, completed: 1, sessions: 3 });
+  });
+
+  it('aggregates score KPIs and score-range distribution from live dashboard stats', async () => {
+    supabaseState.client = createMockSupabaseClient({
+      client: {
+        select: {
+          data: [
+            { participation_stage: '초기상담', retest_stat: null },
+            { participation_stage: '취업지원', retest_stat: 65 },
+            { participation_stage: '취업완료', retest_stat: 72 },
+            { participation_stage: '취업완료', retest_stat: 88 },
+            { participation_stage: '사후관리', retest_stat: 91 },
+          ],
+          error: null,
+        },
+      },
+    });
+
+    await expect(fetchDashboardStats('auth-1')).resolves.toEqual({
+      totalClients: 5,
+      inProgress: 3,
+      employed: 2,
+      followUpNeeded: 1,
+      averageScore: 79,
+      scoredClients: 4,
+      unscoredClients: 1,
+      scoreDistribution: [
+        { range: '0-59', count: 0 },
+        { range: '60-69', count: 1 },
+        { range: '70-79', count: 1 },
+        { range: '80-89', count: 1 },
+        { range: '90-100', count: 1 },
+      ],
+      stageBreakdown: [
+        { stage: '초기상담', count: 1 },
+        { stage: '취업지원', count: 1 },
+        { stage: '취업완료', count: 2 },
+        { stage: '사후관리', count: 1 },
+      ],
+    });
   });
 
   it('searches dashboard clients through the live client table only', async () => {
