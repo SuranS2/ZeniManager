@@ -19,6 +19,8 @@ import {
   isSupabaseConfigured,
   resetStoredAppSettings,
   resetSupabaseClient,
+  removeStoredAppSetting,
+  setStoredAppSetting,
 } from '@/lib/supabase';
 
 function ApiSettingsPanel({ onClose }: { onClose: () => void }) {
@@ -26,12 +28,12 @@ function ApiSettingsPanel({ onClose }: { onClose: () => void }) {
   const [anonKey, setAnonKey] = useState(() => localStorage.getItem(STORAGE_KEYS.SUPABASE_ANON_KEY) || '');
   const [showKey, setShowKey] = useState(false);
 
-  const handleSave = () => {
-    if (url.trim()) localStorage.setItem(STORAGE_KEYS.SUPABASE_URL, url.trim());
-    else localStorage.removeItem(STORAGE_KEYS.SUPABASE_URL);
+  const handleSave = async () => {
+    if (url.trim()) await setStoredAppSetting(STORAGE_KEYS.SUPABASE_URL, url);
+    else await removeStoredAppSetting(STORAGE_KEYS.SUPABASE_URL);
 
-    if (anonKey.trim()) localStorage.setItem(STORAGE_KEYS.SUPABASE_ANON_KEY, anonKey.trim());
-    else localStorage.removeItem(STORAGE_KEYS.SUPABASE_ANON_KEY);
+    if (anonKey.trim()) await setStoredAppSetting(STORAGE_KEYS.SUPABASE_ANON_KEY, anonKey);
+    else await removeStoredAppSetting(STORAGE_KEYS.SUPABASE_ANON_KEY);
 
     resetSupabaseClient();
     toast.success('Supabase 설정이 저장되었습니다.');
@@ -137,8 +139,8 @@ export default function Login() {
     }
   };
 
-  const handleResetSettings = () => {
-    resetStoredAppSettings();
+  const handleResetSettings = async () => {
+    await resetStoredAppSettings();
     setError('');
     setShowApiSettings(false);
     toast.success('로컬 설정이 초기화되었습니다. 데모 모드로 전환됩니다.');
