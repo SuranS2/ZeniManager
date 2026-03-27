@@ -1,10 +1,10 @@
 /**
  * Counselor Dashboard
  * Design: 모던 웰니스 미니멀리즘
- * Features: 전체 상담자 수, 프로세스 현황, 캘린더, 메모장(칸반)
+ * Features: 현황, 프로세스, 캘린더, 메모장
  * Data: Supabase API (mock fallback when not configured)
  */
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
 import { ROLE_COUNSELOR } from '@shared/const';
 import { usePageGuard } from '@/hooks/usePageGuard';
@@ -14,10 +14,12 @@ import {
   fetchClients,
   fetchDashboardCalendarEntries,
   fetchDashboardCalendarMonthCounts,
+  fetchMyMemo,
+  updateMyMemo,
   type DashboardStats,
   type DashboardCalendarEntry,
 } from '@/lib/api';
-import { MONTHLY_STATS, INITIAL_KANBAN, type KanbanColumn, type MemoCard } from '@/lib/mockData';
+import { MONTHLY_STATS } from '@/lib/mockData';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import type { ClientRow } from '@/lib/supabase';
 import {
@@ -25,14 +27,15 @@ import {
   Area, AreaChart,
 } from 'recharts';
 import {
-  Users, TrendingUp, CheckCircle2, Search, Plus, X, ChevronLeft, ChevronRight,
+  Users, TrendingUp, CheckCircle2, Search, X, ChevronLeft, ChevronRight,
   AlertCircle, Calendar as CalendarIcon, StickyNote, Loader2, RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const PRIMARY_HEX = '#009C64';
 
-type CalendarRangeMode = 'today' | 'week' | 'selected-day';
+type CalendarRangeMode = 'today' | 'week' | 'selected-period';
+type DashboardTab = 'overview' | 'calendar' | 'memo';
 
 type CalendarDayCell = {
   key: string;
@@ -85,24 +88,42 @@ function formatPanelDate(dateKey: string) {
   return `${year}.${month}.${day}`;
 }
 
+function parseDateKey(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function normalizeDateRange(start: string, end: string) {
+  return start <= end ? { start, end } : { start: end, end: start };
+}
+
 function getDayStatus(dateKey: string, todayKey: string): 'past' | 'today' | 'upcoming' {
   if (dateKey < todayKey) return 'past';
   if (dateKey > todayKey) return 'upcoming';
   return 'today';
 }
 
-function buildRange(mode: CalendarRangeMode, selectedDate: string, todayKey: string) {
+function buildRange(
+  mode: CalendarRangeMode,
+  selectedDate: string,
+  todayKey: string,
+  selectedPeriod: { start: string; end: string },
+) {
   if (mode === 'today') {
     return { start: todayKey, end: todayKey, anchor: todayKey };
   }
 
-  if (mode === 'selected-day') {
-    return { start: selectedDate, end: selectedDate, anchor: selectedDate };
+  if (mode === 'selected-period') {
+    const fallback = selectedDate || todayKey;
+    const normalized = normalizeDateRange(
+      selectedPeriod.start || fallback,
+      selectedPeriod.end || fallback,
+    );
+    return { start: normalized.start, end: normalized.end, anchor: normalized.end };
   }
 
   const anchor = selectedDate || todayKey;
-  const [year, month, day] = anchor.split('-').map(Number);
-  const anchorDate = new Date(year, month - 1, day);
+  const anchorDate = parseDateKey(anchor);
   const start = toDateKey(addDays(anchorDate, -6));
   return { start, end: anchor, anchor };
 }
@@ -113,22 +134,57 @@ function formatTimeRange(startTime: string | null, endTime: string | null) {
   return '시간 미정';
 }
 
+function getDashboardTabFromPath(path: string): DashboardTab {
+  if (path.startsWith('/dashboard/calendar')) return 'calendar';
+  if (path.startsWith('/dashboard/memo')) return 'memo';
+  return 'overview';
+}
+
+function getDashboardSectionFromPath(path: string): 'search' | 'process' | null {
+  if (path.startsWith('/dashboard/search')) return 'search';
+  if (path.startsWith('/dashboard/process')) return 'process';
+  return null;
+}
+
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 
-function StatCard({ icon, label, value, sub, color }: {
-  icon: ReactNode; label: string; value: string | number; sub?: string; color?: string;
+function StatCard({ icon, label, value, sub, color, onClick, actionLabel }: {
+  icon: ReactNode;
+  label: string;
+  value: string | number;
+  sub?: string;
+  color?: string;
+  onClick?: () => void;
+  actionLabel?: string;
 }) {
+  const isInteractive = typeof onClick === 'function';
+
   return (
-    <div className="stat-card flex items-start gap-4">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!isInteractive}
+      className={`stat-card flex w-full items-start gap-4 text-left ${
+        isInteractive
+          ? 'transition-transform duration-200 hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-ring'
+          : ''
+      }`}
+    >
       <div className="w-10 h-10 rounded-sm flex items-center justify-center flex-shrink-0" style={{ background: color || 'oklch(0.92 0.05 162.5)' }}>
         {icon}
       </div>
-      <div>
+      <div className="min-w-0 flex-1">
         <div className="text-xs text-muted-foreground">{label}</div>
         <div className="text-2xl font-bold text-foreground mt-0.5">{value}</div>
         {sub && <div className="text-xs text-muted-foreground mt-0.5">{sub}</div>}
+        {isInteractive && (
+          <div className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium" style={{ color: PRIMARY_HEX }}>
+            {actionLabel || '화면 열기'}
+            <ChevronRight size={12} />
+          </div>
+        )}
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -137,12 +193,14 @@ function StatCard({ icon, label, value, sub, color }: {
 function LiveCalendar({
   month,
   selectedDate,
+  activeRange,
   counts,
   onMonthChange,
   onSelectDate,
 }: {
   month: Date;
   selectedDate: string;
+  activeRange: { start: string; end: string };
   counts: Record<string, number>;
   onMonthChange: (nextMonth: Date) => void;
   onSelectDate: (dateKey: string, date: Date) => void;
@@ -151,60 +209,123 @@ function LiveCalendar({
   const cells = buildCalendarCells(month);
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <button onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() - 1, 1))} className="p-1 rounded-sm hover:bg-muted">
-          <ChevronLeft size={16} />
-        </button>
-        <span className="text-sm font-semibold">{month.getFullYear()}년 {month.getMonth() + 1}월</span>
-        <button onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() + 1, 1))} className="p-1 rounded-sm hover:bg-muted">
-          <ChevronRight size={16} />
-        </button>
+    <div className="space-y-5">
+      <div className="rounded-md border border-border/70 bg-muted/10 p-4 shadow-sm sm:p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Schedule Calendar
+            </div>
+            <div className="mt-1 text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+              {month.getFullYear()}년 {month.getMonth() + 1}월
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() - 1, 1))}
+              className="flex h-10 w-10 items-center justify-center rounded-sm border border-border bg-background text-foreground transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-sm"
+              aria-label="이전 달"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <button
+              type="button"
+              onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() + 1, 1))}
+              className="flex h-10 w-10 items-center justify-center rounded-sm border border-border bg-background text-foreground transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-sm"
+              aria-label="다음 달"
+            >
+              <ChevronRight size={18} />
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+          <span className="inline-flex items-center gap-2 rounded-sm bg-background px-3 py-1.5">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ background: PRIMARY_HEX }} />
+            선택된 날짜 범위를 강조 표시
+          </span>
+          <span className="inline-flex items-center gap-2 rounded-sm bg-background px-3 py-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-100" />
+            일정 수
+          </span>
+        </div>
       </div>
 
-      <div className="grid grid-cols-7 gap-1 text-center">
-        {['일', '월', '화', '수', '목', '금', '토'].map(label => (
-          <div key={label} className="text-xs text-muted-foreground py-1 font-medium">{label}</div>
+      <div className="grid grid-cols-7 gap-2 text-center sm:gap-3">
+        {['일', '월', '화', '수', '목', '금', '토'].map((label, index) => (
+          <div
+            key={label}
+            className={`py-1 text-xs font-semibold tracking-[0.16em] ${
+              index === 0 ? 'text-rose-500' : index === 6 ? 'text-sky-600' : 'text-muted-foreground'
+            }`}
+          >
+            {label}
+          </div>
         ))}
 
         {cells.map(cell => {
           const count = counts[cell.key] ?? 0;
           const status = getDayStatus(cell.key, todayKey);
           const isSelected = cell.key === selectedDate;
+          const isInRange = cell.key >= activeRange.start && cell.key <= activeRange.end;
           const isToday = status === 'today';
+          const isDimmed = !cell.isCurrentMonth || status === 'past';
+          const showCount = count > 0 && cell.isCurrentMonth;
 
           return (
             <button
               key={cell.key}
               type="button"
               onClick={() => onSelectDate(cell.key, cell.date)}
-              className={`min-h-[52px] rounded-sm border p-1.5 text-left transition-colors ${
-                cell.isCurrentMonth ? 'bg-background hover:bg-muted/40' : 'bg-muted/20 hover:bg-muted/40'
+              className={`relative min-h-[74px] rounded-md border px-2.5 py-2.5 text-left transition-all sm:min-h-[86px] sm:px-3 sm:py-3 ${
+                cell.isCurrentMonth ? 'bg-background hover:bg-muted/35' : 'bg-muted/20 hover:bg-muted/30'
+              } ${
+                isInRange ? 'border-transparent shadow-md' : 'border-border/80 shadow-sm hover:border-emerald-200 hover:shadow-md'
               }`}
-              style={{
-                borderColor: isSelected ? PRIMARY_HEX : undefined,
-                boxShadow: isSelected ? `0 0 0 1px ${PRIMARY_HEX}` : undefined,
-              }}
+              style={isInRange ? { background: 'linear-gradient(180deg, rgba(0,156,100,0.10), rgba(255,255,255,0.98))', boxShadow: `0 0 0 1px ${PRIMARY_HEX}` } : undefined}
+              aria-pressed={isInRange}
             >
               <div className="flex items-start justify-between gap-2">
                 <span
-                  className={`text-xs font-medium ${
-                    !cell.isCurrentMonth ? 'text-muted-foreground/60' :
-                    isToday ? 'text-white rounded-sm px-1.5 py-0.5' :
-                    status === 'past' ? 'text-muted-foreground' : 'text-foreground'
+                  className={`inline-flex min-w-[2rem] items-center justify-center rounded-sm px-2 py-1 text-sm font-semibold leading-none sm:min-w-[2.25rem] sm:text-lg ${
+                    !cell.isCurrentMonth
+                      ? 'text-muted-foreground/45'
+                      : isToday
+                        ? 'text-white shadow-sm'
+                        : isInRange
+                          ? 'text-foreground'
+                          : isDimmed
+                            ? 'text-muted-foreground'
+                            : 'text-foreground'
                   }`}
-                  style={isToday ? { background: PRIMARY_HEX } : undefined}
+                  style={isToday ? { background: PRIMARY_HEX } : isInRange ? { background: 'rgba(0, 156, 100, 0.12)' } : undefined}
                 >
                   {cell.date.getDate()}
                 </span>
 
-                {count > 0 && cell.isCurrentMonth && (
+                {showCount && (
                   <span
-                    className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${status === 'past' ? 'text-muted-foreground' : 'text-white'}`}
-                    style={{ background: status === 'past' ? '#E5E7EB' : PRIMARY_HEX }}
+                    className={`inline-flex min-w-[2.2rem] items-center justify-center rounded-sm px-2.5 py-1.5 text-xs font-semibold leading-none sm:min-w-[2.4rem] sm:text-sm ${
+                      status === 'past' ? 'bg-muted text-muted-foreground' : 'text-white'
+                    }`}
+                    style={status === 'past' ? undefined : { background: PRIMARY_HEX }}
                   >
                     {count > 9 ? '9+' : count}
                   </span>
+                )}
+              </div>
+
+              <div className="mt-4 flex items-end justify-between">
+                <div className="text-[11px] text-muted-foreground">
+                  {!cell.isCurrentMonth ? '다른 달' : showCount ? '담당 일정' : isToday ? '오늘' : '선택 가능'}
+                </div>
+                {showCount && (
+                  <div
+                    className="h-1.5 w-10 rounded-sm"
+                    style={{ background: status === 'past' ? 'rgba(148, 163, 184, 0.45)' : 'rgba(0, 156, 100, 0.24)' }}
+                  />
                 )}
               </div>
             </button>
@@ -212,104 +333,110 @@ function LiveCalendar({
         })}
       </div>
 
-      <div className="mt-3 flex items-center gap-4 text-[11px] text-muted-foreground">
-        <span>현재 담당 일정</span>
-        <span>과거는 흐리게, 오늘은 강조</span>
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+        <span className="inline-flex items-center gap-2 rounded-sm border border-border bg-background px-3 py-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/40" />
+          지난 일정
+        </span>
+        <span className="inline-flex items-center gap-2 rounded-sm border border-border bg-background px-3 py-1.5">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ background: PRIMARY_HEX }} />
+          일정 수
+        </span>
       </div>
     </div>
   );
 }
 
-// ─── Kanban Board ─────────────────────────────────────────────────────────────
+// ─── Personal Memo ────────────────────────────────────────────────────────────
 
-function KanbanBoard() {
-  const [columns, setColumns] = useState<KanbanColumn[]>(INITIAL_KANBAN);
-  const [newCardColumn, setNewCardColumn] = useState<string | null>(null);
-  const [newCardTitle, setNewCardTitle] = useState('');
-
-  const addCard = (colId: string) => {
-    if (!newCardTitle.trim()) return;
-    const newCard: MemoCard = {
-      id: `m${Date.now()}`,
-      title: newCardTitle,
-      content: '',
-      priority: 'medium',
-    };
-    setColumns(cols => cols.map(col =>
-      col.id === colId ? { ...col, cards: [...col.cards, newCard] } : col
-    ));
-    setNewCardTitle('');
-    setNewCardColumn(null);
-  };
-
-  const removeCard = (colId: string, cardId: string) => {
-    setColumns(cols => cols.map(col =>
-      col.id === colId ? { ...col, cards: col.cards.filter(c => c.id !== cardId) } : col
-    ));
-  };
-
-  const priorityColor = (p: string) => {
-    if (p === 'high') return 'badge-cancelled';
-    if (p === 'medium') return 'badge-pending';
-    return 'badge-active';
-  };
-  const priorityLabel = (p: string) => p === 'high' ? '높음' : p === 'medium' ? '보통' : '낮음';
-
+function PersonalMemoPanel({
+  counselorName,
+  memo,
+  loading,
+  saving,
+  dirty,
+  error,
+  isDemoMode,
+  onChange,
+  onRefresh,
+  onReset,
+  onSave,
+}: {
+  counselorName?: string;
+  memo: string;
+  loading: boolean;
+  saving: boolean;
+  dirty: boolean;
+  error: string | null;
+  isDemoMode: boolean;
+  onChange: (value: string) => void;
+  onRefresh: () => void;
+  onReset: () => void;
+  onSave: () => void;
+}) {
   return (
-    <div className="flex gap-3 overflow-x-auto pb-2">
-      {columns.map(col => (
-        <div key={col.id} className="flex-shrink-0 w-64 bg-muted/50 rounded-md p-3">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-semibold text-foreground">{col.title}</span>
-            <span className="text-xs text-muted-foreground bg-background rounded-sm px-1.5 py-0.5">{col.cards.length}</span>
-          </div>
-          <div className="space-y-2">
-            {col.cards.map(card => (
-              <div key={card.id} className="bg-card rounded-sm p-3 shadow-sm border border-border group">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="text-sm font-medium text-foreground leading-tight">{card.title}</div>
-                  <button
-                    onClick={() => removeCard(col.id, card.id)}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:text-destructive"
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-                {card.content && <div className="text-xs text-muted-foreground mt-1">{card.content}</div>}
-                <div className="flex items-center gap-2 mt-2">
-                  <span className={priorityColor(card.priority)}>{priorityLabel(card.priority)}</span>
-                  {card.clientName && <span className="text-xs text-muted-foreground">{card.clientName}</span>}
-                  {card.dueDate && <span className="text-xs text-muted-foreground ml-auto">{card.dueDate}</span>}
-                </div>
-              </div>
-            ))}
-          </div>
-          {newCardColumn === col.id ? (
-            <div className="mt-2">
-              <input
-                autoFocus
-                value={newCardTitle}
-                onChange={e => setNewCardTitle(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') addCard(col.id); if (e.key === 'Escape') setNewCardColumn(null); }}
-                placeholder="카드 제목..."
-                className="w-full px-2 py-1.5 text-xs rounded-sm border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-              />
-              <div className="flex gap-1 mt-1">
-                <button onClick={() => addCard(col.id)} className="btn-primary text-xs py-1 px-2">추가</button>
-                <button onClick={() => setNewCardColumn(null)} className="btn-cancel text-xs py-1 px-2">취소</button>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => setNewCardColumn(col.id)}
-              className="mt-2 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground w-full py-1.5 rounded-sm hover:bg-background transition-colors"
-            >
-              <Plus size={12} />
-              카드 추가
-            </button>
-          )}
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">상담사 개인 메모</h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            {`${counselorName || '접속한 사용자'}님의 현재 메모입니다.`}
+            {isDemoMode && ' 데모 모드에서는 로컬 브라우저 저장소를 사용합니다.'}
+          </p>
         </div>
-      ))}
+
+        <button onClick={onRefresh} className="p-2 rounded-sm border hover:bg-muted" title="메모 새로고침" disabled={loading || saving}>
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </div>
+
+      {error && (
+        <div className="rounded-sm border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="space-y-3 animate-pulse">
+          <div className="h-3 w-40 rounded bg-muted" />
+          <div className="h-48 rounded-md bg-muted" />
+          <div className="h-9 w-52 rounded bg-muted" />
+        </div>
+      ) : (
+        <>
+          <textarea
+            value={memo}
+            onChange={e => onChange(e.target.value)}
+            placeholder="상담 메모, 전달사항, 다음 확인 포인트를 여기에 적어두세요."
+            rows={10}
+            className="w-full rounded-md border border-input bg-background px-3 py-3 text-sm leading-6 outline-none transition focus:ring-2 focus:ring-ring resize-y"
+            disabled={saving}
+          />
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-xs text-muted-foreground">
+              {dirty ? '저장되지 않은 변경사항이 있습니다.' : '현재 화면과 저장된 메모가 동기화되어 있습니다.'}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onReset}
+                disabled={!dirty || saving}
+                className="btn-cancel px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                되돌리기
+              </button>
+              <button
+                onClick={onSave}
+                disabled={saving || !dirty}
+                className="btn-primary px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {saving ? '저장 중...' : '저장'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -318,9 +445,9 @@ function KanbanBoard() {
 
 export default function CounselorDashboard() {
   const { canRender, user } = usePageGuard('counselor');
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'overview' | 'calendar' | 'memo'>('overview');
+  const [activeTab, setActiveTab] = useState<DashboardTab>(() => getDashboardTabFromPath(location));
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [searchResults, setSearchResults] = useState<ClientRow[]>([]);
@@ -329,15 +456,31 @@ export default function CounselorDashboard() {
   const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
   const [calendarMode, setCalendarMode] = useState<CalendarRangeMode>('today');
+  const [selectedPeriod, setSelectedPeriod] = useState(() => {
+    const today = toDateKey(new Date());
+    return { start: today, end: today };
+  });
+  const [selectedPeriodPreset, setSelectedPeriodPreset] = useState('custom');
+  const [showPeriodSelector, setShowPeriodSelector] = useState(false);
   const [monthCounts, setMonthCounts] = useState<Record<string, number>>({});
   const [calendarEntries, setCalendarEntries] = useState<DashboardCalendarEntry[]>([]);
   const [monthLoading, setMonthLoading] = useState(false);
   const [entriesLoading, setEntriesLoading] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
+  const [memoValue, setMemoValue] = useState('');
+  const [savedMemoValue, setSavedMemoValue] = useState('');
+  const [memoLoading, setMemoLoading] = useState(false);
+  const [memoSaving, setMemoSaving] = useState(false);
+  const [memoError, setMemoError] = useState<string | null>(null);
+  const [memoLoaded, setMemoLoaded] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const processSectionRef = useRef<HTMLDivElement | null>(null);
 
   const counselorScopeId = user?.role === ROLE_COUNSELOR ? user.counselorId : undefined;
+  const memoAuthUserId = user?.id;
   const todayKey = toDateKey(new Date());
-  const currentRange = buildRange(calendarMode, selectedDate, todayKey);
+  const currentRange = buildRange(calendarMode, selectedDate, todayKey, selectedPeriod);
+  const isMemoDirty = memoValue !== savedMemoValue;
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
@@ -352,6 +495,30 @@ export default function CounselorDashboard() {
   }, [counselorScopeId]);
 
   useEffect(() => { loadStats(); }, [loadStats]);
+
+  useEffect(() => {
+    const nextTab = getDashboardTabFromPath(location);
+    setActiveTab(prev => (prev === nextTab ? prev : nextTab));
+  }, [location]);
+
+  useEffect(() => {
+    if (activeTab !== 'overview') return;
+
+    const section = getDashboardSectionFromPath(location);
+    if (!section) return;
+
+    const frameId = window.requestAnimationFrame(() => {
+      if (section === 'search') {
+        searchInputRef.current?.focus();
+        searchInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+
+      processSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [activeTab, location]);
 
   useEffect(() => {
     if (!searchQuery.trim()) { setSearchResults([]); return; }
@@ -441,19 +608,135 @@ export default function CounselorDashboard() {
     loadCalendarEntries();
   }, [loadCalendarEntries, loadCalendarMonth]);
 
+  const loadMyMemo = useCallback(async () => {
+    if (!memoAuthUserId) {
+      setMemoValue('');
+      setSavedMemoValue('');
+      setMemoLoaded(false);
+      return;
+    }
+
+    setMemoLoading(true);
+    try {
+      const nextMemo = await fetchMyMemo(memoAuthUserId);
+      const safeMemo = nextMemo ?? '';
+      setMemoValue(safeMemo);
+      setSavedMemoValue(safeMemo);
+      setMemoError(null);
+      setMemoLoaded(true);
+    } catch (e: any) {
+      setMemoError(e.message || '메모를 불러오지 못했습니다.');
+    } finally {
+      setMemoLoading(false);
+    }
+  }, [memoAuthUserId]);
+
+  const handleSaveMemo = useCallback(async () => {
+    if (!memoAuthUserId) {
+      toast.error('로그인한 상담사 정보를 찾을 수 없습니다.');
+      return;
+    }
+
+    setMemoSaving(true);
+    try {
+      const nextMemo = await updateMyMemo(memoAuthUserId, memoValue);
+      const safeMemo = nextMemo ?? '';
+      setMemoValue(safeMemo);
+      setSavedMemoValue(safeMemo);
+      setMemoError(null);
+      setMemoLoaded(true);
+      toast.success('개인 메모가 저장되었습니다.');
+    } catch (e: any) {
+      const message = e.message || '메모 저장에 실패했습니다.';
+      setMemoError(message);
+      toast.error(message);
+    } finally {
+      setMemoSaving(false);
+    }
+  }, [memoAuthUserId, memoValue]);
+
+  useEffect(() => {
+    setMemoValue('');
+    setSavedMemoValue('');
+    setMemoError(null);
+    setMemoLoaded(false);
+  }, [memoAuthUserId]);
+
   const handleDateSelect = useCallback((dateKey: string, date: Date) => {
     setSelectedDate(dateKey);
-    setCalendarMode('selected-day');
+    setSelectedPeriod({ start: dateKey, end: dateKey });
+    setSelectedPeriodPreset('custom');
+    setShowPeriodSelector(true);
+    setCalendarMode('selected-period');
     if (date.getMonth() !== calendarMonth.getMonth() || date.getFullYear() !== calendarMonth.getFullYear()) {
       setCalendarMonth(startOfMonth(date));
     }
   }, [calendarMonth]);
+
+  const handleSelectedPeriodPresetChange = useCallback((value: string) => {
+    setSelectedPeriodPreset(value);
+
+    if (value === 'custom') {
+      setShowPeriodSelector(true);
+      return;
+    }
+
+    const days = Number(value);
+    if (Number.isNaN(days) || days < 1) return;
+
+    const anchor = selectedDate || todayKey;
+    const range = normalizeDateRange(
+      toDateKey(addDays(parseDateKey(anchor), -(days - 1))),
+      anchor,
+    );
+
+    setSelectedPeriod(range);
+    setSelectedDate(range.end);
+    setCalendarMode('selected-period');
+    setShowPeriodSelector(true);
+  }, [selectedDate, todayKey]);
+
+  const handleSelectedPeriodChange = useCallback((field: 'start' | 'end', value: string) => {
+    const fallback = selectedDate || todayKey;
+    const nextRange = normalizeDateRange(
+      field === 'start' ? (value || fallback) : (selectedPeriod.start || fallback),
+      field === 'end' ? (value || fallback) : (selectedPeriod.end || fallback),
+    );
+
+    setSelectedPeriodPreset('custom');
+    setSelectedPeriod(nextRange);
+    setSelectedDate(nextRange.end);
+    setCalendarMode('selected-period');
+  }, [selectedDate, selectedPeriod.end, selectedPeriod.start, todayKey]);
 
   const handleCalendarRowClick = useCallback((entry: DashboardCalendarEntry) => {
     const status = getDayStatus(entry.counselDate, todayKey);
     const tab = status === 'past' ? 'history' : 'input';
     navigate(`/clients/list?clientId=${encodeURIComponent(entry.clientId)}&tab=${tab}&date=${entry.counselDate}`);
   }, [navigate, todayKey]);
+
+  const openClientList = useCallback((params?: Record<string, string>) => {
+    const searchParams = new URLSearchParams(params);
+    navigate(`/clients/list${searchParams.toString() ? `?${searchParams.toString()}` : ''}`);
+  }, [navigate]);
+
+  const openDashboardTab = useCallback((tab: DashboardTab) => {
+    const nextPath = tab === 'calendar'
+      ? '/dashboard/calendar'
+      : tab === 'memo'
+        ? '/dashboard/memo'
+        : '/dashboard';
+
+    setActiveTab(tab);
+    if (location !== nextPath) {
+      navigate(nextPath);
+    }
+  }, [location, navigate]);
+
+  useEffect(() => {
+    if (activeTab !== 'memo' || memoLoaded || memoLoading) return;
+    void loadMyMemo();
+  }, [activeTab, loadMyMemo, memoLoaded, memoLoading]);
 
   const totalClients = stats?.totalClients ?? 0;
   const completedClients = stats?.employed ?? 0;
@@ -498,12 +781,21 @@ export default function CounselorDashboard() {
       <div className="relative">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
         <input
+          ref={searchInputRef}
           type="text"
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
           placeholder="상담자 검색 (이름, 전화번호, 희망직종...)"
           className="w-full pl-9 pr-4 py-2.5 rounded-sm border border-input bg-card text-sm focus:outline-none focus:ring-2 focus:ring-ring shadow-sm"
         />
+        <button
+          type="button"
+          onClick={() => openClientList()}
+          className="absolute right-10 top-1/2 hidden -translate-y-1/2 items-center gap-1 rounded-sm border border-border bg-background px-3 py-1 text-[11px] font-medium text-muted-foreground transition hover:border-emerald-300 hover:text-foreground sm:inline-flex"
+        >
+          피상담자 화면
+          <ChevronRight size={12} />
+        </button>
         {searchQuery && (
           <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
             <X size={14} />
@@ -535,7 +827,10 @@ export default function CounselorDashboard() {
                   <tr
                     key={c.id}
                     className="border-b border-border last:border-0 hover:bg-muted/20 cursor-pointer"
-                    onClick={() => { setSearchQuery(''); navigate('/clients/list'); }}
+                    onClick={() => {
+                      setSearchQuery('');
+                      openClientList({ clientId: String(c.id) });
+                    }}
                   >
                     <td className="px-4 py-2.5 font-medium">{c.name}</td>
                     <td className="px-4 py-2.5 text-muted-foreground">{c.phone || '-'}</td>
@@ -564,15 +859,47 @@ export default function CounselorDashboard() {
           ))
         ) : (
           <>
-            <StatCard icon={<Users size={18} color={PRIMARY_HEX} />} label="전체 상담자 수" value={totalClients} sub="담당 상담자" color="oklch(0.92 0.05 162.5)" />
-            <StatCard icon={<TrendingUp size={18} color="#4299E1" />} label="진행 중" value={activeProcesses} sub="프로세스 진행" color="oklch(0.92 0.04 240)" />
-            <StatCard icon={<CheckCircle2 size={18} color={PRIMARY_HEX} />} label="취업 완료" value={completedClients} sub={totalClients > 0 ? `성사율 ${Math.round(completedClients / totalClients * 100)}%` : '-'} color="oklch(0.92 0.05 162.5)" />
-            <StatCard icon={<AlertCircle size={18} color="#F6AD55" />} label="후속 상담 필요" value={pendingClients} sub="팔로업 대상" color="oklch(0.95 0.06 85)" />
+            <StatCard
+              icon={<Users size={18} color={PRIMARY_HEX} />}
+              label="전체 상담자 수"
+              value={totalClients}
+              sub="담당 상담자"
+              color="oklch(0.92 0.05 162.5)"
+              onClick={() => openClientList()}
+              actionLabel="피상담자 목록 열기"
+            />
+            <StatCard
+              icon={<TrendingUp size={18} color="#4299E1" />}
+              label="진행 중"
+              value={activeProcesses}
+              sub="프로세스 진행"
+              color="oklch(0.92 0.04 240)"
+              onClick={() => openClientList()}
+              actionLabel="진행 현황 보기"
+            />
+            <StatCard
+              icon={<CheckCircle2 size={18} color={PRIMARY_HEX} />}
+              label="취업 완료"
+              value={completedClients}
+              sub={totalClients > 0 ? `성사율 ${Math.round(completedClients / totalClients * 100)}%` : '-'}
+              color="oklch(0.92 0.05 162.5)"
+              onClick={() => openClientList({ stage: '취업완료' })}
+              actionLabel="완료 대상 보기"
+            />
+            <StatCard
+              icon={<AlertCircle size={18} color="#F6AD55" />}
+              label="후속 상담 필요"
+              value={pendingClients}
+              sub="팔로업 대상"
+              color="oklch(0.95 0.06 85)"
+              onClick={() => openClientList()}
+              actionLabel="후속 대상 보기"
+            />
           </>
         )}
       </div>
 
-      <div className="flex gap-1 border-b border-border">
+      <div className="flex gap-2 overflow-x-auto border-b border-border pb-px">
         {[
           { id: 'overview', label: '현황', icon: <TrendingUp size={14} /> },
           { id: 'calendar', label: '캘린더', icon: <CalendarIcon size={14} /> },
@@ -580,11 +907,11 @@ export default function CounselorDashboard() {
         ].map(tab => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as 'overview' | 'calendar' | 'memo')}
-            className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-all -mb-px"
+            onClick={() => openDashboardTab(tab.id as DashboardTab)}
+            className="flex shrink-0 items-center gap-1.5 rounded-t-xl border border-border px-4 py-2.5 text-sm font-medium transition-all"
             style={activeTab === tab.id
-              ? { borderColor: PRIMARY_HEX, color: PRIMARY_HEX }
-              : { borderColor: 'transparent', color: '#6b7280' }
+              ? { borderColor: PRIMARY_HEX, color: PRIMARY_HEX, background: 'rgba(0, 156, 100, 0.08)' }
+              : { color: '#6b7280', background: 'transparent' }
             }
           >
             {tab.icon}
@@ -609,11 +936,26 @@ export default function CounselorDashboard() {
             </ResponsiveContainer>
           </div>
 
-          <div className="bg-card rounded-md p-5 shadow-sm border border-border">
-            <h3 className="text-sm font-semibold text-foreground mb-4">프로세스 과정 수</h3>
+          <div ref={processSectionRef} className="bg-card rounded-md p-5 shadow-sm border border-border">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-foreground">프로세스 과정 수</h3>
+              <button
+                type="button"
+                onClick={() => openClientList()}
+                className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition hover:text-foreground"
+              >
+                목록 보기
+                <ChevronRight size={12} />
+              </button>
+            </div>
             <div className="space-y-3">
               {processStages.map(stage => (
-                <div key={stage.stage}>
+                <button
+                  key={stage.stage}
+                  type="button"
+                  onClick={() => openClientList({ stage: stage.stage })}
+                  className="block w-full rounded-xl px-2 py-1.5 text-left transition hover:bg-muted/35 focus:outline-none focus:ring-2 focus:ring-ring"
+                >
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs text-foreground">{stage.stage}</span>
                     <span className="text-xs font-semibold text-foreground">{stage.count}명</span>
@@ -627,7 +969,7 @@ export default function CounselorDashboard() {
                       }}
                     />
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -654,72 +996,156 @@ export default function CounselorDashboard() {
       )}
 
       {activeTab === 'calendar' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="bg-card rounded-md p-5 shadow-sm border border-border">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-foreground">캘린더</h3>
-              {monthLoading && <Loader2 size={14} className="animate-spin text-muted-foreground" />}
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(420px,1.12fr)_minmax(0,1.55fr)]">
+          <div className="bg-card rounded-md border border-border/80 p-5 shadow-sm sm:p-6 lg:p-7">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-foreground">캘린더</h3>
+                <p className="mt-1 text-xs text-muted-foreground">날짜를 눌러 범위를 만들고, 일별 일정 수를 한눈에 확인하세요.</p>
+              </div>
+              {monthLoading && (
+                <div className="inline-flex items-center gap-2 rounded-sm border border-border bg-muted/20 px-3 py-1.5 text-[11px] text-muted-foreground">
+                  <Loader2 size={13} className="animate-spin" />
+                  월 일정 집계 중
+                </div>
+              )}
             </div>
             <LiveCalendar
               month={calendarMonth}
               selectedDate={selectedDate}
+              activeRange={currentRange}
               counts={monthCounts}
               onMonthChange={setCalendarMonth}
               onSelectDate={handleDateSelect}
             />
           </div>
 
-          <div className="lg:col-span-2 bg-card rounded-md p-5 shadow-sm border border-border">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
+          <div className="bg-card rounded-md border border-border/80 p-5 shadow-sm sm:p-6 lg:p-7">
+            <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div>
-                <h3 className="text-sm font-semibold text-foreground">현재 담당 일정</h3>
-                <div className="text-xs text-muted-foreground mt-1">
-                  기준일 {formatPanelDate(currentRange.anchor)}
-                  {calendarMode === 'week' && ` · ${formatPanelDate(currentRange.start)} ~ ${formatPanelDate(currentRange.end)}`}
+                <h3 className="text-base font-semibold text-foreground">현재 담당 일정</h3>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {calendarMode === 'today' && `기준일 ${formatPanelDate(currentRange.anchor)}`}
+                  {calendarMode === 'week' && `최근 7일 ${formatPanelDate(currentRange.start)} ~ ${formatPanelDate(currentRange.end)}`}
+                  {calendarMode === 'selected-period' && `선택 기간 ${formatPanelDate(currentRange.start)} ~ ${formatPanelDate(currentRange.end)}`}
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
-                  onClick={() => setCalendarMode('today')}
-                  className="px-3 py-1.5 rounded-sm text-xs font-medium border"
+                  onClick={() => {
+                    setCalendarMode('today');
+                    setShowPeriodSelector(false);
+                  }}
+                  className="rounded-sm border px-3.5 py-2 text-xs font-medium transition-colors hover:border-emerald-300 hover:text-foreground"
                   style={calendarMode === 'today' ? { background: PRIMARY_HEX, borderColor: PRIMARY_HEX, color: 'white' } : undefined}
                 >
                   오늘
                 </button>
                 <button
-                  onClick={() => setCalendarMode('week')}
-                  className="px-3 py-1.5 rounded-sm text-xs font-medium border"
+                  onClick={() => {
+                    setCalendarMode('week');
+                    setShowPeriodSelector(false);
+                  }}
+                  className="rounded-sm border px-3.5 py-2 text-xs font-medium transition-colors hover:border-emerald-300 hover:text-foreground"
                   style={calendarMode === 'week' ? { background: PRIMARY_HEX, borderColor: PRIMARY_HEX, color: 'white' } : undefined}
                 >
                   7일
                 </button>
                 <button
-                  onClick={() => setCalendarMode('selected-day')}
-                  className="px-3 py-1.5 rounded-sm text-xs font-medium border"
-                  style={calendarMode === 'selected-day' ? { background: PRIMARY_HEX, borderColor: PRIMARY_HEX, color: 'white' } : undefined}
+                  onClick={() => {
+                    setCalendarMode('selected-period');
+                    setSelectedPeriod(prev => {
+                      if (prev.start && prev.end) return prev;
+                      return { start: selectedDate || todayKey, end: selectedDate || todayKey };
+                    });
+                    setShowPeriodSelector(prev => !prev);
+                  }}
+                  className="rounded-sm border px-3.5 py-2 text-xs font-medium transition-colors hover:border-emerald-300 hover:text-foreground"
+                  style={calendarMode === 'selected-period' ? { background: PRIMARY_HEX, borderColor: PRIMARY_HEX, color: 'white' } : undefined}
                 >
-                  선택일
+                  기간 선택
                 </button>
-                <button onClick={refreshCalendar} className="p-2 rounded-sm border hover:bg-muted" title="일정 새로고침">
+                <button
+                  onClick={refreshCalendar}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-sm border border-border bg-background transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-muted/30"
+                  title="일정 새로고침"
+                >
                   <RefreshCw size={14} className={monthLoading || entriesLoading ? 'animate-spin' : ''} />
                 </button>
               </div>
             </div>
 
+            {calendarMode === 'selected-period' && showPeriodSelector && (
+              <div className="mb-5 rounded-md border border-border/80 bg-muted/15 p-4 shadow-sm">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-medium text-foreground">기간 범위 선택</div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      빠른 기간을 고르거나 시작일과 종료일을 직접 지정할 수 있습니다.
+                    </div>
+                  </div>
+                  <div className="rounded-sm bg-background px-3 py-1.5 text-[11px] text-muted-foreground shadow-sm">
+                    {formatPanelDate(currentRange.start)} ~ {formatPanelDate(currentRange.end)}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)]">
+                  <label className="space-y-1">
+                    <span className="text-[11px] font-medium text-muted-foreground">빠른 기간</span>
+                    <select
+                      value={selectedPeriodPreset}
+                      onChange={e => handleSelectedPeriodPresetChange(e.target.value)}
+                      className="w-full rounded-sm border border-input bg-background px-3 py-2.5 text-sm shadow-sm outline-none transition focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="custom">직접 선택</option>
+                      <option value="1">당일</option>
+                      <option value="3">3일</option>
+                      <option value="7">7일</option>
+                      <option value="30">30일</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-[11px] font-medium text-muted-foreground">시작일</span>
+                    <input
+                      type="date"
+                      value={selectedPeriod.start}
+                      onChange={e => handleSelectedPeriodChange('start', e.target.value)}
+                      className="w-full rounded-sm border border-input bg-background px-3 py-2.5 text-sm shadow-sm outline-none transition focus:ring-2 focus:ring-ring"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <span className="text-[11px] font-medium text-muted-foreground">종료일</span>
+                    <input
+                      type="date"
+                      value={selectedPeriod.end}
+                      onChange={e => handleSelectedPeriodChange('end', e.target.value)}
+                      className="w-full rounded-sm border border-input bg-background px-3 py-2.5 text-sm shadow-sm outline-none transition focus:ring-2 focus:ring-ring"
+                    />
+                  </label>
+                </div>
+
+                <div className="mt-3 text-[11px] text-muted-foreground">
+                  선택한 기간으로 현재 담당 일정 목록을 다시 조회합니다.
+                </div>
+              </div>
+            )}
+
             {calendarError && (
-              <div className="mb-3 rounded-sm border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              <div className="mb-4 rounded-md border border-destructive/20 bg-destructive/5 px-4 py-3 text-xs text-destructive">
                 {calendarError}
               </div>
             )}
 
             {entriesLoading ? (
-              <div className="flex items-center justify-center py-12 text-sm text-muted-foreground gap-2">
+              <div className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/80 bg-muted/10 py-14 text-sm text-muted-foreground">
                 <Loader2 size={16} className="animate-spin" />
                 일정 목록을 불러오는 중입니다.
               </div>
             ) : calendarEntries.length === 0 ? (
-              <div className="rounded-sm border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
+              <div className="rounded-md border border-dashed border-border/80 bg-muted/10 py-14 text-center text-sm text-muted-foreground">
                 선택한 범위에 표시할 일정이 없습니다.
               </div>
             ) : (
@@ -738,18 +1164,22 @@ export default function CounselorDashboard() {
                       key={entry.counselId}
                       type="button"
                       onClick={() => handleCalendarRowClick(entry)}
-                      className="w-full flex items-center gap-3 p-3 rounded-sm border border-border hover:bg-muted/30 transition-colors text-left"
+                      className="flex w-full items-center gap-4 rounded-md border border-border/80 bg-background px-4 py-3.5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-muted/20 hover:shadow-md"
                     >
-                      <div className="text-center w-16 flex-shrink-0">
-                        <div className="text-xs text-muted-foreground">{entry.counselDate.slice(5).replace('-', '.')}</div>
-                        <div className="text-xs font-medium text-foreground mt-0.5">{formatTimeRange(entry.startTime, entry.endTime)}</div>
+                      <div className="w-[88px] flex-shrink-0 rounded-sm bg-muted/20 px-3 py-2 text-center">
+                        <div className="text-[11px] font-medium tracking-[0.14em] text-muted-foreground">
+                          {entry.counselDate.slice(5).replace('-', '.')}
+                        </div>
+                        <div className="mt-1 text-sm font-semibold leading-5 text-foreground">
+                          {formatTimeRange(entry.startTime, entry.endTime)}
+                        </div>
                       </div>
-                      <div className="w-px h-10 bg-border flex-shrink-0" />
+                      <div className="h-12 w-px flex-shrink-0 bg-border" />
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-foreground truncate">{entry.clientName}</div>
-                        <div className="text-xs text-muted-foreground mt-1">{entry.participationStage || '미설정'}</div>
+                        <div className="truncate text-sm font-semibold text-foreground">{entry.clientName}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{entry.participationStage || '미설정'}</div>
                       </div>
-                      <span className={`text-[11px] px-2 py-1 rounded-full font-medium ${statusClass}`} style={status === 'today' ? { background: PRIMARY_HEX } : undefined}>
+                      <span className={`text-[11px] px-2 py-1 rounded-sm font-medium ${statusClass}`} style={status === 'today' ? { background: PRIMARY_HEX } : undefined}>
                         {statusLabel}
                       </span>
                     </button>
@@ -763,10 +1193,19 @@ export default function CounselorDashboard() {
 
       {activeTab === 'memo' && (
         <div className="bg-card rounded-md p-5 shadow-sm border border-border">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-foreground">메모장 (칸반)</h3>
-          </div>
-          <KanbanBoard />
+          <PersonalMemoPanel
+            counselorName={user?.name}
+            memo={memoValue}
+            loading={memoLoading}
+            saving={memoSaving}
+            dirty={isMemoDirty}
+            error={memoError}
+            isDemoMode={!isSupabaseConfigured()}
+            onChange={setMemoValue}
+            onRefresh={() => { void loadMyMemo(); }}
+            onReset={() => setMemoValue(savedMemoValue)}
+            onSave={() => { void handleSaveMemo(); }}
+          />
         </div>
       )}
     </div>
