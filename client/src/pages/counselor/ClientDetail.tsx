@@ -278,6 +278,13 @@ export default function ClientDetail() {
         dbKey = 'gender_code';
         val = editValue === '남' ? 'M' : 'F';
       }
+      if (field === 'school') dbKey = 'school_name';
+      if (field === 'desired_job') dbKey = 'desired_job_1';
+      if (field === 'business_type') {
+        dbKey = 'business_type_code';
+        const num = Number(editValue);
+        val = isNaN(num) ? null : num;
+      }
 
       // Numeric fields conversion
       if (field === 'age' || field === 'retest_stat') {
