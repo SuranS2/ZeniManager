@@ -7,6 +7,7 @@
  */
 import { useState } from 'react';
 import { useLocation } from 'wouter';
+import { isAdminRole } from '@shared/const';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   Eye, EyeOff, Key, Globe, ChevronDown,
@@ -130,7 +131,7 @@ export default function Login() {
     const result = await login(email, password);
     if (result.success) {
       toast.success('로그인되었습니다.');
-      navigate(result.user?.role === 'admin' ? '/admin/dashboard' : '/dashboard');
+      navigate(isAdminRole(result.user?.role) ? '/admin/dashboard' : '/dashboard');
     } else {
       setError(result.error || '이메일 또는 비밀번호가 올바르지 않습니다.');
     }

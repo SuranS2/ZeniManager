@@ -6,6 +6,7 @@
  * This file is safe to commit to a public GitHub repository.
  */
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { AppRole } from '@shared/const';
 
 export const STORAGE_KEYS = {
   SUPABASE_URL: 'counsel_supabase_url',
@@ -200,7 +201,7 @@ export interface CounselorRow {
   completed_count: number;
   joined_at: string | null;
   status: '재직' | '휴직' | '퇴직' | null;
-  role: 'counselor' | 'admin' | null;
+  role: AppRole | null;
   auth_user_id: string | null;
   created_at: string;
   updated_at: string;

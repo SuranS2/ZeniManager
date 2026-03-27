@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Redirect, Route, Router as WouterRouter, Switch, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
+import { isAdminRole } from "@shared/const";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import DashboardLayout from "./components/DashboardLayout";
@@ -33,7 +34,7 @@ function ProtectedRoute({ component: Component, adminOnly = false }: {
     return <Redirect to="/login" />;
   }
 
-  if (adminOnly && user?.role !== 'admin') {
+  if (adminOnly && !isAdminRole(user?.role)) {
     return <Redirect to="/dashboard" />;
   }
 
@@ -49,7 +50,7 @@ function CounselorRoute({ component: Component }: { component: React.ComponentTy
   const { isAuthenticated, user } = useAuth();
 
   if (!isAuthenticated) return <Redirect to="/login" />;
-  if (user?.role === 'admin') return <Redirect to="/admin/dashboard" />;
+  if (isAdminRole(user?.role)) return <Redirect to="/admin/dashboard" />;
 
   return (
     <DashboardLayout>
@@ -68,7 +69,7 @@ function AppRoutes() {
       {/* Root redirect */}
       <Route path="/">
         {isAuthenticated
-          ? <Redirect to={user?.role === 'admin' ? '/admin/dashboard' : '/dashboard'} />
+          ? <Redirect to={isAdminRole(user?.role) ? '/admin/dashboard' : '/dashboard'} />
           : <Redirect to="/login" />
         }
       </Route>
@@ -112,7 +113,7 @@ function AppRoutes() {
       {/* Fallback */}
       <Route>
         {isAuthenticated
-          ? <Redirect to={user?.role === 'admin' ? '/admin/dashboard' : '/dashboard'} />
+          ? <Redirect to={isAdminRole(user?.role) ? '/admin/dashboard' : '/dashboard'} />
           : <Redirect to="/login" />
         }
       </Route>

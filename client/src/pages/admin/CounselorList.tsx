@@ -3,6 +3,7 @@
  * Data: Supabase API (mock fallback when not configured)
  */
 import { useState, useEffect, useCallback } from 'react';
+import { ROLE_ADMIN, ROLE_COUNSELOR, isAdminRole, type AppRole } from '@shared/const';
 import { Search, Plus, Edit3, Trash2, X, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchCounselors, createCounselor, updateCounselor, deleteCounselor } from '@/lib/api';
@@ -17,11 +18,11 @@ interface CounselorForm {
   phone: string;
   branch: string;
   status: '재직' | '휴직' | '퇴직';
-  role: 'counselor' | 'admin';
+  role: AppRole;
 }
 
 const EMPTY_FORM: CounselorForm = {
-  name: '', email: '', phone: '', branch: '', status: '재직', role: 'counselor',
+  name: '', email: '', phone: '', branch: '', status: '재직', role: ROLE_COUNSELOR,
 };
 
 function CounselorModal({
@@ -41,7 +42,7 @@ function CounselorModal({
           phone: counselor.phone || '',
           branch: counselor.branch || '',
           status: counselor.status || '재직',
-          role: counselor.role || 'counselor',
+          role: counselor.role || ROLE_COUNSELOR,
         }
       : EMPTY_FORM
   );
@@ -132,11 +133,11 @@ function CounselorModal({
             <label className="block text-sm font-medium mb-1.5">권한</label>
             <select
               value={form.role}
-              onChange={e => setForm(f => ({ ...f, role: e.target.value as 'counselor' | 'admin' }))}
+              onChange={e => setForm(f => ({ ...f, role: Number(e.target.value) as AppRole }))}
               className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             >
-              <option value="counselor">상담사</option>
-              <option value="admin">관리자</option>
+              <option value={ROLE_COUNSELOR}>상담사</option>
+              <option value={ROLE_ADMIN}>관리자</option>
             </select>
           </div>
           <div className="flex gap-2 pt-2">
@@ -322,7 +323,12 @@ export default function CounselorList() {
                       <span style={{ color: PRIMARY_HEX }} className="font-semibold">{c.completed_count ?? 0}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={statusColor(c.status || '재직')}>{c.status || '재직'}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={statusColor(c.status || '재직')}>{c.status || '재직'}</span>
+                        <span className={isAdminRole(c.role) ? 'badge-pending' : 'badge-active'}>
+                          {isAdminRole(c.role) ? '관리자' : '상담사'}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">

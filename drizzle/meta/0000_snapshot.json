@@ -44,11 +44,11 @@
         },
         "role": {
           "name": "role",
-          "type": "enum('user','admin')",
+          "type": "int",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'user'"
+          "default": 5
         },
         "createdAt": {
           "name": "createdAt",

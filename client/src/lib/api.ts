@@ -3,6 +3,7 @@
  * All functions read credentials from localStorage at call time.
  * Falls back to mock data when Supabase is not configured.
  */
+import { ROLE_COUNSELOR } from '@shared/const';
 import { getSupabaseClient, isSupabaseConfigured } from './supabase';
 import type {
   ClientRow, ClientInsert,
@@ -345,7 +346,7 @@ function mockCounselorToRow(c: Counselor): CounselorRow {
     completed_count: c.completedCount,
     joined_at: c.joinedAt,
     status: c.status,
-    role: 'counselor',
+    role: ROLE_COUNSELOR,
     auth_user_id: null,
     created_at: c.joinedAt,
     updated_at: c.joinedAt,

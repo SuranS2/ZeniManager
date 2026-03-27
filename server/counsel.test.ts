@@ -3,17 +3,18 @@
  * Unit tests for counseling admin system server-side logic
  */
 import { describe, it, expect } from 'vitest';
+import { ROLE_ADMIN, ROLE_COUNSELOR } from '@shared/const';
 import { appRouter } from './routers';
 import type { TrpcContext } from './_core/context';
 
 // ─── Helper: create mock context ─────────────────────────────────────────────
-function makeCtx(role: 'user' | 'admin' = 'user'): TrpcContext {
+function makeCtx(role: typeof ROLE_COUNSELOR | typeof ROLE_ADMIN = ROLE_COUNSELOR): TrpcContext {
   return {
     user: {
       id: 1,
       openId: 'test-open-id',
-      name: role === 'admin' ? '관리자' : '최인수',
-      email: role === 'admin' ? 'admin@example.com' : 'counselor@example.com',
+      name: role === ROLE_ADMIN ? '관리자' : '최인수',
+      email: role === ROLE_ADMIN ? 'admin@example.com' : 'counselor@example.com',
       loginMethod: 'email',
       role,
       createdAt: new Date(),
@@ -33,12 +34,12 @@ function makeCtx(role: 'user' | 'admin' = 'user'): TrpcContext {
 // ─── Auth tests ───────────────────────────────────────────────────────────────
 describe('auth.me', () => {
   it('returns user when authenticated', async () => {
-    const ctx = makeCtx('user');
+    const ctx = makeCtx(ROLE_COUNSELOR);
     const caller = appRouter.createCaller(ctx);
     const user = await caller.auth.me();
     expect(user).not.toBeNull();
     expect(user?.email).toBe('counselor@example.com');
-    expect(user?.role).toBe('user');
+    expect(user?.role).toBe(ROLE_COUNSELOR);
   });
 
   it('returns null when unauthenticated', async () => {
@@ -59,7 +60,7 @@ describe('auth.logout', () => {
     const ctx: TrpcContext = {
       user: {
         id: 1, openId: 'test', name: 'Test', email: 'test@test.com',
-        loginMethod: 'email', role: 'user',
+        loginMethod: 'email', role: ROLE_COUNSELOR,
         createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date(),
       },
       req: { protocol: 'https', headers: {} } as TrpcContext['req'],
