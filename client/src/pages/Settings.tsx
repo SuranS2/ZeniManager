@@ -200,165 +200,42 @@ function ConnectionStatus() {
 function SqlSchemaSection() {
   const [copied, setCopied] = useState(false);
 
-  const schemaUrl = 'https://github.com/your-repo/blob/main/supabase/schema.sql';
-
   const handleCopy = () => {
-    const sql = `-- 상담 관리 시스템 Supabase 스키마
--- Supabase 대시보드 → SQL Editor에서 실행하세요
+    const sql = `-- public.user 최소 조회 권한
+-- role: 관리자 = 4, 상담사 = 5
 
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+grant select on table public."user" to authenticated;
+revoke all on table public."user" from anon;
 
--- 상담사 테이블
-CREATE TABLE IF NOT EXISTS public.counselors (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  auth_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-  name TEXT NOT NULL,
-  email TEXT UNIQUE,
-  phone TEXT,
-  branch TEXT,
-  role INTEGER NOT NULL DEFAULT ${ROLE_COUNSELOR} CHECK (role IN (${ROLE_ADMIN}, ${ROLE_COUNSELOR})),
-  client_count INTEGER NOT NULL DEFAULT 0,
-  completed_count INTEGER NOT NULL DEFAULT 0,
-  joined_at DATE,
-  status TEXT NOT NULL DEFAULT '재직' CHECK (status IN ('재직', '휴직', '퇴직')),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+create or replace function public.is_current_user_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1
+    from public."user" u
+    where u.user_id = auth.uid()
+      and u.role = 4
+  );
+$$;
 
--- 상담자(참여자) 테이블
-CREATE TABLE IF NOT EXISTS public.clients (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  seq_no INTEGER, year INTEGER, assignment_type TEXT,
-  name TEXT NOT NULL, resident_id_masked TEXT, phone TEXT,
-  last_counsel_date DATE, age INTEGER,
-  gender TEXT CHECK (gender IN ('남', '여')),
-  business_type TEXT, participation_type TEXT, participation_stage TEXT,
-  competency_grade TEXT, recognition_date DATE, desired_job TEXT,
-  counsel_notes TEXT, address TEXT, school TEXT, major TEXT, education_level TEXT,
-  initial_counsel_date DATE, iap_date DATE, iap_duration TEXT,
-  allowance_apply_date TEXT, rediagnosis_date DATE, rediagnosis_yn TEXT,
-  work_exp_type TEXT, work_exp_intent TEXT, work_exp_company TEXT,
-  work_exp_period TEXT, work_exp_completed TEXT,
-  training_type TEXT, training_name TEXT, training_start DATE,
-  training_end TEXT, training_allowance TEXT,
-  intensive_start TEXT, intensive_end TEXT, support_end_date TEXT,
-  employment_type TEXT, employment_date DATE, employer TEXT,
-  job_title TEXT, salary TEXT, employment_duration TEXT, resignation_date DATE,
-  retention_1m_date TEXT, retention_1m_yn TEXT,
-  retention_6m_date TEXT, retention_6m_yn TEXT,
-  retention_12m_date TEXT, retention_12m_yn TEXT,
-  retention_18m_date TEXT, retention_18m_yn TEXT,
-  counselor_id UUID REFERENCES public.counselors(id) ON DELETE SET NULL,
-  counselor_name TEXT, branch TEXT,
-  follow_up BOOLEAN NOT NULL DEFAULT FALSE,
-  score INTEGER,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+revoke all on function public.is_current_user_admin() from public;
+grant execute on function public.is_current_user_admin() to authenticated;
 
--- 상담 세션 테이블
-CREATE TABLE IF NOT EXISTS public.sessions (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  client_id UUID NOT NULL REFERENCES public.clients(id) ON DELETE CASCADE,
-  counselor_id UUID REFERENCES public.counselors(id) ON DELETE SET NULL,
-  counselor_name TEXT,
-  date DATE NOT NULL,
-  type TEXT NOT NULL CHECK (type IN ('초기상담','심층상담','취업지원','사후관리','집단상담','기타')),
-  content TEXT, next_action TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+alter table public."user" enable row level security;
 
--- 구직준비도 설문 테이블
-CREATE TABLE IF NOT EXISTS public.survey_responses (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  client_id UUID NOT NULL REFERENCES public.clients(id) ON DELETE CASCADE,
-  counselor_id UUID REFERENCES public.counselors(id) ON DELETE SET NULL,
-  survey_date DATE NOT NULL DEFAULT CURRENT_DATE,
-  q1_job_goal INTEGER CHECK (q1_job_goal BETWEEN 1 AND 3),
-  q2_will_3months INTEGER CHECK (q2_will_3months BETWEEN 1 AND 3),
-  q3_job_plan INTEGER CHECK (q3_job_plan BETWEEN 1 AND 3),
-  q4_skill_need INTEGER CHECK (q4_skill_need BETWEEN 1 AND 3),
-  q5_info_need INTEGER CHECK (q5_info_need BETWEEN 1 AND 3),
-  q6_competency INTEGER CHECK (q6_competency BETWEEN 1 AND 3),
-  q7_barrier INTEGER CHECK (q7_barrier BETWEEN 1 AND 3),
-  q7_barrier_detail TEXT,
-  q8_health INTEGER CHECK (q8_health BETWEEN 1 AND 3),
-  total_score INTEGER GENERATED ALWAYS AS (
-    COALESCE(q1_job_goal,0)+COALESCE(q2_will_3months,0)+COALESCE(q3_job_plan,0)+
-    COALESCE(q4_skill_need,0)+COALESCE(q5_info_need,0)+COALESCE(q6_competency,0)+
-    COALESCE(q7_barrier,0)+COALESCE(q8_health,0)
-  ) STORED,
-  notes TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- 칸반 메모 테이블
-CREATE TABLE IF NOT EXISTS public.memo_cards (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  counselor_id UUID NOT NULL REFERENCES public.counselors(id) ON DELETE CASCADE,
-  column_id TEXT NOT NULL DEFAULT 'todo' CHECK (column_id IN ('todo','inprogress','done')),
-  title TEXT NOT NULL, content TEXT,
-  priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('high','medium','low')),
-  due_date DATE, client_name TEXT, sort_order INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- 인덱스
-CREATE INDEX IF NOT EXISTS idx_clients_counselor_id ON public.clients(counselor_id);
-CREATE INDEX IF NOT EXISTS idx_clients_name ON public.clients(name);
-CREATE INDEX IF NOT EXISTS idx_sessions_client_id ON public.sessions(client_id);
-CREATE INDEX IF NOT EXISTS idx_survey_client_id ON public.survey_responses(client_id);
-
--- updated_at 자동 갱신
-CREATE OR REPLACE FUNCTION update_updated_at() RETURNS TRIGGER AS $$
-BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $$ LANGUAGE plpgsql;
-CREATE OR REPLACE TRIGGER trg_counselors_updated_at BEFORE UPDATE ON public.counselors FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-CREATE OR REPLACE TRIGGER trg_clients_updated_at BEFORE UPDATE ON public.clients FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-CREATE OR REPLACE TRIGGER trg_memo_updated_at BEFORE UPDATE ON public.memo_cards FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
--- RLS 활성화
-ALTER TABLE public.counselors ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.survey_responses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.memo_cards ENABLE ROW LEVEL SECURITY;
-
--- Helper functions
-CREATE OR REPLACE FUNCTION public.get_my_counselor_id() RETURNS UUID AS $$
-  SELECT id FROM public.counselors WHERE auth_user_id = auth.uid() LIMIT 1;
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
-
-CREATE OR REPLACE FUNCTION public.is_admin() RETURNS BOOLEAN AS $$
-  SELECT EXISTS (SELECT 1 FROM public.counselors WHERE auth_user_id = auth.uid() AND role = ${ROLE_ADMIN});
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
-
--- RLS Policies: counselors
-CREATE POLICY "counselors_select" ON public.counselors FOR SELECT USING (auth.uid() IS NOT NULL);
-CREATE POLICY "counselors_insert" ON public.counselors FOR INSERT WITH CHECK (public.is_admin());
-CREATE POLICY "counselors_update" ON public.counselors FOR UPDATE USING (public.is_admin() OR auth_user_id = auth.uid());
-CREATE POLICY "counselors_delete" ON public.counselors FOR DELETE USING (public.is_admin());
-
--- RLS Policies: clients
-CREATE POLICY "clients_select" ON public.clients FOR SELECT USING (public.is_admin() OR counselor_id = public.get_my_counselor_id());
-CREATE POLICY "clients_insert" ON public.clients FOR INSERT WITH CHECK (public.is_admin() OR counselor_id = public.get_my_counselor_id());
-CREATE POLICY "clients_update" ON public.clients FOR UPDATE USING (public.is_admin() OR counselor_id = public.get_my_counselor_id());
-CREATE POLICY "clients_delete" ON public.clients FOR DELETE USING (public.is_admin() OR counselor_id = public.get_my_counselor_id());
-
--- RLS Policies: sessions
-CREATE POLICY "sessions_select" ON public.sessions FOR SELECT USING (public.is_admin() OR counselor_id = public.get_my_counselor_id() OR EXISTS (SELECT 1 FROM public.clients c WHERE c.id = sessions.client_id AND c.counselor_id = public.get_my_counselor_id()));
-CREATE POLICY "sessions_insert" ON public.sessions FOR INSERT WITH CHECK (public.is_admin() OR counselor_id = public.get_my_counselor_id());
-CREATE POLICY "sessions_update" ON public.sessions FOR UPDATE USING (public.is_admin() OR counselor_id = public.get_my_counselor_id());
-CREATE POLICY "sessions_delete" ON public.sessions FOR DELETE USING (public.is_admin() OR counselor_id = public.get_my_counselor_id());
-
--- RLS Policies: survey_responses
-CREATE POLICY "surveys_select" ON public.survey_responses FOR SELECT USING (public.is_admin() OR counselor_id = public.get_my_counselor_id() OR EXISTS (SELECT 1 FROM public.clients c WHERE c.id = survey_responses.client_id AND c.counselor_id = public.get_my_counselor_id()));
-CREATE POLICY "surveys_insert" ON public.survey_responses FOR INSERT WITH CHECK (public.is_admin() OR counselor_id = public.get_my_counselor_id());
-CREATE POLICY "surveys_update" ON public.survey_responses FOR UPDATE USING (public.is_admin() OR counselor_id = public.get_my_counselor_id());
-CREATE POLICY "surveys_delete" ON public.survey_responses FOR DELETE USING (public.is_admin() OR counselor_id = public.get_my_counselor_id());
-
--- RLS Policies: memo_cards
-CREATE POLICY "memos_all" ON public.memo_cards USING (counselor_id = public.get_my_counselor_id() OR public.is_admin());`;
+drop policy if exists user_select_self_or_admin on public."user";
+create policy user_select_self_or_admin
+on public."user"
+for select
+to authenticated
+using (
+  user_id = auth.uid()
+  or public.is_current_user_admin()
+);`;
 
     navigator.clipboard.writeText(sql).then(() => {
       setCopied(true);
@@ -371,15 +248,15 @@ CREATE POLICY "memos_all" ON public.memo_cards USING (counselor_id = public.get_
     <div className="bg-card rounded-md p-5 shadow-sm border border-border space-y-3">
       <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
         <Database size={15} />
-        Supabase 스키마 설정 안내
+        Supabase 권한 설정 안내
       </h2>
       <div className="text-sm text-muted-foreground space-y-1">
-        <p>처음 사용 시 Supabase 대시보드에서 스키마를 생성해야 합니다.</p>
+        <p>현재 앱은 좌측 nav와 헤더 사용자 정보를 위해 <code>public.user</code> 조회 권한이 필요합니다.</p>
         <ol className="list-decimal list-inside space-y-1 text-xs mt-2">
           <li><a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer" className="text-primary underline">Supabase 대시보드</a> → 프로젝트 선택</li>
           <li>좌측 메뉴 <strong>SQL Editor</strong> 클릭</li>
-          <li>아래 버튼으로 SQL을 복사하여 붙여넣고 실행</li>
-          <li>Authentication → Users에서 테스트 계정 생성</li>
+          <li>아래 SQL을 실행해 <code>authenticated</code> 사용자의 <code>public.user</code> 조회 정책을 적용</li>
+          <li>상담사는 본인 행만, 관리자는 모든 행을 조회할 수 있게 됩니다</li>
         </ol>
       </div>
       <button
@@ -388,7 +265,7 @@ CREATE POLICY "memos_all" ON public.memo_cards USING (counselor_id = public.get_
         style={{ background: copied ? '#16a34a' : '#009C64' }}
       >
         {copied ? <Check size={14} /> : <Copy size={14} />}
-        {copied ? 'SQL 복사됨!' : 'SQL 스키마 복사'}
+        {copied ? 'SQL 복사됨!' : 'user RLS SQL 복사'}
       </button>
     </div>
   );
@@ -398,6 +275,7 @@ export default function Settings() {
   const [, navigate] = useLocation();
   const { canRender } = usePageGuard('authenticated');
   const { user, logout } = useAuth();
+  const organizationLabel = user?.department || user?.branch;
 
   const handleLogout = () => {
     logout();
@@ -452,8 +330,8 @@ export default function Settings() {
               <span className={isAdminRole(user?.role) ? 'badge-pending' : 'badge-active'}>
                 {isAdminRole(user?.role) ? '관리자' : '상담사'}
               </span>
-              {user?.branch && (
-                <span className="text-xs text-muted-foreground">{user.branch}</span>
+              {organizationLabel && (
+                <span className="text-xs text-muted-foreground">{organizationLabel}</span>
               )}
             </div>
           </div>

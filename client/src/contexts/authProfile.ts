@@ -1,6 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  ROLE_ADMIN,
   normalizeAppRole,
   ROLE_COUNSELOR,
   type AppRole,
@@ -14,7 +13,7 @@ export interface UserIdentity {
 export interface CounselorProfileRecord {
   id: string;
   name: string;
-  branch: string | null;
+  department: string | null;
   role: unknown;
 }
 
@@ -23,6 +22,7 @@ export interface AuthenticatedUserProfile {
   name: string;
   email: string;
   role: AppRole;
+  department?: string;
   branch?: string;
   counselorId?: string;
 }
@@ -37,25 +37,6 @@ export type ProfileLookup = (
   identity: UserIdentity,
 ) => Promise<CounselorProfileRecord | null>;
 
-const AUTH_EMAIL_FALLBACKS: Record<string, {
-  name: string;
-  role: AppRole;
-  branch?: string;
-  counselorId?: string;
-}> = {
-  'senior@test.com': {
-    name: '관리자',
-    role: ROLE_ADMIN,
-    branch: '본사',
-  },
-  'counselor@test.com': {
-    name: '김상담',
-    role: ROLE_COUNSELOR,
-    branch: '서울 강남지점',
-    counselorId: 'c001',
-  },
-};
-
 export function normalizeLoginEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -64,12 +45,15 @@ export function mapCounselorProfileToUser(
   identity: UserIdentity,
   profile: CounselorProfileRecord,
 ): AuthenticatedUserProfile {
+  const department = profile.department || undefined;
+
   return {
     id: identity.authUserId,
     name: profile.name,
     email: identity.email,
     role: normalizeAppRole(profile.role),
-    branch: profile.branch || undefined,
+    department,
+    branch: department,
     counselorId: profile.id,
   };
 }
@@ -82,24 +66,6 @@ export function buildFallbackUser(
     name: identity.email.split('@')[0] || '사용자',
     email: identity.email,
     role: ROLE_COUNSELOR,
-  };
-}
-
-export function buildAuthSchemaFallbackUser(
-  identity: UserIdentity,
-): AuthenticatedUserProfile | null {
-  const mapped = AUTH_EMAIL_FALLBACKS[identity.email];
-  if (!mapped) {
-    return null;
-  }
-
-  return {
-    id: identity.authUserId,
-    name: mapped.name,
-    email: identity.email,
-    role: mapped.role,
-    branch: mapped.branch,
-    counselorId: mapped.counselorId,
   };
 }
 
@@ -136,7 +102,7 @@ export function createCounselorProfileLookups(
     async ({ authUserId }) => {
       const { data, error } = await sb
         .from('user')
-        .select('user_id, user_name, role')
+        .select('user_id, user_name, role, department')
         .eq('user_id', authUserId)
         .maybeSingle();
 
@@ -151,55 +117,9 @@ export function createCounselorProfileLookups(
       return {
         id: data.user_id,
         name: data.user_name,
-        branch: null,
+        department: data.department,
         role: data.role,
       };
-    },
-    async ({ authUserId }) => {
-      const { data, error } = await sb
-        .from('counselors')
-        .select('id, name, branch, role')
-        .eq('auth_user_id', authUserId)
-        .maybeSingle();
-
-      if (error) {
-        throw error;
-      }
-
-      return data;
-    },
-    async ({ email }) => {
-      if (!email) return null;
-
-      const { data, error } = await sb.rpc(
-        'resolve_current_counselor_profile',
-        { user_email: email },
-      );
-
-      if (error) {
-        throw error;
-      }
-
-      if (Array.isArray(data)) {
-        return (data[0] as CounselorProfileRecord | undefined) ?? null;
-      }
-
-      return (data as CounselorProfileRecord | null) ?? null;
-    },
-    async ({ email }) => {
-      if (!email) return null;
-
-      const { data, error } = await sb
-        .from('counselors')
-        .select('id, name, branch, role')
-        .eq('email', email)
-        .maybeSingle();
-
-      if (error) {
-        throw error;
-      }
-
-      return data;
     },
   ];
 }
