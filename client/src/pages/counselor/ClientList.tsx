@@ -24,6 +24,29 @@ const PRIMARY = '#009C64';
 type FilterType = 'all' | 'no-score' | 'follow-up' | 'employed';
 type ClientModalTab = 'manage' | 'history' | 'input' | 'survey';
 
+function parseFollowUpStat(value: ClientRow['continue_serv_1_stat']): number | null {
+  if (value == null || value === '') return null;
+  const normalized = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(normalized) ? normalized : null;
+}
+
+function hasScore(client: ClientRow): boolean {
+  return client.retest_stat != null;
+}
+
+function needsFollowUp(client: ClientRow): boolean {
+  return (parseFollowUpStat(client.continue_serv_1_stat) ?? 0) > 0;
+}
+
+function formatFollowUpStat(client: ClientRow): string {
+  const followUpStat = parseFollowUpStat(client.continue_serv_1_stat);
+  return followUpStat != null && followUpStat > 0 ? String(followUpStat) : '-';
+}
+
+function isEmploymentCompleted(client: ClientRow): boolean {
+  return client.participation_stage === '취업완료';
+}
+
 // ─── Survey Questions from 구직준비도점검설문지 ─────────────────────────────────
 
 const SURVEY_QUESTIONS = [
@@ -444,25 +467,27 @@ function ClientDetailModal({
                           <span className="text-sm font-bold" style={{ color: PRIMARY }}>{client.competency_grade}등급</span>
                         </div>
                       )}
-                      {client.score != null && (
+                      {/* Live list/detail score is sourced from retest_stat to match dashboard rules. */}
+                      {client.retest_stat != null && (
                         <div className="flex items-center justify-between">
                           <span className="text-sm">점수</span>
-                          <span className="text-sm font-bold" style={{ color: PRIMARY }}>{client.score}점</span>
+                          <span className="text-sm font-bold" style={{ color: PRIMARY }}>{client.retest_stat}점</span>
                         </div>
                       )}
                       <div className="flex items-center justify-between">
                         <span className="text-sm">후속 상담</span>
-                        <span className={client.follow_up ? 'badge-cancelled' : 'badge-active'}>
-                          {client.follow_up ? '필요' : '불필요'}
+                        <span className={needsFollowUp(client) ? 'badge-cancelled' : 'badge-active'}>
+                          {needsFollowUp(client) ? '필요' : '불필요'}
                         </span>
                       </div>
                     </div>
                   </div>
-                  {client.employment_type && (
+                  {isEmploymentCompleted(client) && (
                     <div>
                       <div className="text-xs font-medium text-muted-foreground mb-2">취업 정보</div>
                       <div className="text-sm space-y-1">
-                        <div>구분: <span className="font-medium">{client.employment_type}</span></div>
+                        <div>상태: <span className="font-medium">취업완료</span></div>
+                        {client.employment_type && <div>구분: <span className="font-medium">{client.employment_type}</span></div>}
                         {client.employer && <div>취업처: <span className="font-medium">{client.employer}</span></div>}
                         {client.employment_date && <div>취업일: <span className="font-medium">{client.employment_date}</span></div>}
                         {client.salary && <div>급여: <span className="font-medium">{client.salary}</span></div>}
@@ -670,19 +695,20 @@ export default function ClientList() {
       c.name.toLowerCase().includes(search.toLowerCase()) ||
       (c.phone || '').includes(search) ||
       (c.desired_job || '').includes(search);
+    // List tabs now follow the same live DB rules as the dashboard instead of legacy mock fields.
     const matchFilter =
       filter === 'all' ? true :
-      filter === 'no-score' ? !c.score :
-      filter === 'follow-up' ? c.follow_up :
-      filter === 'employed' ? !!c.employment_type : true;
+      filter === 'no-score' ? !hasScore(c) :
+      filter === 'follow-up' ? needsFollowUp(c) :
+      filter === 'employed' ? isEmploymentCompleted(c) : true;
     return matchSearch && matchFilter;
   });
 
   const counts = {
     all: clients.length,
-    'no-score': clients.filter(c => !c.score).length,
-    'follow-up': clients.filter(c => c.follow_up).length,
-    employed: clients.filter(c => !!c.employment_type).length,
+    'no-score': clients.filter(c => !hasScore(c)).length,
+    'follow-up': clients.filter(c => needsFollowUp(c)).length,
+    employed: clients.filter(c => isEmploymentCompleted(c)).length,
   };
 
   const stageColors: Record<string, string> = {
@@ -805,7 +831,8 @@ export default function ClientList() {
                       }
                     </td>
                     <td className="px-4 py-3">
-                       <span className="text-xs">{client.continue_serv_1_stat || '-'}</span>
+                      {/* Show only positive follow-up states so 0/null do not look like pending work. */}
+                      <span className="text-xs">{formatFollowUpStat(client)}</span>
                     </td>
                     <td className="px-4 py-3 max-w-[200px] truncate text-muted-foreground text-xs">
                       {client.memo || '-'}

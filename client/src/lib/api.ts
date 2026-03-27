@@ -756,13 +756,16 @@ export interface DashboardStats {
   inProgress: number;
   employed: number;
   followUpNeeded: number;
+  averageScore: number | null;
+  scoredClients: number;
+  unscoredClients: number;
+  scoreDistribution: { range: string; count: number }[];
   stageBreakdown: { stage: string; count: number }[];
 }
 
 export interface DashboardMonthlyStat {
   month: string;
   clients: number;
-  completed: number;
   sessions: number;
 }
 
@@ -796,6 +799,21 @@ function compareDashboardStage(a: string, b: string): number {
   return a.localeCompare(b, 'ko');
 }
 
+const DASHBOARD_SCORE_RANGES = [
+  { label: '0-59', min: 0, max: 59 },
+  { label: '60-69', min: 60, max: 69 },
+  { label: '70-79', min: 70, max: 79 },
+  { label: '80-89', min: 80, max: 89 },
+  { label: '90-100', min: 90, max: 100 },
+];
+
+function buildDashboardScoreDistribution(scores: number[]): { range: string; count: number }[] {
+  return DASHBOARD_SCORE_RANGES.map(range => ({
+    range: range.label,
+    count: scores.filter(score => score >= range.min && score <= range.max).length,
+  }));
+}
+
 function formatDashboardMonthLabel(monthKey: string): string {
   return `${Number(monthKey.slice(5, 7))}월`;
 }
@@ -817,7 +835,6 @@ function createDashboardMonthlyBuckets(monthCount: number): DashboardMonthlyStat
   return buildRecentDashboardMonthKeys(monthCount).map(monthKey => ({
     month: formatDashboardMonthLabel(monthKey),
     clients: 0,
-    completed: 0,
     sessions: 0,
   }));
 }
@@ -878,7 +895,7 @@ export async function fetchDashboardStats(authUserId?: string): Promise<Dashboar
 
   let query = sb()
     .from('client')
-    .select('participation_stage');
+    .select('participation_stage, retest_stat, continue_serv_1_stat');
 
   if (scopedAuthUserId) {
     query = query.eq('counselor_id', scopedAuthUserId);
@@ -888,8 +905,15 @@ export async function fetchDashboardStats(authUserId?: string): Promise<Dashboar
 
   if (error) throw error;
 
-  const rows = (data ?? []) as Array<{ participation_stage: string | null }>;
+  const rows = (data ?? []) as Array<{
+    participation_stage: string | null;
+    retest_stat: number | null;
+    continue_serv_1_stat: number | null;
+  }>;
   const stageCounts = new Map<string, number>();
+  const scores = rows
+    .map(row => (typeof row.retest_stat === 'number' ? row.retest_stat : null))
+    .filter((score): score is number => score != null);
 
   rows.forEach(row => {
     const stage = row.participation_stage?.trim();
@@ -905,7 +929,13 @@ export async function fetchDashboardStats(authUserId?: string): Promise<Dashboar
     totalClients: rows.length,
     inProgress: rows.filter(row => row.participation_stage !== '취업완료').length,
     employed: rows.filter(row => row.participation_stage === '취업완료').length,
-    followUpNeeded: rows.filter(row => row.participation_stage === '사후관리').length,
+    followUpNeeded: rows.filter(
+      row => typeof row.continue_serv_1_stat === 'number' && row.continue_serv_1_stat > 0,
+    ).length,
+    averageScore: scores.length > 0 ? Number((scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(1)) : null,
+    scoredClients: scores.length,
+    unscoredClients: rows.length - scores.length,
+    scoreDistribution: buildDashboardScoreDistribution(scores),
     stageBreakdown,
   };
 }
@@ -930,15 +960,6 @@ export async function fetchDashboardMonthlyStats(
 
   if (error) throw error;
 
-  const { data: completions, error: completionError } = await sb()
-    .from('client')
-    .select('notificate_date')
-    .eq('counselor_id', scopedAuthUserId)
-    .gte('notificate_date', rangeStart)
-    .lte('notificate_date', rangeEnd);
-
-  if (completionError) throw completionError;
-
   const sessionCountByMonth = new Map<string, number>();
   const clientIdsByMonth = new Map<string, Set<number>>();
 
@@ -955,18 +976,9 @@ export async function fetchDashboardMonthlyStats(
     }
   });
 
-  const completionCountByMonth = new Map<string, number>();
-  ((completions ?? []) as Array<{ notificate_date: string | null }>).forEach(row => {
-    if (!row.notificate_date) return;
-    const monthKey = row.notificate_date.slice(0, 7);
-    if (!monthKeys.includes(monthKey)) return;
-    completionCountByMonth.set(monthKey, (completionCountByMonth.get(monthKey) ?? 0) + 1);
-  });
-
   return monthKeys.map(monthKey => ({
     month: formatDashboardMonthLabel(monthKey),
     clients: clientIdsByMonth.get(monthKey)?.size ?? 0,
-    completed: completionCountByMonth.get(monthKey) ?? 0,
     sessions: sessionCountByMonth.get(monthKey) ?? 0,
   }));
 }
