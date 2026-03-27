@@ -5,7 +5,8 @@
  */
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Route, Switch, useLocation, Redirect } from "wouter";
+import { Redirect, Route, Router as WouterRouter, Switch, useLocation } from "wouter";
+import { useHashLocation } from "wouter/use-hash-location";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import DashboardLayout from "./components/DashboardLayout";
@@ -56,7 +57,7 @@ function CounselorRoute({ component: Component }: { component: React.ComponentTy
     </DashboardLayout>
   );
 }
-function Router() {
+function AppRoutes() {
   const { isAuthenticated, user } = useAuth();
 
   return (
@@ -120,13 +121,17 @@ function Router() {
 }
 
 function App() {
+  const isPackagedElectron = typeof window !== "undefined" && window.location.protocol === "file:";
+
   return (
     <ThemeProvider defaultTheme="light">
       <AuthProvider>
-        <TooltipProvider>
-          <Toaster position="top-right" />
-          <Router />
-        </TooltipProvider>
+        <WouterRouter hook={isPackagedElectron ? useHashLocation : undefined}>
+          <TooltipProvider>
+            <Toaster position="top-right" />
+            <AppRoutes />
+          </TooltipProvider>
+        </WouterRouter>
       </AuthProvider>
     </ThemeProvider>
   );
