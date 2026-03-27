@@ -13,14 +13,16 @@ import { isSupabaseConfigured } from '@/lib/supabase';
 
 const PRIMARY_HEX = '#009C64';
 
+// 1. role 타입을 AppRole로 수정
 interface CounselorForm {
   name: string;
   department: string;
-  role: 'counselor' | 'admin';
+  role: AppRole;
 }
 
+// 2. 초기값을 공통 상수(ROLE_COUNSELOR)로 수정
 const EMPTY_FORM: CounselorForm = {
-  name: '', department: '', role: 'counselor',
+  name: '', department: '', role: ROLE_COUNSELOR,
 };
 
 function CounselorModal({
@@ -35,10 +37,11 @@ function CounselorModal({
   const [form, setForm] = useState<CounselorForm>(() =>
     counselor
       ? {
-          name: counselor.name,
-          department: counselor.department || '',
-          role: counselor.role || 'counselor',
-        }
+        name: counselor.name,
+        department: counselor.department || '',
+        // 3. 타입 단언 및 폴백 적용
+        role: (counselor.role as AppRole) || ROLE_COUNSELOR,
+      }
       : EMPTY_FORM
   );
   const [saving, setSaving] = useState(false);
@@ -84,7 +87,7 @@ function CounselorModal({
               <input
                 type="text"
                 value={form.department}
-                onChange={e => setForm(f => ({ ...f, branch: e.target.value }))}
+                onChange={e => setForm(f => ({ ...f, department: e.target.value }))}
                 className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="서울 강남지점"
               />
@@ -145,7 +148,6 @@ export default function CounselorList() {
 
   const handleSave = async (form: CounselorForm) => {
     if (!isSupabaseConfigured()) {
-      // Demo mode: update local state only
       if (editTarget) {
         setCounselors(prev => prev.map(c => c.id === editTarget.id ? { ...c, ...form } : c));
         toast.success('수정되었습니다. (데모 모드)');
@@ -170,7 +172,8 @@ export default function CounselorList() {
         setCounselors(prev => prev.map(c => c.id === updated.id ? updated : c));
         toast.success('상담사 정보가 수정되었습니다.');
       } else {
-        const created = await createCounselor(form as any);
+        // 타입 일치로 as any 제거
+        const created = await createCounselor(form);
         setCounselors(prev => [created, ...prev]);
         toast.success('상담사가 등록되었습니다.');
       }
@@ -197,8 +200,6 @@ export default function CounselorList() {
       toast.error('삭제 실패: ' + e.message);
     }
   };
-
-  const statusColor = (s: string) => s === '재직' ? 'badge-active' : s === '휴직' ? 'badge-pending' : 'badge-cancelled';
 
   if (!canRender) return null;
 
@@ -253,15 +254,14 @@ export default function CounselorList() {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">지점</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">담당자 수</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">완료</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">수정</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">삭제</th>
-
+                <th className="text-center px-4 py-3 font-medium text-muted-foreground w-16">수정</th>
+                <th className="text-center px-4 py-3 font-medium text-muted-foreground w-16">삭제</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     {search ? '검색 결과가 없습니다.' : '등록된 상담사가 없습니다.'}
                   </td>
                 </tr>
@@ -283,18 +283,18 @@ export default function CounselorList() {
                     <td className="px-4 py-3 text-right hidden sm:table-cell">
                       <span style={{ color: PRIMARY_HEX }} className="font-semibold">{c.completed_count ?? 0}</span>
                     </td>
-                    <td className="px-4 py-3 text-right w-[40px]">
+                    <td className="px-4 py-3 text-center">
                       <button
                         onClick={() => { setEditTarget(c); setShowModal(true); }}
-                        className="p-1.5 rounded-sm hover:bg-muted transition-colors inline-flex items-center"
+                        className="p-1.5 rounded-sm hover:bg-muted transition-colors inline-block"
                       >
                         <Edit3 size={14} />
                       </button>
                     </td>
-                    <td className="px-4 py-3 text-left w-[40px]">
+                    <td className="px-4 py-3 text-center">
                       <button
                         onClick={() => setDeleteTarget(c)}
-                        className="p-1.5 rounded-sm hover:bg-destructive/10 transition-colors text-destructive inline-flex items-center"
+                        className="p-1.5 rounded-sm hover:bg-destructive/10 transition-colors text-destructive inline-block"
                       >
                         <Trash2 size={14} />
                       </button>
