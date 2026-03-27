@@ -70,25 +70,32 @@ function AppRoutes() {
       </Route>
 
       {/* Counselor routes */}
+      <Route path="/dashboard/search">
+        <GuardedRoute component={CounselorDashboard} requirement="counselor" />
+      </Route>
+      <Route path="/dashboard/process">
+        <GuardedRoute component={CounselorDashboard} requirement="counselor" />
+      </Route>
+      <Route path="/dashboard/calendar">
+        <GuardedRoute component={CounselorDashboard} requirement="counselor" />
+      </Route>
+      <Route path="/dashboard/memo">
+        <GuardedRoute component={CounselorDashboard} requirement="counselor" />
+      </Route>
       <Route path="/dashboard">
         <GuardedRoute component={CounselorDashboard} requirement="counselor" />
       </Route>
-      <Route path="/dashboard/:sub">
-        <GuardedRoute component={CounselorDashboard} requirement="counselor" />
-      </Route>
-      <Route path="/clients">
-        <GuardedRoute component={ClientList} requirement="counselor" />
+      <Route path="/clients/detail/:id">
+        <GuardedRoute component={ClientDetail} requirement="counselor" />
       </Route>
       <Route path="/clients/list">
         <GuardedRoute component={ClientList} requirement="counselor" />
       </Route>
-      {/* 수정된 부분: CounselorRoute -> GuardedRoute 
-      */}
-      <Route path="/clients/detail/:id">
-        <GuardedRoute component={ClientDetail} />
-      </Route>
       <Route path="/clients/register">
         <GuardedRoute component={ClientRegister} requirement="counselor" />
+      </Route>
+      <Route path="/clients">
+        <GuardedRoute component={ClientList} requirement="counselor" />
       </Route>
 
       {/* Admin routes */}
