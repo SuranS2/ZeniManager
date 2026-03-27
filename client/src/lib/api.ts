@@ -766,7 +766,6 @@ export interface DashboardStats {
 export interface DashboardMonthlyStat {
   month: string;
   clients: number;
-  completed: number;
   sessions: number;
 }
 
@@ -836,7 +835,6 @@ function createDashboardMonthlyBuckets(monthCount: number): DashboardMonthlyStat
   return buildRecentDashboardMonthKeys(monthCount).map(monthKey => ({
     month: formatDashboardMonthLabel(monthKey),
     clients: 0,
-    completed: 0,
     sessions: 0,
   }));
 }
@@ -897,7 +895,7 @@ export async function fetchDashboardStats(authUserId?: string): Promise<Dashboar
 
   let query = sb()
     .from('client')
-    .select('participation_stage, retest_stat');
+    .select('participation_stage, retest_stat, continue_serv_1_stat');
 
   if (scopedAuthUserId) {
     query = query.eq('counselor_id', scopedAuthUserId);
@@ -907,7 +905,11 @@ export async function fetchDashboardStats(authUserId?: string): Promise<Dashboar
 
   if (error) throw error;
 
-  const rows = (data ?? []) as Array<{ participation_stage: string | null; retest_stat: number | null }>;
+  const rows = (data ?? []) as Array<{
+    participation_stage: string | null;
+    retest_stat: number | null;
+    continue_serv_1_stat: number | null;
+  }>;
   const stageCounts = new Map<string, number>();
   const scores = rows
     .map(row => (typeof row.retest_stat === 'number' ? row.retest_stat : null))
@@ -927,7 +929,9 @@ export async function fetchDashboardStats(authUserId?: string): Promise<Dashboar
     totalClients: rows.length,
     inProgress: rows.filter(row => row.participation_stage !== '취업완료').length,
     employed: rows.filter(row => row.participation_stage === '취업완료').length,
-    followUpNeeded: rows.filter(row => row.participation_stage === '사후관리').length,
+    followUpNeeded: rows.filter(
+      row => typeof row.continue_serv_1_stat === 'number' && row.continue_serv_1_stat > 0,
+    ).length,
     averageScore: scores.length > 0 ? Number((scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(1)) : null,
     scoredClients: scores.length,
     unscoredClients: rows.length - scores.length,
@@ -956,15 +960,6 @@ export async function fetchDashboardMonthlyStats(
 
   if (error) throw error;
 
-  const { data: completions, error: completionError } = await sb()
-    .from('client')
-    .select('notificate_date')
-    .eq('counselor_id', scopedAuthUserId)
-    .gte('notificate_date', rangeStart)
-    .lte('notificate_date', rangeEnd);
-
-  if (completionError) throw completionError;
-
   const sessionCountByMonth = new Map<string, number>();
   const clientIdsByMonth = new Map<string, Set<number>>();
 
@@ -981,18 +976,9 @@ export async function fetchDashboardMonthlyStats(
     }
   });
 
-  const completionCountByMonth = new Map<string, number>();
-  ((completions ?? []) as Array<{ notificate_date: string | null }>).forEach(row => {
-    if (!row.notificate_date) return;
-    const monthKey = row.notificate_date.slice(0, 7);
-    if (!monthKeys.includes(monthKey)) return;
-    completionCountByMonth.set(monthKey, (completionCountByMonth.get(monthKey) ?? 0) + 1);
-  });
-
   return monthKeys.map(monthKey => ({
     month: formatDashboardMonthLabel(monthKey),
     clients: clientIdsByMonth.get(monthKey)?.size ?? 0,
-    completed: completionCountByMonth.get(monthKey) ?? 0,
     sessions: sessionCountByMonth.get(monthKey) ?? 0,
   }));
 }
