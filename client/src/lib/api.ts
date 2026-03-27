@@ -1,7 +1,8 @@
 /**
  * api.ts — Supabase data access layer
  * All functions read credentials from localStorage at call time.
- * Falls back to mock data when Supabase is not configured.
+ * Some legacy APIs still fall back to mock data when Supabase is not configured.
+ * Dashboard memo/calendar APIs require a live DB runtime contract.
  */
 import { ROLE_COUNSELOR, normalizeAppRole } from '@shared/const';
 import { getSupabaseClient, getSupabaseUrl, isSupabaseConfigured } from './supabase';
@@ -28,6 +29,7 @@ function sb() {
 const SESSION_META_MARKER = '\n\n[__CALENDAR_FLOW_META__]\n';
 const SURVEY_RESPONSES_TABLE = 'survey_responses';
 const SURVEY_SCHEMA_UNAVAILABLE_CODE = 'SURVEY_SCHEMA_UNAVAILABLE';
+const ISO_DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 type LiveClientRecord = {
   client_id: number;
@@ -169,9 +171,30 @@ function normalizeMemoValue(memo: string | null | undefined): string | null {
   return memo.trim().length > 0 ? memo : null;
 }
 
-function requireLiveDashboardScope(scopeLabel: string): void {
+function assertDashboardSupabaseConfigured(scopeLabel: string): void {
   if (!isSupabaseConfigured()) {
     throw new Error(`${scopeLabel} 기능을 사용하려면 Supabase 설정이 필요합니다.`);
+  }
+}
+
+function assertDashboardRuntimeContract(scopeLabel: string, authUserId: string | null | undefined): string {
+  assertDashboardSupabaseConfigured(scopeLabel);
+
+  const normalizedAuthUserId = authUserId?.trim();
+  if (!normalizedAuthUserId) {
+    throw new Error(`${scopeLabel} 기능을 호출하려면 로그인한 상담사 user_id가 필요합니다.`);
+  }
+
+  return normalizedAuthUserId;
+}
+
+function assertDashboardDateRange(scopeLabel: string, rangeStart: string, rangeEnd: string): void {
+  if (!ISO_DATE_KEY_PATTERN.test(rangeStart) || !ISO_DATE_KEY_PATTERN.test(rangeEnd)) {
+    throw new Error(`${scopeLabel} 기능을 호출하려면 YYYY-MM-DD 형식의 조회 기간이 필요합니다.`);
+  }
+
+  if (rangeStart > rangeEnd) {
+    throw new Error(`${scopeLabel} 기능을 호출하려면 시작일이 종료일보다 늦지 않은 조회 기간이 필요합니다.`);
   }
 }
 
@@ -430,14 +453,12 @@ export async function updateClientMemo(clientId: string, memo: string | null): P
 }
 
 export async function fetchMyMemo(authUserId: string): Promise<string | null> {
-  if (!authUserId) return null;
-
-  requireLiveDashboardScope('개인 메모');
+  const scopedAuthUserId = assertDashboardRuntimeContract('개인 메모', authUserId);
 
   const { data, error } = await sb()
     .from('user')
     .select('memo')
-    .eq('user_id', authUserId)
+    .eq('user_id', scopedAuthUserId)
     .maybeSingle();
 
   if (error) {
@@ -452,21 +473,19 @@ export async function fetchMyMemo(authUserId: string): Promise<string | null> {
 
 export async function updateMyMemo(authUserId: string, memo: string | null): Promise<string | null> {
   const normalizedMemo = normalizeMemoValue(memo);
-
-  if (!authUserId) throw new Error('로그인한 상담사 정보가 없습니다.');
-  requireLiveDashboardScope('개인 메모');
+  const scopedAuthUserId = assertDashboardRuntimeContract('개인 메모', authUserId);
 
   const { error, count } = await sb()
     .from('user')
     .update({ memo: normalizedMemo }, { count: 'exact' })
-    .eq('user_id', authUserId);
+    .eq('user_id', scopedAuthUserId);
 
   if (error) throw error;
   if (count === 0) {
     throw new Error('상담사 메모 UPDATE가 적용되지 않았습니다. public.user의 UPDATE 정책과 user_id/auth.uid() 매핑을 확인하세요.');
   }
 
-  const refreshedMemo = await fetchMyMemo(authUserId);
+  const refreshedMemo = await fetchMyMemo(scopedAuthUserId);
   if (refreshedMemo !== normalizedMemo) {
     if (refreshedMemo == null && normalizedMemo == null) {
       return null;
@@ -740,6 +759,13 @@ export interface DashboardStats {
   stageBreakdown: { stage: string; count: number }[];
 }
 
+export interface DashboardMonthlyStat {
+  month: string;
+  clients: number;
+  completed: number;
+  sessions: number;
+}
+
 export interface DashboardCalendarEntry {
   counselId: string;
   clientId: string;
@@ -750,54 +776,199 @@ export interface DashboardCalendarEntry {
   participationStage: string | null;
 }
 
-export async function fetchDashboardStats(counselorId?: string): Promise<DashboardStats> {
-  if (!isSupabaseConfigured()) {
-    const normalizedCounselorId = normalizeMockCounselorId(counselorId);
-    const clients = normalizedCounselorId
-      ? MOCK_CLIENTS.filter(c => c.counselorId === normalizedCounselorId)
-      : MOCK_CLIENTS;
-    const stages = ['초기상담', '심층상담', '취업지원', '취업완료', '사후관리'];
-    return {
-      totalClients: clients.length,
-      inProgress: clients.filter(c => c.processStage !== '취업완료').length,
-      employed: clients.filter(c => c.processStage === '취업완료').length,
-      followUpNeeded: clients.filter(c => c.followUp).length,
-      stageBreakdown: stages.map(s => ({ stage: s, count: clients.filter(c => c.processStage === s).length })),
-    };
+const DASHBOARD_STAGE_ORDER = [
+  '초기상담',
+  '심층상담',
+  '취업지원',
+  '직업훈련',
+  '취업알선',
+  '취업완료',
+  '사후관리',
+];
+
+function compareDashboardStage(a: string, b: string): number {
+  const aIndex = DASHBOARD_STAGE_ORDER.indexOf(a);
+  const bIndex = DASHBOARD_STAGE_ORDER.indexOf(b);
+
+  if (aIndex >= 0 && bIndex >= 0) return aIndex - bIndex;
+  if (aIndex >= 0) return -1;
+  if (bIndex >= 0) return 1;
+  return a.localeCompare(b, 'ko');
+}
+
+function formatDashboardMonthLabel(monthKey: string): string {
+  return `${Number(monthKey.slice(5, 7))}월`;
+}
+
+function buildRecentDashboardMonthKeys(monthCount: number): string[] {
+  const normalizedMonthCount = Math.max(1, Math.min(24, Math.trunc(monthCount)));
+  const cursor = new Date();
+  cursor.setDate(1);
+  cursor.setHours(0, 0, 0, 0);
+  cursor.setMonth(cursor.getMonth() - (normalizedMonthCount - 1));
+
+  return Array.from({ length: normalizedMonthCount }, (_, index) => {
+    const date = new Date(cursor.getFullYear(), cursor.getMonth() + index, 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  });
+}
+
+function createDashboardMonthlyBuckets(monthCount: number): DashboardMonthlyStat[] {
+  return buildRecentDashboardMonthKeys(monthCount).map(monthKey => ({
+    month: formatDashboardMonthLabel(monthKey),
+    clients: 0,
+    completed: 0,
+    sessions: 0,
+  }));
+}
+
+export async function searchDashboardClients(
+  authUserId: string,
+  rawQuery: string,
+): Promise<ClientRow[]> {
+  const scopedAuthUserId = assertDashboardRuntimeContract('대시보드 검색', authUserId);
+  const normalizedQuery = rawQuery.trim();
+  if (!normalizedQuery) return [];
+
+  const safeQuery = normalizedQuery.replace(/[%(),]/g, '');
+  if (!safeQuery) return [];
+
+  const likeQuery = `%${safeQuery}%`;
+  const { data, error } = await sb()
+    .from('client')
+    .select(`
+      client_id,
+      client_name,
+      counselor_id,
+      age,
+      gender_code,
+      phone_encrypted,
+      education_level,
+      school_name,
+      major,
+      business_type_code,
+      participation_type,
+      participation_stage,
+      desired_job_1,
+      hire_type,
+      job_place_start,
+      job_place_end,
+      iap_to,
+      retest_stat,
+      continue_serv_1_stat,
+      memo,
+      business_code (
+        participate_type
+      ),
+      created_at,
+      update_at
+    `)
+    .eq('counselor_id', scopedAuthUserId)
+    .or(`client_name.ilike.${likeQuery},phone_encrypted.ilike.${likeQuery},desired_job_1.ilike.${likeQuery}`)
+    .order('update_at', { ascending: false, nullsFirst: false })
+    .limit(10);
+
+  if (error) throw error;
+  return ((data ?? []) as LiveClientRecord[]).map(row => liveClientToRow(row));
+}
+
+export async function fetchDashboardStats(authUserId?: string): Promise<DashboardStats> {
+  assertDashboardSupabaseConfigured('대시보드 통계');
+  const scopedAuthUserId = authUserId?.trim() || null;
+
+  let query = sb()
+    .from('client')
+    .select('participation_stage');
+
+  if (scopedAuthUserId) {
+    query = query.eq('counselor_id', scopedAuthUserId);
   }
 
-  let q = sb().from('client').select('participation_stage, hire_type');
-  if (counselorId) q = q.eq('counselor_id', counselorId);
-  const { data, error } = await q;
-  if (error) {
-    if (isMissingSchemaError(error)) {
-      const clients = counselorId
-        ? MOCK_CLIENTS.filter(c => c.counselorId === counselorId)
-        : MOCK_CLIENTS;
-      const stages = ['초기상담', '심층상담', '취업지원', '취업완료', '사후관리'];
-      return {
-        totalClients: clients.length,
-        inProgress: clients.filter(c => c.processStage !== '취업완료').length,
-        employed: clients.filter(c => c.processStage === '취업완료').length,
-        followUpNeeded: clients.filter(c => c.followUp).length,
-        stageBreakdown: stages.map(s => ({ stage: s, count: clients.filter(c => c.processStage === s).length })),
-      };
-    }
-    throw error;
-  }
+  const { data, error } = await query;
 
-  const rows = data ?? [];
-  const stages = ['초기상담', '심층상담', '취업지원', '취업완료', '사후관리'];
+  if (error) throw error;
+
+  const rows = (data ?? []) as Array<{ participation_stage: string | null }>;
+  const stageCounts = new Map<string, number>();
+
+  rows.forEach(row => {
+    const stage = row.participation_stage?.trim();
+    if (!stage) return;
+    stageCounts.set(stage, (stageCounts.get(stage) ?? 0) + 1);
+  });
+
+  const stageBreakdown = Array.from(stageCounts.entries())
+    .sort(([stageA], [stageB]) => compareDashboardStage(stageA, stageB))
+    .map(([stage, count]) => ({ stage, count }));
+
   return {
     totalClients: rows.length,
-    inProgress: rows.filter(r => r.participation_stage !== '취업완료').length,
-    employed: rows.filter(r => r.hire_type != null).length,
-    followUpNeeded: 0,
-    stageBreakdown: stages.map(s => ({
-      stage: s,
-      count: rows.filter(r => r.participation_stage === s).length,
-    })),
+    inProgress: rows.filter(row => row.participation_stage !== '취업완료').length,
+    employed: rows.filter(row => row.participation_stage === '취업완료').length,
+    followUpNeeded: rows.filter(row => row.participation_stage === '사후관리').length,
+    stageBreakdown,
   };
+}
+
+export async function fetchDashboardMonthlyStats(
+  authUserId: string,
+  monthCount = 12,
+): Promise<DashboardMonthlyStat[]> {
+  const scopedAuthUserId = assertDashboardRuntimeContract('대시보드 월간 통계', authUserId);
+  const monthKeys = buildRecentDashboardMonthKeys(monthCount);
+  const [firstMonthKey, lastMonthKey] = [monthKeys[0], monthKeys[monthKeys.length - 1]];
+  const rangeStart = `${firstMonthKey}-01`;
+  const rangeEndDate = new Date(Number(lastMonthKey.slice(0, 4)), Number(lastMonthKey.slice(5, 7)), 0);
+  const rangeEnd = `${rangeEndDate.getFullYear()}-${String(rangeEndDate.getMonth() + 1).padStart(2, '0')}-${String(rangeEndDate.getDate()).padStart(2, '0')}`;
+
+  const { data: histories, error } = await sb()
+    .from('counsel_history')
+    .select('client_id, counsel_date')
+    .eq('user_id', scopedAuthUserId)
+    .gte('counsel_date', rangeStart)
+    .lte('counsel_date', rangeEnd);
+
+  if (error) throw error;
+
+  const { data: completions, error: completionError } = await sb()
+    .from('client')
+    .select('notificate_date')
+    .eq('counselor_id', scopedAuthUserId)
+    .gte('notificate_date', rangeStart)
+    .lte('notificate_date', rangeEnd);
+
+  if (completionError) throw completionError;
+
+  const sessionCountByMonth = new Map<string, number>();
+  const clientIdsByMonth = new Map<string, Set<number>>();
+
+  (histories ?? []).forEach(row => {
+    if (!row.counsel_date) return;
+    const monthKey = row.counsel_date.slice(0, 7);
+    if (!monthKeys.includes(monthKey)) return;
+
+    sessionCountByMonth.set(monthKey, (sessionCountByMonth.get(monthKey) ?? 0) + 1);
+    if (typeof row.client_id === 'number') {
+      const clientIds = clientIdsByMonth.get(monthKey) ?? new Set<number>();
+      clientIds.add(row.client_id);
+      clientIdsByMonth.set(monthKey, clientIds);
+    }
+  });
+
+  const completionCountByMonth = new Map<string, number>();
+  ((completions ?? []) as Array<{ notificate_date: string | null }>).forEach(row => {
+    if (!row.notificate_date) return;
+    const monthKey = row.notificate_date.slice(0, 7);
+    if (!monthKeys.includes(monthKey)) return;
+    completionCountByMonth.set(monthKey, (completionCountByMonth.get(monthKey) ?? 0) + 1);
+  });
+
+  return monthKeys.map(monthKey => ({
+    month: formatDashboardMonthLabel(monthKey),
+    clients: clientIdsByMonth.get(monthKey)?.size ?? 0,
+    completed: completionCountByMonth.get(monthKey) ?? 0,
+    sessions: sessionCountByMonth.get(monthKey) ?? 0,
+  }));
 }
 
 export async function fetchDashboardCalendarMonthCounts(
@@ -805,13 +976,13 @@ export async function fetchDashboardCalendarMonthCounts(
   monthStart: string,
   monthEnd: string,
 ): Promise<Record<string, number>> {
-  if (!authUserId) return {};
-  requireLiveDashboardScope('캘린더');
+  const scopedAuthUserId = assertDashboardRuntimeContract('캘린더', authUserId);
+  assertDashboardDateRange('캘린더', monthStart, monthEnd);
 
   const { data: histories, error } = await sb()
     .from('counsel_history')
     .select('client_id, counsel_date')
-    .eq('user_id', authUserId)
+    .eq('user_id', scopedAuthUserId)
     .gte('counsel_date', monthStart)
     .lte('counsel_date', monthEnd);
 
@@ -825,7 +996,7 @@ export async function fetchDashboardCalendarMonthCounts(
   const { data: clients, error: clientError } = await sb()
     .from('client')
     .select('client_id')
-    .eq('counselor_id', authUserId)
+    .eq('counselor_id', scopedAuthUserId)
     .in('client_id', clientIds);
 
   if (clientError) throw clientError;
@@ -844,13 +1015,13 @@ export async function fetchDashboardCalendarEntries(
   rangeStart: string,
   rangeEnd: string,
 ): Promise<DashboardCalendarEntry[]> {
-  if (!authUserId) return [];
-  requireLiveDashboardScope('캘린더');
+  const scopedAuthUserId = assertDashboardRuntimeContract('캘린더', authUserId);
+  assertDashboardDateRange('캘린더', rangeStart, rangeEnd);
 
   const { data: histories, error } = await sb()
     .from('counsel_history')
     .select('counsel_id, client_id, user_id, counsel_date, start_time, end_time, session_number, counselor_opinion, counsel_type, document_link, economic_situation, social_situation_family, social_situation_society, self_esteem, self_efficacy, holland_code, career_fluidity, info_gathering, personality_test_result, life_history_result, profiling_grade, memo, create_at')
-    .eq('user_id', authUserId)
+    .eq('user_id', scopedAuthUserId)
     .gte('counsel_date', rangeStart)
     .lte('counsel_date', rangeEnd)
     .order('counsel_date', { ascending: false })
@@ -866,7 +1037,7 @@ export async function fetchDashboardCalendarEntries(
   const { data: clients, error: clientError } = await sb()
     .from('client')
     .select('client_id, client_name, counselor_id, participation_stage')
-    .eq('counselor_id', authUserId)
+    .eq('counselor_id', scopedAuthUserId)
     .in('client_id', clientIds);
 
   if (clientError) throw clientError;

@@ -2,24 +2,24 @@
  * Counselor Dashboard
  * Design: 모던 웰니스 미니멀리즘
  * Features: 현황, 프로세스, 캘린더, 메모장
- * Data: Supabase API (mock fallback when not configured)
+ * Data: Dashboard surfaces use live Supabase APIs. Mock fallbacks are out of scope here.
  */
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
-import { ROLE_COUNSELOR } from '@shared/const';
 import { usePageGuard } from '@/hooks/usePageGuard';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   fetchDashboardStats,
-  fetchClients,
+  fetchDashboardMonthlyStats,
   fetchDashboardCalendarEntries,
   fetchDashboardCalendarMonthCounts,
   fetchMyMemo,
+  searchDashboardClients,
   updateMyMemo,
   type DashboardStats,
+  type DashboardMonthlyStat,
   type DashboardCalendarEntry,
 } from '@/lib/api';
-import { MONTHLY_STATS } from '@/lib/mockData';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import type { ClientRow } from '@/lib/supabase';
 import {
@@ -392,9 +392,12 @@ export default function CounselorDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<DashboardTab>(() => getDashboardTabFromPath(location));
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [monthlyStats, setMonthlyStats] = useState<DashboardMonthlyStat[]>([]);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [statsError, setStatsError] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<ClientRow[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
@@ -419,7 +422,7 @@ export default function CounselorDashboard() {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const processSectionRef = useRef<HTMLDivElement | null>(null);
 
-  const counselorScopeId = user?.role === ROLE_COUNSELOR ? user.counselorId : undefined;
+  const dashboardAuthUserId = user?.id;
   const calendarAuthUserId = user?.id;
   const memoAuthUserId = user?.id;
   const todayKey = toDateKey(new Date());
@@ -427,16 +430,33 @@ export default function CounselorDashboard() {
   const isMemoDirty = memoValue !== savedMemoValue;
 
   const loadStats = useCallback(async () => {
+    if (!dashboardAuthUserId) {
+      setStats(null);
+      setMonthlyStats([]);
+      setStatsError('대시보드 데이터를 불러오려면 로그인한 상담사 user_id가 필요합니다.');
+      setStatsLoading(false);
+      return;
+    }
+
     setStatsLoading(true);
     try {
-      const data = await fetchDashboardStats(counselorScopeId);
-      setStats(data);
+      const [nextStats, nextMonthlyStats] = await Promise.all([
+        fetchDashboardStats(dashboardAuthUserId),
+        fetchDashboardMonthlyStats(dashboardAuthUserId),
+      ]);
+      setStats(nextStats);
+      setMonthlyStats(nextMonthlyStats);
+      setStatsError(null);
     } catch (e: any) {
-      toast.error('통계 로드 실패: ' + e.message);
+      const message = e.message || '대시보드 데이터를 불러오지 못했습니다.';
+      setStatsError(message);
+      setStats(null);
+      setMonthlyStats([]);
+      toast.error('통계 로드 실패: ' + message);
     } finally {
       setStatsLoading(false);
     }
-  }, [counselorScopeId]);
+  }, [dashboardAuthUserId]);
 
   useEffect(() => { loadStats(); }, [loadStats]);
 
@@ -465,29 +485,38 @@ export default function CounselorDashboard() {
   }, [activeTab, location]);
 
   useEffect(() => {
-    if (!searchQuery.trim()) { setSearchResults([]); return; }
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      setSearchError(null);
+      return;
+    }
     const timer = setTimeout(async () => {
+      if (!dashboardAuthUserId) {
+        setSearchResults([]);
+        setSearchError('검색을 수행하려면 로그인한 상담사 user_id가 필요합니다.');
+        setSearching(false);
+        return;
+      }
+
       setSearching(true);
       try {
-        const all = await fetchClients(user?.role === ROLE_COUNSELOR ? user.counselorId : undefined);
-        const q = searchQuery.toLowerCase();
-        setSearchResults(all.filter(c =>
-          c.name.toLowerCase().includes(q) ||
-          (c.phone || '').includes(q) ||
-          (c.desired_job || '').toLowerCase().includes(q)
-        ).slice(0, 10));
-      } catch {
+        const results = await searchDashboardClients(dashboardAuthUserId, searchQuery);
+        setSearchResults(results);
+        setSearchError(null);
+      } catch (e: any) {
         setSearchResults([]);
+        setSearchError(e.message || '검색 결과를 불러오지 못했습니다.');
       } finally {
         setSearching(false);
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [counselorScopeId, searchQuery]);
+  }, [dashboardAuthUserId, searchQuery]);
 
   const loadCalendarMonth = useCallback(async () => {
     if (!calendarAuthUserId) {
       setMonthCounts({});
+      setCalendarError('캘린더 기능을 호출하려면 로그인한 상담사 user_id가 필요합니다.');
       return;
     }
 
@@ -510,6 +539,7 @@ export default function CounselorDashboard() {
   const loadCalendarEntries = useCallback(async () => {
     if (!calendarAuthUserId) {
       setCalendarEntries([]);
+      setCalendarError('캘린더 기능을 호출하려면 로그인한 상담사 user_id가 필요합니다.');
       return;
     }
 
@@ -556,6 +586,7 @@ export default function CounselorDashboard() {
     if (!memoAuthUserId) {
       setMemoValue('');
       setSavedMemoValue('');
+      setMemoError('개인 메모 기능을 호출하려면 로그인한 상담사 user_id가 필요합니다.');
       setMemoLoaded(false);
       return;
     }
@@ -709,7 +740,7 @@ export default function CounselorDashboard() {
           <h1 className="text-xl font-bold text-foreground">업무 대시보드</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             안녕하세요, {user?.name}님. 오늘도 좋은 하루 되세요.
-            {!isSupabaseConfigured() && <span className="ml-2 text-amber-600 text-xs">(일부 기능은 Supabase 설정 필요)</span>}
+            {!isSupabaseConfigured() && <span className="ml-2 text-amber-600 text-xs">(대시보드 실데이터 확인에는 Supabase 설정 필요)</span>}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -729,7 +760,7 @@ export default function CounselorDashboard() {
           type="text"
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
-          placeholder="상담자 검색 (이름, 전화번호, 희망직종...)"
+          placeholder="피상담자 검색 (이름, 전화번호, 희망직종...)"
           className="w-full pl-9 pr-4 py-2.5 rounded-sm border border-input bg-card text-sm focus:outline-none focus:ring-2 focus:ring-ring shadow-sm"
         />
         {searchQuery && (
@@ -746,6 +777,8 @@ export default function CounselorDashboard() {
               <Loader2 size={16} className="animate-spin text-muted-foreground mr-2" />
               <span className="text-sm text-muted-foreground">검색 중...</span>
             </div>
+          ) : searchError ? (
+            <div className="p-4 text-sm text-destructive text-center">{searchError}</div>
           ) : searchResults.length === 0 ? (
             <div className="p-4 text-sm text-muted-foreground text-center">검색 결과가 없습니다.</div>
           ) : (
@@ -844,7 +877,7 @@ export default function CounselorDashboard() {
           <button
             key={tab.id}
             onClick={() => openDashboardTab(tab.id as DashboardTab)}
-            className="flex shrink-0 items-center gap-1.5 rounded-t-xl border border-border px-4 py-2.5 text-sm font-medium transition-all"
+            className="flex shrink-0 items-center gap-1.5 rounded-t-sm border border-border px-4 py-2.5 text-sm font-medium transition-all"
             style={activeTab === tab.id
               ? { borderColor: PRIMARY_HEX, color: PRIMARY_HEX, background: 'rgba(0, 156, 100, 0.08)' }
               : { color: '#6b7280', background: 'transparent' }
@@ -858,10 +891,15 @@ export default function CounselorDashboard() {
 
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {statsError && (
+            <div className="lg:col-span-3 rounded-md border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              {statsError}
+            </div>
+          )}
           <div className="lg:col-span-2 bg-card rounded-md p-5 shadow-sm border border-border">
             <h3 className="text-sm font-semibold text-foreground mb-4">월별 상담 현황</h3>
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={MONTHLY_STATS} barSize={14}>
+              <BarChart data={monthlyStats} barSize={14}>
                 <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.88 0.008 75)" vertical={false} />
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'oklch(0.55 0.015 65)' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: 'oklch(0.55 0.015 65)' }} axisLine={false} tickLine={false} />
@@ -913,7 +951,7 @@ export default function CounselorDashboard() {
           <div className="lg:col-span-3 bg-card rounded-md p-5 shadow-sm border border-border">
             <h3 className="text-sm font-semibold text-foreground mb-4">상담 세션 추이</h3>
             <ResponsiveContainer width="100%" height={160}>
-              <AreaChart data={MONTHLY_STATS}>
+              <AreaChart data={monthlyStats}>
                 <defs>
                   <linearGradient id="sessionGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={PRIMARY_HEX} stopOpacity={0.15} />
