@@ -4,11 +4,19 @@
  * Features: 전체 상담자 수, 프로세스 현황, 캘린더, 메모장(칸반)
  * Data: Supabase API (mock fallback when not configured)
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
 import { ROLE_COUNSELOR } from '@shared/const';
 import { usePageGuard } from '@/hooks/usePageGuard';
-import { fetchDashboardStats, fetchClients, type DashboardStats } from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  fetchDashboardStats,
+  fetchClients,
+  fetchDashboardCalendarEntries,
+  fetchDashboardCalendarMonthCounts,
+  type DashboardStats,
+  type DashboardCalendarEntry,
+} from '@/lib/api';
 import { MONTHLY_STATS, INITIAL_KANBAN, type KanbanColumn, type MemoCard } from '@/lib/mockData';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import type { ClientRow } from '@/lib/supabase';
@@ -17,17 +25,98 @@ import {
   Area, AreaChart,
 } from 'recharts';
 import {
-  Users, TrendingUp, CheckCircle2, Clock, Search, Plus, X, ChevronLeft, ChevronRight,
+  Users, TrendingUp, CheckCircle2, Search, Plus, X, ChevronLeft, ChevronRight,
   AlertCircle, Calendar as CalendarIcon, StickyNote, Loader2, RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const PRIMARY_HEX = '#009C64';
 
+type CalendarRangeMode = 'today' | 'week' | 'selected-day';
+
+type CalendarDayCell = {
+  key: string;
+  date: Date;
+  isCurrentMonth: boolean;
+};
+
+function pad(value: number) {
+  return String(value).padStart(2, '0');
+}
+
+function toDateKey(date: Date) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function endOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function buildCalendarCells(month: Date): CalendarDayCell[] {
+  const monthStart = startOfMonth(month);
+  const monthEnd = endOfMonth(month);
+  const gridStart = addDays(monthStart, -monthStart.getDay());
+  const gridEnd = addDays(monthEnd, 6 - monthEnd.getDay());
+  const cells: CalendarDayCell[] = [];
+
+  for (let cursor = new Date(gridStart); cursor <= gridEnd; cursor = addDays(cursor, 1)) {
+    cells.push({
+      key: toDateKey(cursor),
+      date: new Date(cursor),
+      isCurrentMonth: cursor.getMonth() === month.getMonth() && cursor.getFullYear() === month.getFullYear(),
+    });
+  }
+
+  return cells;
+}
+
+function formatPanelDate(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return `${year}.${month}.${day}`;
+}
+
+function getDayStatus(dateKey: string, todayKey: string): 'past' | 'today' | 'upcoming' {
+  if (dateKey < todayKey) return 'past';
+  if (dateKey > todayKey) return 'upcoming';
+  return 'today';
+}
+
+function buildRange(mode: CalendarRangeMode, selectedDate: string, todayKey: string) {
+  if (mode === 'today') {
+    return { start: todayKey, end: todayKey, anchor: todayKey };
+  }
+
+  if (mode === 'selected-day') {
+    return { start: selectedDate, end: selectedDate, anchor: selectedDate };
+  }
+
+  const anchor = selectedDate || todayKey;
+  const [year, month, day] = anchor.split('-').map(Number);
+  const anchorDate = new Date(year, month - 1, day);
+  const start = toDateKey(addDays(anchorDate, -6));
+  return { start, end: anchor, anchor };
+}
+
+function formatTimeRange(startTime: string | null, endTime: string | null) {
+  if (startTime && endTime) return `${startTime.slice(0, 5)} ~ ${endTime.slice(0, 5)}`;
+  if (startTime) return startTime.slice(0, 5);
+  return '시간 미정';
+}
+
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 
 function StatCard({ icon, label, value, sub, color }: {
-  icon: React.ReactNode; label: string; value: string | number; sub?: string; color?: string;
+  icon: ReactNode; label: string; value: string | number; sub?: string; color?: string;
 }) {
   return (
     <div className="stat-card flex items-start gap-4">
@@ -43,66 +132,89 @@ function StatCard({ icon, label, value, sub, color }: {
   );
 }
 
-// ─── Mini Calendar ────────────────────────────────────────────────────────────
+// ─── Live Calendar ────────────────────────────────────────────────────────────
 
-function MiniCalendar() {
-  const [date, setDate] = useState(new Date());
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const today = new Date();
-
-  const days = [];
-  for (let i = 0; i < firstDay; i++) days.push(null);
-  for (let i = 1; i <= daysInMonth; i++) days.push(i);
-
-  const events: Record<number, string> = { 5: '상담', 12: '회의', 18: '상담', 25: '교육' };
+function LiveCalendar({
+  month,
+  selectedDate,
+  counts,
+  onMonthChange,
+  onSelectDate,
+}: {
+  month: Date;
+  selectedDate: string;
+  counts: Record<string, number>;
+  onMonthChange: (nextMonth: Date) => void;
+  onSelectDate: (dateKey: string, date: Date) => void;
+}) {
+  const todayKey = toDateKey(new Date());
+  const cells = buildCalendarCells(month);
 
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <button onClick={() => setDate(new Date(year, month - 1, 1))} className="p-1 rounded-sm hover:bg-muted">
+        <button onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() - 1, 1))} className="p-1 rounded-sm hover:bg-muted">
           <ChevronLeft size={16} />
         </button>
-        <span className="text-sm font-semibold">{year}년 {month + 1}월</span>
-        <button onClick={() => setDate(new Date(year, month + 1, 1))} className="p-1 rounded-sm hover:bg-muted">
+        <span className="text-sm font-semibold">{month.getFullYear()}년 {month.getMonth() + 1}월</span>
+        <button onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() + 1, 1))} className="p-1 rounded-sm hover:bg-muted">
           <ChevronRight size={16} />
         </button>
       </div>
-      <div className="grid grid-cols-7 gap-0.5 text-center">
-        {['일', '월', '화', '수', '목', '금', '토'].map(d => (
-          <div key={d} className="text-xs text-muted-foreground py-1 font-medium">{d}</div>
+
+      <div className="grid grid-cols-7 gap-1 text-center">
+        {['일', '월', '화', '수', '목', '금', '토'].map(label => (
+          <div key={label} className="text-xs text-muted-foreground py-1 font-medium">{label}</div>
         ))}
-        {days.map((day, i) => (
-          <div
-            key={i}
-            className={`text-xs py-1.5 rounded-sm relative ${day === null ? '' : 'hover:bg-muted cursor-pointer'} ${
-              day === today.getDate() && month === today.getMonth() && year === today.getFullYear()
-                ? 'text-white font-bold'
-                : 'text-foreground'
-            }`}
-            style={
-              day === today.getDate() && month === today.getMonth() && year === today.getFullYear()
-                ? { background: PRIMARY_HEX }
-                : {}
-            }
-          >
-            {day}
-            {day && events[day] && (
-              <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full" style={{ background: PRIMARY_HEX }} />
-            )}
-          </div>
-        ))}
+
+        {cells.map(cell => {
+          const count = counts[cell.key] ?? 0;
+          const status = getDayStatus(cell.key, todayKey);
+          const isSelected = cell.key === selectedDate;
+          const isToday = status === 'today';
+
+          return (
+            <button
+              key={cell.key}
+              type="button"
+              onClick={() => onSelectDate(cell.key, cell.date)}
+              className={`min-h-[52px] rounded-sm border p-1.5 text-left transition-colors ${
+                cell.isCurrentMonth ? 'bg-background hover:bg-muted/40' : 'bg-muted/20 hover:bg-muted/40'
+              }`}
+              style={{
+                borderColor: isSelected ? PRIMARY_HEX : undefined,
+                boxShadow: isSelected ? `0 0 0 1px ${PRIMARY_HEX}` : undefined,
+              }}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <span
+                  className={`text-xs font-medium ${
+                    !cell.isCurrentMonth ? 'text-muted-foreground/60' :
+                    isToday ? 'text-white rounded-sm px-1.5 py-0.5' :
+                    status === 'past' ? 'text-muted-foreground' : 'text-foreground'
+                  }`}
+                  style={isToday ? { background: PRIMARY_HEX } : undefined}
+                >
+                  {cell.date.getDate()}
+                </span>
+
+                {count > 0 && cell.isCurrentMonth && (
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${status === 'past' ? 'text-muted-foreground' : 'text-white'}`}
+                    style={{ background: status === 'past' ? '#E5E7EB' : PRIMARY_HEX }}
+                  >
+                    {count > 9 ? '9+' : count}
+                  </span>
+                )}
+              </div>
+            </button>
+          );
+        })}
       </div>
-      <div className="mt-3 space-y-1.5">
-        {Object.entries(events).map(([day, label]) => (
-          <div key={day} className="flex items-center gap-2 text-xs">
-            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: PRIMARY_HEX }} />
-            <span className="text-muted-foreground">{month + 1}/{day}</span>
-            <span className="text-foreground">{label}</span>
-          </div>
-        ))}
+
+      <div className="mt-3 flex items-center gap-4 text-[11px] text-muted-foreground">
+        <span>현재 담당 일정</span>
+        <span>과거는 흐리게, 오늘은 강조</span>
       </div>
     </div>
   );
@@ -214,21 +326,33 @@ export default function CounselorDashboard() {
   const [searchResults, setSearchResults] = useState<ClientRow[]>([]);
   const [searching, setSearching] = useState(false);
 
+  const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()));
+  const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
+  const [calendarMode, setCalendarMode] = useState<CalendarRangeMode>('today');
+  const [monthCounts, setMonthCounts] = useState<Record<string, number>>({});
+  const [calendarEntries, setCalendarEntries] = useState<DashboardCalendarEntry[]>([]);
+  const [monthLoading, setMonthLoading] = useState(false);
+  const [entriesLoading, setEntriesLoading] = useState(false);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
+
+  const counselorScopeId = user?.role === ROLE_COUNSELOR ? user.counselorId : undefined;
+  const todayKey = toDateKey(new Date());
+  const currentRange = buildRange(calendarMode, selectedDate, todayKey);
+
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
     try {
-      const data = await fetchDashboardStats(user?.counselorId);
+      const data = await fetchDashboardStats(counselorScopeId);
       setStats(data);
     } catch (e: any) {
       toast.error('통계 로드 실패: ' + e.message);
     } finally {
       setStatsLoading(false);
     }
-  }, [user?.counselorId]);
+  }, [counselorScopeId]);
 
   useEffect(() => { loadStats(); }, [loadStats]);
 
-  // Search with debounce
   useEffect(() => {
     if (!searchQuery.trim()) { setSearchResults([]); return; }
     const timer = setTimeout(async () => {
@@ -239,7 +363,7 @@ export default function CounselorDashboard() {
         setSearchResults(all.filter(c =>
           c.name.toLowerCase().includes(q) ||
           (c.phone || '').includes(q) ||
-          (c.desired_job || '').includes(q)
+          (c.desired_job || '').toLowerCase().includes(q)
         ).slice(0, 10));
       } catch {
         setSearchResults([]);
@@ -248,14 +372,94 @@ export default function CounselorDashboard() {
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchQuery, user]);
+  }, [counselorScopeId, searchQuery]);
+
+  const loadCalendarMonth = useCallback(async () => {
+    if (!counselorScopeId) {
+      setMonthCounts({});
+      return;
+    }
+
+    setMonthLoading(true);
+    try {
+      const counts = await fetchDashboardCalendarMonthCounts(
+        counselorScopeId,
+        toDateKey(startOfMonth(calendarMonth)),
+        toDateKey(endOfMonth(calendarMonth)),
+      );
+      setMonthCounts(counts);
+      setCalendarError(null);
+    } catch (e: any) {
+      setCalendarError(e.message || '캘린더 데이터를 불러오지 못했습니다.');
+    } finally {
+      setMonthLoading(false);
+    }
+  }, [calendarMonth, counselorScopeId]);
+
+  const loadCalendarEntries = useCallback(async () => {
+    if (!counselorScopeId) {
+      setCalendarEntries([]);
+      return;
+    }
+
+    setEntriesLoading(true);
+    try {
+      const entries = await fetchDashboardCalendarEntries(counselorScopeId, currentRange.start, currentRange.end);
+      setCalendarEntries(entries);
+      setCalendarError(null);
+    } catch (e: any) {
+      setCalendarError(e.message || '일정 목록을 불러오지 못했습니다.');
+    } finally {
+      setEntriesLoading(false);
+    }
+  }, [counselorScopeId, currentRange.end, currentRange.start]);
+
+  useEffect(() => {
+    if (activeTab !== 'calendar') return;
+    loadCalendarMonth();
+  }, [activeTab, loadCalendarMonth]);
+
+  useEffect(() => {
+    if (activeTab !== 'calendar') return;
+    loadCalendarEntries();
+  }, [activeTab, loadCalendarEntries]);
+
+  useEffect(() => {
+    if (activeTab !== 'calendar') return;
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      loadCalendarMonth();
+      loadCalendarEntries();
+    }, 30 * 60 * 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeTab, loadCalendarEntries, loadCalendarMonth]);
+
+  const refreshCalendar = useCallback(() => {
+    loadCalendarMonth();
+    loadCalendarEntries();
+  }, [loadCalendarEntries, loadCalendarMonth]);
+
+  const handleDateSelect = useCallback((dateKey: string, date: Date) => {
+    setSelectedDate(dateKey);
+    setCalendarMode('selected-day');
+    if (date.getMonth() !== calendarMonth.getMonth() || date.getFullYear() !== calendarMonth.getFullYear()) {
+      setCalendarMonth(startOfMonth(date));
+    }
+  }, [calendarMonth]);
+
+  const handleCalendarRowClick = useCallback((entry: DashboardCalendarEntry) => {
+    const status = getDayStatus(entry.counselDate, todayKey);
+    const tab = status === 'past' ? 'history' : 'input';
+    navigate(`/clients/list?clientId=${encodeURIComponent(entry.clientId)}&tab=${tab}&date=${entry.counselDate}`);
+  }, [navigate, todayKey]);
 
   const totalClients = stats?.totalClients ?? 0;
   const completedClients = stats?.employed ?? 0;
   const pendingClients = stats?.followUpNeeded ?? 0;
   const activeProcesses = stats?.inProgress ?? 0;
 
-  // Build process stages from stats
   const processStages = stats?.stageBreakdown ?? [
     { stage: '초기상담', count: 0 },
     { stage: '심층상담', count: 0 },
@@ -273,7 +477,6 @@ export default function CounselorDashboard() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-foreground">업무 대시보드</h1>
@@ -292,7 +495,6 @@ export default function CounselorDashboard() {
         </div>
       </div>
 
-      {/* Search */}
       <div className="relative">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
         <input
@@ -309,7 +511,6 @@ export default function CounselorDashboard() {
         )}
       </div>
 
-      {/* Search Results */}
       {searchQuery && (
         <div className="bg-card rounded-md border border-border shadow-sm overflow-hidden">
           {searching ? (
@@ -350,7 +551,6 @@ export default function CounselorDashboard() {
         </div>
       )}
 
-      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {statsLoading ? (
           Array.from({ length: 4 }).map((_, i) => (
@@ -372,7 +572,6 @@ export default function CounselorDashboard() {
         )}
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-1 border-b border-border">
         {[
           { id: 'overview', label: '현황', icon: <TrendingUp size={14} /> },
@@ -381,7 +580,7 @@ export default function CounselorDashboard() {
         ].map(tab => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => setActiveTab(tab.id as 'overview' | 'calendar' | 'memo')}
             className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-all -mb-px"
             style={activeTab === tab.id
               ? { borderColor: PRIMARY_HEX, color: PRIMARY_HEX }
@@ -394,10 +593,8 @@ export default function CounselorDashboard() {
         ))}
       </div>
 
-      {/* Overview Tab */}
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Monthly chart */}
           <div className="lg:col-span-2 bg-card rounded-md p-5 shadow-sm border border-border">
             <h3 className="text-sm font-semibold text-foreground mb-4">월별 상담 현황</h3>
             <ResponsiveContainer width="100%" height={220}>
@@ -412,7 +609,6 @@ export default function CounselorDashboard() {
             </ResponsiveContainer>
           </div>
 
-          {/* Process stages */}
           <div className="bg-card rounded-md p-5 shadow-sm border border-border">
             <h3 className="text-sm font-semibold text-foreground mb-4">프로세스 과정 수</h3>
             <div className="space-y-3">
@@ -436,7 +632,6 @@ export default function CounselorDashboard() {
             </div>
           </div>
 
-          {/* Sessions trend */}
           <div className="lg:col-span-3 bg-card rounded-md p-5 shadow-sm border border-border">
             <h3 className="text-sm font-semibold text-foreground mb-4">상담 세션 추이</h3>
             <ResponsiveContainer width="100%" height={160}>
@@ -458,41 +653,114 @@ export default function CounselorDashboard() {
         </div>
       )}
 
-      {/* Calendar Tab */}
       {activeTab === 'calendar' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="bg-card rounded-md p-5 shadow-sm border border-border">
-            <h3 className="text-sm font-semibold text-foreground mb-4">캘린더</h3>
-            <MiniCalendar />
-          </div>
-          <div className="lg:col-span-2 bg-card rounded-md p-5 shadow-sm border border-border">
-            <h3 className="text-sm font-semibold text-foreground mb-4">이번 달 일정</h3>
-            <div className="space-y-3">
-              {[
-                { date: '4/5', time: '10:00', title: '홍길동 상담', type: '심층상담', client: '홍길동' },
-                { date: '4/12', time: '14:00', title: '팀 회의', type: '회의', client: '' },
-                { date: '4/18', time: '11:00', title: '이수진 초기상담', type: '초기상담', client: '이수진' },
-                { date: '4/25', time: '09:00', title: '상담사 교육', type: '교육', client: '' },
-              ].map((ev, i) => (
-                <div key={i} className="flex items-center gap-3 p-3 rounded-sm border border-border hover:bg-muted/30 transition-colors">
-                  <div className="text-center w-10 flex-shrink-0">
-                    <div className="text-xs text-muted-foreground">{ev.date.split('/')[0]}월</div>
-                    <div className="text-lg font-bold" style={{ color: PRIMARY_HEX }}>{ev.date.split('/')[1]}</div>
-                  </div>
-                  <div className="w-px h-8 bg-border flex-shrink-0" />
-                  <div className="flex-1">
-                    <div className="text-sm font-medium text-foreground">{ev.title}</div>
-                    <div className="text-xs text-muted-foreground">{ev.time} · {ev.type}</div>
-                  </div>
-                  {ev.client && <span className="badge-active">{ev.client}</span>}
-                </div>
-              ))}
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-foreground">캘린더</h3>
+              {monthLoading && <Loader2 size={14} className="animate-spin text-muted-foreground" />}
             </div>
+            <LiveCalendar
+              month={calendarMonth}
+              selectedDate={selectedDate}
+              counts={monthCounts}
+              onMonthChange={setCalendarMonth}
+              onSelectDate={handleDateSelect}
+            />
+          </div>
+
+          <div className="lg:col-span-2 bg-card rounded-md p-5 shadow-sm border border-border">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">현재 담당 일정</h3>
+                <div className="text-xs text-muted-foreground mt-1">
+                  기준일 {formatPanelDate(currentRange.anchor)}
+                  {calendarMode === 'week' && ` · ${formatPanelDate(currentRange.start)} ~ ${formatPanelDate(currentRange.end)}`}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => setCalendarMode('today')}
+                  className="px-3 py-1.5 rounded-sm text-xs font-medium border"
+                  style={calendarMode === 'today' ? { background: PRIMARY_HEX, borderColor: PRIMARY_HEX, color: 'white' } : undefined}
+                >
+                  오늘
+                </button>
+                <button
+                  onClick={() => setCalendarMode('week')}
+                  className="px-3 py-1.5 rounded-sm text-xs font-medium border"
+                  style={calendarMode === 'week' ? { background: PRIMARY_HEX, borderColor: PRIMARY_HEX, color: 'white' } : undefined}
+                >
+                  7일
+                </button>
+                <button
+                  onClick={() => setCalendarMode('selected-day')}
+                  className="px-3 py-1.5 rounded-sm text-xs font-medium border"
+                  style={calendarMode === 'selected-day' ? { background: PRIMARY_HEX, borderColor: PRIMARY_HEX, color: 'white' } : undefined}
+                >
+                  선택일
+                </button>
+                <button onClick={refreshCalendar} className="p-2 rounded-sm border hover:bg-muted" title="일정 새로고침">
+                  <RefreshCw size={14} className={monthLoading || entriesLoading ? 'animate-spin' : ''} />
+                </button>
+              </div>
+            </div>
+
+            {calendarError && (
+              <div className="mb-3 rounded-sm border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                {calendarError}
+              </div>
+            )}
+
+            {entriesLoading ? (
+              <div className="flex items-center justify-center py-12 text-sm text-muted-foreground gap-2">
+                <Loader2 size={16} className="animate-spin" />
+                일정 목록을 불러오는 중입니다.
+              </div>
+            ) : calendarEntries.length === 0 ? (
+              <div className="rounded-sm border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
+                선택한 범위에 표시할 일정이 없습니다.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {calendarEntries.map(entry => {
+                  const status = getDayStatus(entry.counselDate, todayKey);
+                  const statusLabel = status === 'past' ? '지난 일정' : status === 'today' ? '오늘 일정' : '예정';
+                  const statusClass = status === 'past'
+                    ? 'text-muted-foreground bg-muted'
+                    : status === 'today'
+                      ? 'text-white'
+                      : 'text-foreground bg-emerald-50';
+
+                  return (
+                    <button
+                      key={entry.counselId}
+                      type="button"
+                      onClick={() => handleCalendarRowClick(entry)}
+                      className="w-full flex items-center gap-3 p-3 rounded-sm border border-border hover:bg-muted/30 transition-colors text-left"
+                    >
+                      <div className="text-center w-16 flex-shrink-0">
+                        <div className="text-xs text-muted-foreground">{entry.counselDate.slice(5).replace('-', '.')}</div>
+                        <div className="text-xs font-medium text-foreground mt-0.5">{formatTimeRange(entry.startTime, entry.endTime)}</div>
+                      </div>
+                      <div className="w-px h-10 bg-border flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-foreground truncate">{entry.clientName}</div>
+                        <div className="text-xs text-muted-foreground mt-1">{entry.participationStage || '미설정'}</div>
+                      </div>
+                      <span className={`text-[11px] px-2 py-1 rounded-full font-medium ${statusClass}`} style={status === 'today' ? { background: PRIMARY_HEX } : undefined}>
+                        {statusLabel}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* Memo Tab */}
       {activeTab === 'memo' && (
         <div className="bg-card rounded-md p-5 shadow-sm border border-border">
           <div className="flex items-center justify-between mb-4">
