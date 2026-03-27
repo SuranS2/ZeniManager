@@ -83,7 +83,7 @@ function AppRoutes() {
         <GuardedRoute component={ClientList} requirement="counselor" />
       </Route>
       <Route path="/clients/detail/:id">
-        <CounselorRoute component={ClientDetail} />
+        <GuardedRoute component={ClientDetail} />
       </Route>
       <Route path="/clients/register">
         <GuardedRoute component={ClientRegister} requirement="counselor" />

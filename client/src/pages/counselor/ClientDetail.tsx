@@ -16,10 +16,11 @@ import {
 } from '@/lib/api';
 import type { ClientRow, SessionRow, SurveyRow } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import { ClientSummaryAnalysisTab } from './ClientSummaryAnalysisTab';
 
 const PRIMARY = '#009C64';
 
-type ClientTab = 'manage' | 'history' | 'input' | 'survey';
+type ClientTab = 'manage' | 'history' | 'input' | 'survey' | 'summary';
 
 // ─── Survey Definitions ──────────────────────────────────────────────────────
 
@@ -404,7 +405,8 @@ export default function ClientDetail() {
           { id: 'manage', label: '상담관리' },
           { id: 'history', label: '상담이력' },
           { id: 'input', label: '상담입력' },
-          { id: 'survey', label: '구직준비도' }
+          { id: 'survey', label: '\uad6c\uc9c1\uc900\ube44\ub3c4' },
+          { id: 'summary', label: '\uc694\uc57d \ubc0f \ubd84\uc11d' }
         ].map(tab => (
           <button
             key={tab.id}
@@ -968,6 +970,10 @@ export default function ClientDetail() {
 
         {activeTab === 'survey' && (
           <SurveyTab clientId={id!} counselorId={user?.counselorId} />
+        )}
+
+        {activeTab === 'summary' && (
+          <ClientSummaryAnalysisTab client={client} />
         )}
       </div>
     </div>
