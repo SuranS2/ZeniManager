@@ -5,9 +5,11 @@
  *
  * SECURITY: No API keys are hardcoded. All credentials stored in localStorage via Settings.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation } from 'wouter';
+import { isAdminRole } from '@shared/const';
 import { useAuth } from '@/contexts/AuthContext';
+import { consumeAuthNotice } from '@/lib/authAccess';
 import {
   Eye, EyeOff, Key, Globe, ChevronDown,
   CheckCircle2, AlertTriangle, Save, RotateCcw,
@@ -18,6 +20,8 @@ import {
   isSupabaseConfigured,
   resetStoredAppSettings,
   resetSupabaseClient,
+  removeStoredAppSetting,
+  setStoredAppSetting,
 } from '@/lib/supabase';
 
 function ApiSettingsPanel({ onClose }: { onClose: () => void }) {
@@ -25,12 +29,12 @@ function ApiSettingsPanel({ onClose }: { onClose: () => void }) {
   const [anonKey, setAnonKey] = useState(() => localStorage.getItem(STORAGE_KEYS.SUPABASE_ANON_KEY) || '');
   const [showKey, setShowKey] = useState(false);
 
-  const handleSave = () => {
-    if (url.trim()) localStorage.setItem(STORAGE_KEYS.SUPABASE_URL, url.trim());
-    else localStorage.removeItem(STORAGE_KEYS.SUPABASE_URL);
+  const handleSave = async () => {
+    if (url.trim()) await setStoredAppSetting(STORAGE_KEYS.SUPABASE_URL, url);
+    else await removeStoredAppSetting(STORAGE_KEYS.SUPABASE_URL);
 
-    if (anonKey.trim()) localStorage.setItem(STORAGE_KEYS.SUPABASE_ANON_KEY, anonKey.trim());
-    else localStorage.removeItem(STORAGE_KEYS.SUPABASE_ANON_KEY);
+    if (anonKey.trim()) await setStoredAppSetting(STORAGE_KEYS.SUPABASE_ANON_KEY, anonKey);
+    else await removeStoredAppSetting(STORAGE_KEYS.SUPABASE_ANON_KEY);
 
     resetSupabaseClient();
     toast.success('Supabase 설정이 저장되었습니다.');
@@ -119,6 +123,13 @@ export default function Login() {
   const [showApiSettings, setShowApiSettings] = useState(false);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    const notice = consumeAuthNotice();
+    if (notice) {
+      setError(notice);
+    }
+  }, []);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
@@ -130,17 +141,17 @@ export default function Login() {
     const result = await login(email, password);
     if (result.success) {
       toast.success('로그인되었습니다.');
-      navigate(result.user?.role === 'admin' ? '/admin/dashboard' : '/dashboard');
+      navigate(isAdminRole(result.user?.role) ? '/admin/dashboard' : '/dashboard');
     } else {
       setError(result.error || '이메일 또는 비밀번호가 올바르지 않습니다.');
     }
   };
 
-  const handleResetSettings = () => {
-    resetStoredAppSettings();
+  const handleResetSettings = async () => {
+    await resetStoredAppSettings();
     setError('');
     setShowApiSettings(false);
-    toast.success('로컬 설정이 초기화되었습니다. 데모 모드로 전환됩니다.');
+    toast.success('로컬 및 공용 설정 저장소가 초기화되었습니다. 데모 모드로 전환됩니다.');
   };
 
   const configured = isSupabaseConfigured();

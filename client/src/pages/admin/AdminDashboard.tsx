@@ -5,6 +5,7 @@
  * Data: Supabase API with mock fallback
  */
 import { useState, useEffect } from 'react';
+import { usePageGuard } from '@/hooks/usePageGuard';
 import { BRANCH_STATS } from '@/lib/mockData';
 import { fetchClients, fetchDashboardStats, type DashboardStats } from '@/lib/api';
 import type { ClientRow } from '@/lib/supabase';
@@ -44,6 +45,7 @@ function StatCard({ icon, label, value, change, changeType }: {
 
 // employmentData is derived at runtime from client employment_date values.
 export default function AdminDashboard() {
+  const { canRender } = usePageGuard('admin');
   const [activeTab, setActiveTab] = useState<'branch' | 'business' | 'employment'>('branch');
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -144,6 +146,7 @@ export default function AdminDashboard() {
   const monthDiff = previousMonthRate !== null ? currentMonthRate - previousMonthRate : 0;
   const monthDiffText = previousMonthRate !== null ? `${monthDiff >= 0 ? '+' : ''}${monthDiff.toFixed(1)}%` : '-';
 
+  if (!canRender) return null;
 
   return (
     <div className="space-y-5">

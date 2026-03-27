@@ -3,8 +3,10 @@
  * Data: Supabase API (mock fallback when not configured)
  */
 import { useState, useEffect, useCallback } from 'react';
+import { ROLE_ADMIN, ROLE_COUNSELOR, isAdminRole, type AppRole } from '@shared/const';
 import { Search, Plus, Edit3, Trash2, X, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
+import { usePageGuard } from '@/hooks/usePageGuard';
 import { fetchCounselors, createCounselor, updateCounselor, deleteCounselor } from '@/lib/api';
 import type { CounselorRow } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/lib/supabase';
@@ -92,11 +94,11 @@ function CounselorModal({
             <label className="block text-sm font-medium mb-1.5">권한</label>
             <select
               value={form.role}
-              onChange={e => setForm(f => ({ ...f, role: e.target.value as 'counselor' | 'admin' }))}
+              onChange={e => setForm(f => ({ ...f, role: Number(e.target.value) as AppRole }))}
               className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             >
-              <option value="counselor">상담사</option>
-              <option value="admin">관리자</option>
+              <option value={ROLE_COUNSELOR}>상담사</option>
+              <option value={ROLE_ADMIN}>관리자</option>
             </select>
           </div>
           <div className="flex gap-2 pt-2">
@@ -113,6 +115,7 @@ function CounselorModal({
 }
 
 export default function CounselorList() {
+  const { canRender } = usePageGuard('admin');
   const [counselors, setCounselors] = useState<CounselorRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -196,6 +199,8 @@ export default function CounselorList() {
   };
 
   const statusColor = (s: string) => s === '재직' ? 'badge-active' : s === '휴직' ? 'badge-pending' : 'badge-cancelled';
+
+  if (!canRender) return null;
 
   return (
     <div className="space-y-4">

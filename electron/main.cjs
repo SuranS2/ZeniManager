@@ -9,11 +9,34 @@
  */
 
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const isDev = !app.isPackaged;
 
 // ─── Keep a global reference to prevent garbage collection ───────────────────
 let mainWindow = null;
+
+function getSettingsFilePath() {
+  return path.join(app.getPath('userData'), 'app-settings.json');
+}
+
+function readAppSettings() {
+  try {
+    const raw = fs.readFileSync(getSettingsFilePath(), 'utf8');
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeAppSettings(settings) {
+  fs.writeFileSync(
+    getSettingsFilePath(),
+    JSON.stringify(settings, null, 2),
+    'utf8',
+  );
+}
 
 // ─── App metadata ─────────────────────────────────────────────────────────────
 const APP_NAME = '상담 관리 시스템';
@@ -181,6 +204,35 @@ ipcMain.handle('app:version', () => APP_VERSION);
 
 // Get app name
 ipcMain.handle('app:name', () => APP_NAME);
+
+ipcMain.handle('settings:getAll', () => readAppSettings());
+
+ipcMain.handle('settings:set', (_, { key, value }) => {
+  const settings = readAppSettings();
+  if (typeof value === 'string' && value.length > 0) {
+    settings[key] = value;
+  } else {
+    delete settings[key];
+  }
+  writeAppSettings(settings);
+  return true;
+});
+
+ipcMain.handle('settings:remove', (_, key) => {
+  const settings = readAppSettings();
+  delete settings[key];
+  writeAppSettings(settings);
+  return true;
+});
+
+ipcMain.handle('settings:clear', (_, keys = []) => {
+  const settings = readAppSettings();
+  for (const key of keys) {
+    delete settings[key];
+  }
+  writeAppSettings(settings);
+  return true;
+});
 
 // Open file dialog (for future CSV import feature)
 ipcMain.handle('dialog:openFile', async (_, options) => {
