@@ -27,7 +27,7 @@ CREATE TABLE public.counselors (
   email         TEXT UNIQUE,
   phone         TEXT,
   branch        TEXT,                          -- 소속 지점
-  role          TEXT DEFAULT 'counselor' CHECK (role IN ('counselor', 'admin')),
+  role          INTEGER DEFAULT 5 CHECK (role IN (4, 5)),
   status        TEXT DEFAULT '재직' CHECK (status IN ('재직', '휴직', '퇴직')),
   client_count  INTEGER DEFAULT 0,
   completed_count INTEGER DEFAULT 0,
@@ -208,7 +208,7 @@ CREATE OR REPLACE FUNCTION is_admin()
 RETURNS BOOLEAN AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.counselors
-    WHERE auth_user_id = auth.uid() AND role = 'admin'
+    WHERE auth_user_id = auth.uid() AND role = 4
   );
 $$ LANGUAGE SQL STABLE SECURITY DEFINER;
 
@@ -315,10 +315,12 @@ CREATE POLICY "memos_delete" ON public.memo_cards FOR DELETE
 -- 예시 (실제 UUID로 교체 필요):
 -- INSERT INTO public.counselors (auth_user_id, name, email, phone, branch, role, status, joined_at)
 -- VALUES
---   ('여기에-상담사-UUID', '최인수', 'counselor@zeniel.com', '010-0000-0001', '서울지점', 'counselor', '재직', '2024-01-01'),
---   ('여기에-관리자-UUID', '관리자', 'admin@zeniel.com', '010-0000-0000', '본사', 'admin', '재직', '2024-01-01');
+--   ('여기에-상담사-UUID', '최인수', 'counselor@zeniel.com', '010-0000-0001', '서울지점', 5, '재직', '2024-01-01'),
+--   ('여기에-관리자-UUID', '관리자', 'admin@zeniel.com', '010-0000-0000', '본사', 4, '재직', '2024-01-01');
 
 -- ─── 완료 메시지 ──────────────────────────────────────────────────────────────
 SELECT '✅ 상담 관리 시스템 스키마 설정 완료!' AS message,
        '테이블: counselors, clients, sessions, survey_responses, memo_cards' AS tables,
        'RLS 정책: 상담사별 데이터 격리 적용됨' AS rls;
+-- 역할 코드: 관리자 = 4, 상담사 = 5
+-- 기존 문자열 role('admin'/'counselor')를 사용 중이면 정수값으로 마이그레이션 후 적용하세요.

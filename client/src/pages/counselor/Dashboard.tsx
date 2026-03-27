@@ -6,6 +6,8 @@
  */
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
+import { ROLE_COUNSELOR } from '@shared/const';
+import { usePageGuard } from '@/hooks/usePageGuard';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   fetchDashboardStats,
@@ -315,7 +317,7 @@ function KanbanBoard() {
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function CounselorDashboard() {
-  const { user } = useAuth();
+  const { canRender, user } = usePageGuard('counselor');
   const [, navigate] = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'overview' | 'calendar' | 'memo'>('overview');
@@ -333,7 +335,7 @@ export default function CounselorDashboard() {
   const [entriesLoading, setEntriesLoading] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
 
-  const counselorScopeId = user?.role === 'counselor' ? user.id : undefined;
+  const counselorScopeId = user?.role === ROLE_COUNSELOR ? user.counselorId : undefined;
   const todayKey = toDateKey(new Date());
   const currentRange = buildRange(calendarMode, selectedDate, todayKey);
 
@@ -356,7 +358,7 @@ export default function CounselorDashboard() {
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
-        const all = await fetchClients(counselorScopeId);
+        const all = await fetchClients(user?.role === ROLE_COUNSELOR ? user.counselorId : undefined);
         const q = searchQuery.toLowerCase();
         setSearchResults(all.filter(c =>
           c.name.toLowerCase().includes(q) ||
@@ -470,6 +472,8 @@ export default function CounselorDashboard() {
     '취업지원': '#F6AD55', '취업완료': PRIMARY_HEX, '사후관리': '#68D391',
   };
   const maxStageCount = Math.max(...processStages.map(s => s.count), 1);
+
+  if (!canRender) return null;
 
   return (
     <div className="space-y-5">

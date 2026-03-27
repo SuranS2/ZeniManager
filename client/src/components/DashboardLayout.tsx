@@ -5,6 +5,7 @@
  */
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
+import { isAdminRole } from '@shared/const';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   LayoutDashboard,
@@ -137,7 +138,10 @@ interface DashboardLayoutProps {
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const { user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const navItems = user?.role === 'admin' ? adminNav : counselorNav;
+  const isAdmin = isAdminRole(user?.role);
+  const navItems = isAdmin ? adminNav : counselorNav;
+  const roleLabel = isAdmin ? '관리자' : '상담사';
+  const organizationLabel = user?.department || user?.branch;
 
   const handleLogout = () => {
     logout();
@@ -162,11 +166,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
         {/* Role badge */}
         <div className="px-4 py-2.5 border-b border-border">
-          <span className={user?.role === 'admin' ? 'badge-pending' : 'badge-active'}>
-            {user?.role === 'admin' ? '관리자' : '상담사'}
+          <span className={isAdmin ? 'badge-pending' : 'badge-active'}>
+            {roleLabel}
           </span>
-          {user?.branch && (
-            <span className="ml-2 text-xs text-muted-foreground">{user.branch}</span>
+          {organizationLabel && (
+            <span className="ml-2 text-xs text-muted-foreground">{organizationLabel}</span>
           )}
         </div>
 
@@ -211,7 +215,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               />
             )}
             <div className="text-sm text-muted-foreground hidden sm:block">
-              {user?.role === 'admin' ? '관리자 포털' : '상담사 포털'}
+              {roleLabel} 포털
             </div>
           </div>
 
@@ -233,9 +237,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   <ChevronDown size={14} className="text-muted-foreground" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuContent align="end" className="w-56">
                 <div className="px-3 py-2">
                   <div className="text-sm font-medium">{user?.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {organizationLabel ? `${roleLabel} · ${organizationLabel}` : roleLabel}
+                  </div>
                   <div className="text-xs text-muted-foreground">{user?.email}</div>
                 </div>
                 <DropdownMenuSeparator />
