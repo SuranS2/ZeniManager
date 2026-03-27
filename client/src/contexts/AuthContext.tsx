@@ -91,9 +91,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return null;
     }
   });
-  const [isBootstrapping, setIsBootstrapping] = useState(() => isSupabaseConfigured());
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const isLoading = isBootstrapping || isSubmitting;
+  const isLoading = isSubmitting;
 
   const clearLocalAuthState = useCallback(() => {
     setUser(null);
@@ -154,13 +153,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Listen for Supabase session changes when configured
   useEffect(() => {
     if (!isSupabaseConfigured()) {
-      setIsBootstrapping(false);
       return;
     }
 
     const sb = getSupabaseClient();
     if (!sb) {
-      setIsBootstrapping(false);
       return;
     }
 
@@ -174,17 +171,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    sb.auth.getSession()
-      .then(async ({ data: { session } }) => {
-        if (session?.user) {
-          await syncResolvedUser(session.user.id, session.user.email || '');
-        } else {
-          clearLocalAuthState();
-        }
-      })
-      .finally(() => {
-        setIsBootstrapping(false);
-      });
+    sb.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        resolveSupabaseUser(session.user.id, session.user.email || '');
+      }
+    });
 
     const { data: { subscription } } = sb.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
