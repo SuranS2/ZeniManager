@@ -600,7 +600,7 @@ export default function ClientDetail() {
                     )}
                   </div>
 
-                  {/* Score */}
+                  {/* Score uses retest_stat only so detail/list/dashboard all share one live source of truth. */}
                   <div className="group">
                     <div className="flex items-center justify-between mb-0.5">
                       <label className="text-[11px] font-medium text-muted-foreground">점수</label>
@@ -621,8 +621,8 @@ export default function ClientDetail() {
                       </div>
                     ) : (
                       <div className="flex items-center justify-between group-hover:bg-muted/30 p-1 -m-1 rounded-sm transition-colors">
-                        <div className="text-lg font-bold" style={{ color: PRIMARY }}>{client.retest_stat ?? client.score ?? '-'}</div>
-                        <button onClick={() => startEdit('retest_stat', client.retest_stat ?? client.score)} className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-primary transition-all"><Edit3 size={13} /></button>
+                        <div className="text-lg font-bold" style={{ color: PRIMARY }}>{client.retest_stat ?? '-'}</div>
+                        <button onClick={() => startEdit('retest_stat', client.retest_stat)} className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-primary transition-all"><Edit3 size={13} /></button>
                       </div>
                     )}
                   </div>

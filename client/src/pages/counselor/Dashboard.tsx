@@ -255,7 +255,7 @@ function LiveCalendar({
               key={cell.key}
               type="button"
               onClick={() => onSelectDate(cell.key, cell.date)}
-              className={`min-h-[52px] rounded-sm border p-1.5 text-left transition-colors xl:min-h-[78px] xl:p-2.5 2xl:min-h-[117px] 2xl:rounded-md 2xl:p-3.5 ${
+              className={`relative min-h-[52px] overflow-hidden rounded-sm border p-1.5 text-left transition-colors xl:min-h-[78px] xl:p-2.5 2xl:min-h-[117px] 2xl:rounded-md 2xl:p-3.5 ${
                 cell.isCurrentMonth ? 'bg-background hover:bg-muted/40' : 'bg-muted/20 hover:bg-muted/40'
               }`}
               style={{
@@ -264,25 +264,25 @@ function LiveCalendar({
               }}
               aria-pressed={isSelected}
             >
-              <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start justify-between gap-1">
                 <span
                   className={`text-xs font-medium xl:text-sm 2xl:text-lg ${
                     !cell.isCurrentMonth
                       ? 'text-muted-foreground/60'
                       : isToday
-                        ? 'rounded-sm px-1.5 py-0.5 text-white xl:px-2 xl:py-1 2xl:px-2.5 2xl:py-1.5'
+                        ? 'font-semibold'
                         : status === 'past'
                           ? 'text-muted-foreground'
                           : 'text-foreground'
                   }`}
-                  style={isToday ? { background: PRIMARY_HEX } : undefined}
+                  style={isToday ? { color: PRIMARY_HEX } : undefined}
                 >
                   {cell.date.getDate()}
                 </span>
 
                 {count > 0 && cell.isCurrentMonth && (
                   <span
-                    className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold xl:px-2 xl:py-1 xl:text-xs 2xl:px-2.5 2xl:py-1.5 2xl:text-sm"
+                    className="inline-flex min-h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full px-1 py-0.5 text-[10px] font-semibold xl:min-h-[20px] xl:min-w-[20px] xl:px-1.5 xl:py-0.5 xl:text-[11px] 2xl:min-h-[24px] 2xl:min-w-[24px] 2xl:px-2 2xl:py-1 2xl:text-sm"
                     style={{
                       color: PRIMARY_HEX,
                       background: 'rgba(0, 156, 100, 0.10)',
@@ -772,7 +772,7 @@ export default function CounselorDashboard() {
           type="text"
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
-          placeholder="피상담자 검색 (이름, 전화번호, 희망직종...)"
+          placeholder="피상담자 검색 (이름, 연락처, 희망직종)"
           className="w-full pl-9 pr-4 py-2.5 rounded-sm border border-input bg-card text-sm focus:outline-none focus:ring-2 focus:ring-ring shadow-sm"
         />
         {searchQuery && (
@@ -787,20 +787,20 @@ export default function CounselorDashboard() {
           {searching ? (
             <div className="flex items-center justify-center p-4">
               <Loader2 size={16} className="animate-spin text-muted-foreground mr-2" />
-              <span className="text-sm text-muted-foreground">검색 중...</span>
+              <span className="text-sm text-muted-foreground">검색 결과를 불러오는 중...</span>
             </div>
           ) : searchError ? (
             <div className="p-4 text-sm text-destructive text-center">{searchError}</div>
           ) : searchResults.length === 0 ? (
-            <div className="p-4 text-sm text-muted-foreground text-center">검색 결과가 없습니다.</div>
+            <div className="p-4 text-sm text-muted-foreground text-center">일치하는 피상담자가 없습니다.</div>
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">이름</th>
                   <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">연락처</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">담당 상담사</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">단계</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">희망직종</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">현재 단계</th>
                 </tr>
               </thead>
               <tbody>
@@ -815,7 +815,7 @@ export default function CounselorDashboard() {
                   >
                     <td className="px-4 py-2.5 font-medium">{c.name}</td>
                     <td className="px-4 py-2.5 text-muted-foreground">{c.phone || '-'}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{c.counselor_name || '-'}</td>
+                    <td className="px-4 py-2.5 text-muted-foreground">{c.desired_job || '-'}</td>
                     <td className="px-4 py-2.5">
                       <span className="badge-active">{c.participation_stage || '-'}</span>
                     </td>
