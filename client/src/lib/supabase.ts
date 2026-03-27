@@ -16,6 +16,16 @@ export const STORAGE_KEYS = {
 } as const;
 
 export const SUPABASE_SESSION_STORAGE_KEY = 'counsel_sb_session';
+const APP_SETTING_KEYS = [
+  STORAGE_KEYS.SUPABASE_URL,
+  STORAGE_KEYS.SUPABASE_ANON_KEY,
+  STORAGE_KEYS.OPENAI_API_KEY,
+] as const;
+
+function getElectronApi() {
+  if (typeof window === 'undefined') return undefined;
+  return window.electronAPI;
+}
 
 /** Returns the Supabase URL stored by the user in Settings, or null if not set. */
 export function getSupabaseUrl(): string | null {
@@ -82,8 +92,51 @@ export function resetSupabaseClient(): void {
   _clientKey = null;
 }
 
+export async function bootstrapStoredAppSettings(): Promise<void> {
+  const electronAPI = getElectronApi();
+  if (!electronAPI?.getAppSettings) return;
+
+  try {
+    const persisted = await electronAPI.getAppSettings();
+    for (const key of APP_SETTING_KEYS) {
+      const value = persisted[key];
+      if (typeof value === 'string' && value.length > 0) {
+        localStorage.setItem(key, value);
+      }
+    }
+  } catch {
+    // Ignore native storage bootstrap failures and fall back to localStorage only.
+  }
+}
+
+export async function setStoredAppSetting(key: string, value: string): Promise<void> {
+  const trimmed = value.trim();
+  if (trimmed) {
+    localStorage.setItem(key, trimmed);
+  } else {
+    localStorage.removeItem(key);
+  }
+
+  const electronAPI = getElectronApi();
+  if (!electronAPI?.setAppSetting) return;
+
+  if (trimmed) {
+    await electronAPI.setAppSetting(key, trimmed);
+  } else {
+    await electronAPI.removeAppSetting(key);
+  }
+}
+
+export async function removeStoredAppSetting(key: string): Promise<void> {
+  localStorage.removeItem(key);
+  const electronAPI = getElectronApi();
+  if (electronAPI?.removeAppSetting) {
+    await electronAPI.removeAppSetting(key);
+  }
+}
+
 /** Clears locally stored app settings and cached auth/session state. */
-export function resetStoredAppSettings(): void {
+export async function resetStoredAppSettings(): Promise<void> {
   [
     STORAGE_KEYS.SUPABASE_URL,
     STORAGE_KEYS.SUPABASE_ANON_KEY,
@@ -91,6 +144,11 @@ export function resetStoredAppSettings(): void {
     STORAGE_KEYS.USER,
     SUPABASE_SESSION_STORAGE_KEY,
   ].forEach(key => localStorage.removeItem(key));
+
+  const electronAPI = getElectronApi();
+  if (electronAPI?.clearAppSettings) {
+    await electronAPI.clearAppSettings([...APP_SETTING_KEYS]);
+  }
 
   resetSupabaseClient();
 }

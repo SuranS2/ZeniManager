@@ -10,6 +10,13 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { normalizeAppRole, ROLE_ADMIN, ROLE_COUNSELOR, type AppRole } from '@shared/const';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase';
+import {
+  buildFallbackUser,
+  createCounselorProfileLookups,
+  mapCounselorProfileToUser,
+  normalizeLoginEmail,
+  resolveCounselorProfile,
+} from './authProfile';
 
 export type UserRole = AppRole;
 
@@ -20,7 +27,7 @@ export interface User {
   role: UserRole;
   profileImage?: string;
   branch?: string;
-  counselorId?: string; // Supabase counselors.id
+  counselorId?: string; // Current profile key used by downstream filters
 }
 
 export interface LoginResult {
@@ -105,40 +112,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const resolveSupabaseUser = useCallback(async (authUserId: string, email: string): Promise<User | null> => {
     const sb = getSupabaseClient();
     if (!sb) return null;
+    const normalizedEmail = normalizeLoginEmail(email);
+    const identity = { authUserId, email: normalizedEmail };
 
-    try {
-      const { data } = await sb
-        .from('counselors')
-        .select('id, name, branch, role')
-        .eq('auth_user_id', authUserId)
-        .single();
+    const profile = await resolveCounselorProfile(
+      identity,
+      createCounselorProfileLookups(sb),
+    );
 
-      if (data) {
-        const resolvedUser: User = {
-          id: authUserId,
-          name: data.name,
-          email,
-          role: normalizeAppRole(data.role),
-          branch: data.branch || undefined,
-          counselorId: data.id,
-        };
-        setUser(resolvedUser);
-        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
-        return resolvedUser;
-      }
-    } catch {
-      // Fall through to the local fallback profile.
-    }
+    const resolvedUser: User = profile
+      ? mapCounselorProfileToUser(identity, profile)
+      : buildFallbackUser(identity);
 
-    const fallbackUser: User = {
-      id: authUserId,
-      name: email.split('@')[0] || '사용자',
-      email,
-      role: ROLE_COUNSELOR,
-    };
-    setUser(fallbackUser);
-    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(fallbackUser));
-    return fallbackUser;
+    setUser(resolvedUser);
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
+    return resolvedUser;
   }, []);
 
   const login = useCallback(async (
@@ -146,17 +134,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     password: string
   ): Promise<LoginResult> => {
     setIsLoading(true);
+    const normalizedEmail = normalizeLoginEmail(email);
     try {
       // ── Supabase Auth ──────────────────────────────────────────────────────
       if (isSupabaseConfigured()) {
         const sb = getSupabaseClient();
         if (!sb) throw new Error('Supabase 클라이언트 초기화 실패');
 
-        const { data, error } = await sb.auth.signInWithPassword({ email, password });
+        const { data, error } = await sb.auth.signInWithPassword({
+          email: normalizedEmail,
+          password,
+        });
         if (error) return { success: false, error: error.message };
 
         if (data.user) {
-          const resolvedUser = await resolveSupabaseUser(data.user.id, data.user.email || email);
+          const resolvedUser = await resolveSupabaseUser(
+            data.user.id,
+            data.user.email || normalizedEmail,
+          );
           return resolvedUser
             ? { success: true, user: resolvedUser }
             : { success: false, error: '사용자 정보를 확인할 수 없습니다.' };
@@ -167,7 +162,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // ── Demo / local mode ─────────────────────────────────────────────────
       await new Promise(r => setTimeout(r, 500)); // simulate latency
 
-      const demo = DEMO_USERS[email];
+      const demo = DEMO_USERS[normalizedEmail];
       if (demo && demo.password === password) {
         const { password: _, ...resolvedUser } = demo;
         setUser(resolvedUser);
@@ -178,8 +173,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Fallback: accept any credentials in demo mode as a counselor profile.
       const fallbackUser: User = {
         id: `local_${Date.now()}`,
-        name: email.split('@')[0] || '상담사',
-        email,
+        name: normalizedEmail.split('@')[0] || '상담사',
+        email: normalizedEmail,
         role: ROLE_COUNSELOR,
         branch: '서울지점',
       };
