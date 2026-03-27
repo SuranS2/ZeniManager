@@ -168,6 +168,11 @@ export interface ClientRow {
   branch: string | null;
   follow_up: boolean;
   score: number | null;
+  iap_to: string | null;
+  retest_stat: number | null;
+  continue_serv_1_stat: string | null;
+  memo: string | null;
+  participate_type: string | null;
   created_at: string;
   updated_at: string;
 }

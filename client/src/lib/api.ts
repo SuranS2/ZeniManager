@@ -1,4 +1,4 @@
-﻿/**
+/**
  * api.ts — Supabase data access layer
  * All functions read credentials from localStorage at call time.
  * Falls back to mock data when Supabase is not configured.
@@ -43,6 +43,11 @@ type LiveClientRecord = {
   hire_type: string | null;
   job_place_start: string | null;
   job_place_end: string | null;
+  iap_to: string | null;
+  retest_stat: number | null;
+  continue_serv_1_stat: string | null;
+  memo: string | null;
+  business_code?: { participate_type: string | null }[] | null;
   created_at: string | null;
   update_at: string | null;
 };
@@ -127,10 +132,17 @@ export async function fetchClients(counselorId?: string): Promise<ClientRow[]> {
       hire_type,
       job_place_start,
       job_place_end,
+      iap_to,
+      retest_stat,
+      continue_serv_1_stat,
+      memo,
+      business_code (
+        participate_type
+      ),
       created_at,
       update_at
     `)
-    .order('created_at', { ascending: false });
+    .order('iap_to', { ascending: true, nullsFirst: false });
 
   if (counselorId) q = q.eq('counselor_id', counselorId);
 
@@ -597,6 +609,11 @@ function mockClientToRow(c: Client): ClientRow {
     branch: c.branch,
     follow_up: c.followUp,
     score: c.score ?? null,
+    iap_to: null,
+    retest_stat: null,
+    continue_serv_1_stat: null,
+    memo: null,
+    participate_type: null,
     created_at: c.registeredAt,
     updated_at: c.registeredAt,
   };
@@ -668,6 +685,11 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
     branch: null,
     follow_up: false,
     score: null,
+    iap_to: row.iap_to ?? null,
+    retest_stat: row.retest_stat ?? null,
+    continue_serv_1_stat: row.continue_serv_1_stat ?? null,
+    memo: row.memo ?? null,
+    participate_type: Array.isArray(row.business_code) ? row.business_code[0]?.participate_type ?? null : null,
     created_at: createdAt,
     updated_at: updatedAt,
   };
