@@ -11,6 +11,10 @@ declare global {
     electronAPI?: {
       getVersion: () => Promise<string>;
       getAppName: () => Promise<string>;
+      getAppSettings: () => Promise<Record<string, string>>;
+      setAppSetting: (key: string, value: string) => Promise<void>;
+      removeAppSetting: (key: string) => Promise<void>;
+      clearAppSettings: (keys: string[]) => Promise<void>;
       openFileDialog: (options?: {
         filters?: { name: string; extensions: string[] }[];
         title?: string;
@@ -50,6 +54,26 @@ export function useElectron() {
     openFileDialog: isElectron
       ? api!.openFileDialog
       : async () => ({ canceled: true, filePaths: [] }),
+
+    /** Read app settings shared across Electron dev/prod origins */
+    getAppSettings: isElectron
+      ? api!.getAppSettings
+      : async () => ({}),
+
+    /** Persist an app setting outside origin-scoped localStorage */
+    setAppSetting: isElectron
+      ? api!.setAppSetting
+      : async () => {},
+
+    /** Remove one persisted app setting */
+    removeAppSetting: isElectron
+      ? api!.removeAppSetting
+      : async () => {},
+
+    /** Clear persisted app settings */
+    clearAppSettings: isElectron
+      ? api!.clearAppSettings
+      : async () => {},
 
     /** Open a native save dialog */
     saveFileDialog: isElectron

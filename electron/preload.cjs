@@ -11,6 +11,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── App info ──────────────────────────────────────────────────────────────
   getVersion: () => ipcRenderer.invoke('app:version'),
   getAppName: () => ipcRenderer.invoke('app:name'),
+  getAppSettings: () => ipcRenderer.invoke('settings:getAll'),
+  setAppSetting: (key, value) => ipcRenderer.invoke('settings:set', { key, value }),
+  removeAppSetting: (key) => ipcRenderer.invoke('settings:remove', key),
+  clearAppSettings: (keys) => ipcRenderer.invoke('settings:clear', keys),
 
   // ── File dialogs ──────────────────────────────────────────────────────────
   openFileDialog: (options) => ipcRenderer.invoke('dialog:openFile', options),

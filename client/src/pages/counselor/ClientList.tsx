@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Client List Page (상담자 목록)
  * - Supabase 연동 (미설정 시 mock data fallback)
  * - 탭: 상담관리 / 상담이력 / 상담내용 입력 / 구직준비도 설문
@@ -6,14 +6,16 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation } from 'wouter';
+import { ROLE_COUNSELOR } from '@shared/const';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePageGuard } from '@/hooks/usePageGuard';
 import {
   Search, Plus, X, ChevronRight, Phone, User,
   Edit3, ClipboardList, Loader2, Trash2, Save,
   AlertTriangle, RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { fetchClients, fetchSessions, createSession, deleteSession, fetchSurveys, createSurvey } from '@/lib/api';
+import { fetchClients, fetchSessions, createSession, deleteSession, fetchSurveys, createSurvey, updateClient } from '@/lib/api';
 import type { ClientRow, SessionRow, SurveyRow } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/lib/supabase';
 
@@ -612,20 +614,17 @@ function FilterTab({ label, active, count, onClick }: { label: string; active: b
 
 export default function ClientList() {
   const [, navigate] = useLocation();
-  const { user } = useAuth();
+  const { canRender, user } = usePageGuard('counselor');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterType>('all');
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedClient, setSelectedClient] = useState<ClientRow | null>(null);
-  const [initialModalTab, setInitialModalTab] = useState<ClientModalTab | undefined>();
-  const [initialModalDate, setInitialModalDate] = useState<string | undefined>();
   const deepLinkHandledRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchClients(user?.role === 'counselor' ? user.id : undefined);
+      const data = await fetchClients(user?.role === ROLE_COUNSELOR ? user.counselorId : undefined);
       setClients(data);
     } catch (e: any) {
       toast.error('데이터 로드 실패: ' + e.message);
@@ -636,33 +635,35 @@ export default function ClientList() {
 
   useEffect(() => { load(); }, [load]);
 
-  const openClientModal = useCallback((client: ClientRow, options?: { tab?: ClientModalTab; date?: string }) => {
-    setSelectedClient(client);
-    setInitialModalTab(options?.tab);
-    setInitialModalDate(options?.date);
-  }, []);
+  const handleStageUpdate = async (clientId: string, newStage: string) => {
+    if (!isSupabaseConfigured()) {
+      setClients(prev => prev.map(c => c.id === clientId ? { ...c, participation_stage: newStage } : c));
+      toast.success('데모 모드: 취업단계가 업데이트되었습니다.');
+      return;
+    }
+    try {
+      await updateClient(clientId, { participation_stage: newStage });
+      setClients(prev => prev.map(c => c.id === clientId ? { ...c, participation_stage: newStage } : c));
+      toast.success('취업단계가 업데이트되었습니다.');
+    } catch (e: any) {
+      toast.error('업데이트 실패: ' + e.message);
+    }
+  };
 
   useEffect(() => {
     if (loading || deepLinkHandledRef.current) return;
 
     const params = new URLSearchParams(window.location.search);
     const clientId = params.get('clientId');
-    const requestedTab = params.get('tab');
-    const requestedDate = params.get('date');
-
-    if (!clientId || !requestedTab) return;
-    if (requestedTab !== 'input' && requestedTab !== 'history') return;
+    if (!clientId) return;
 
     const targetClient = clients.find(client => client.id === clientId);
     if (!targetClient) return;
 
-    openClientModal(targetClient, {
-      tab: requestedTab,
-      date: requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : undefined,
-    });
+    navigate(`/clients/detail/${clientId}`);
     deepLinkHandledRef.current = true;
     window.history.replaceState({}, '', window.location.pathname);
-  }, [clients, loading, openClientModal]);
+  }, [clients, loading, navigate]);
 
   const filtered = clients.filter(c => {
     const matchSearch = !search ||
@@ -688,6 +689,8 @@ export default function ClientList() {
     '초기상담': 'badge-active', '심층상담': 'badge-pending',
     '취업지원': 'badge-pending', '취업완료': 'badge-completed', '사후관리': 'badge-active',
   };
+
+  if (!canRender) return null;
 
   return (
     <div className="space-y-4">
@@ -736,68 +739,80 @@ export default function ClientList() {
             <span className="text-sm text-muted-foreground">데이터 로드 중...</span>
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[1000px]">
             <thead>
               <tr className="border-b border-border bg-muted/30">
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">순번</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">이름</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">연락처</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">담당 상담사</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">사업유형</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">단계</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">점수</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">후속</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">IAP 수립일</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground shrink-0">취업단계</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">사업유형</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">점수</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">사후관리</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">메모</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">액션</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={10} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     검색 결과가 없습니다.
                   </td>
                 </tr>
               ) : (
-                filtered.map(client => (
+                filtered.map((client, index) => (
                   <tr
                     key={client.id}
-                    className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors cursor-pointer"
-                    onClick={() => openClientModal(client)}
+                    className="border-b border-border last:border-0 hover:bg-muted/5 transition-colors"
                   >
+                    <td className="px-4 py-3 text-muted-foreground">{index + 1}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-sm flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ background: PRIMARY }}>
                           {client.name.charAt(0)}
                         </div>
-                        <div>
-                          <div className="font-medium text-foreground">{client.name}</div>
-                          <div className="text-xs text-muted-foreground">{client.gender}{client.age ? `, ${client.age}세` : ''}</div>
+                        <div 
+                          className="font-medium text-foreground whitespace-nowrap cursor-pointer hover:underline"
+                          onClick={() => navigate(`/clients/detail/${client.id}`)}
+                        >
+                          {client.name}
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{client.phone || '-'}</td>
-                    <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">{client.counselor_name || '-'}</td>
-                    <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell">{client.business_type || '-'}</td>
+                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{client.phone || '-'}</td>
+                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{client.iap_to || '-'}</td>
                     <td className="px-4 py-3">
-                      {client.participation_stage
-                        ? <span className={stageColors[client.participation_stage] || 'badge-active'}>{client.participation_stage}</span>
+                      <select
+                        value={client.participation_stage || ''}
+                        onChange={e => handleStageUpdate(client.id, e.target.value)}
+                        className={`text-xs px-2 py-1 rounded-sm border-none focus:ring-0 cursor-pointer appearance-none ${stageColors[client.participation_stage || ''] || 'badge-active'}`}
+                        style={{ width: 'fit-content' }}
+                      >
+                        <option value="" disabled>단계 선택</option>
+                        {Object.keys(stageColors).map(s => (
+                          <option key={s} value={s} className="bg-background text-foreground">{s}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{client.participate_type || '-'}</td>
+                    <td className="px-4 py-3">
+                      {client.retest_stat != null
+                        ? <span className="font-semibold" style={{ color: PRIMARY }}>{client.retest_stat}</span>
                         : <span className="text-muted-foreground">-</span>
                       }
                     </td>
-                    <td className="px-4 py-3 hidden sm:table-cell">
-                      {client.score != null
-                        ? <span className="font-semibold" style={{ color: PRIMARY }}>{client.score}</span>
-                        : <span className="text-muted-foreground">-</span>
-                      }
-                    </td>
                     <td className="px-4 py-3">
-                      {client.follow_up
-                        ? <span className="badge-cancelled">필요</span>
-                        : <span className="text-muted-foreground text-xs">-</span>
-                      }
+                       <span className="text-xs">{client.continue_serv_1_stat || '-'}</span>
+                    </td>
+                    <td className="px-4 py-3 max-w-[200px] truncate text-muted-foreground text-xs">
+                      {client.memo || '-'}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
-                        onClick={e => { e.stopPropagation(); openClientModal(client); }}
+                        onClick={e => { e.stopPropagation(); navigate(`/clients/detail/${client.id}`); }}
                         className="p-1.5 rounded-sm hover:bg-muted transition-colors"
                       >
                         <Edit3 size={14} />
@@ -808,21 +823,10 @@ export default function ClientList() {
               )}
             </tbody>
           </table>
+        </div>
         )}
       </div>
 
-      {selectedClient && (
-        <ClientDetailModal
-          client={selectedClient}
-          initialTab={initialModalTab}
-          initialDate={initialModalDate}
-          onClose={() => {
-            setSelectedClient(null);
-            setInitialModalTab(undefined);
-            setInitialModalDate(undefined);
-          }}
-        />
-      )}
     </div>
   );
 }

@@ -6,6 +6,7 @@
  * This file is safe to commit to a public GitHub repository.
  */
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { AppRole } from '@shared/const';
 
 export const STORAGE_KEYS = {
   SUPABASE_URL: 'counsel_supabase_url',
@@ -15,6 +16,16 @@ export const STORAGE_KEYS = {
 } as const;
 
 export const SUPABASE_SESSION_STORAGE_KEY = 'counsel_sb_session';
+const APP_SETTING_KEYS = [
+  STORAGE_KEYS.SUPABASE_URL,
+  STORAGE_KEYS.SUPABASE_ANON_KEY,
+  STORAGE_KEYS.OPENAI_API_KEY,
+] as const;
+
+function getElectronApi() {
+  if (typeof window === 'undefined') return undefined;
+  return window.electronAPI;
+}
 
 /** Returns the Supabase URL stored by the user in Settings, or null if not set. */
 export function getSupabaseUrl(): string | null {
@@ -81,8 +92,68 @@ export function resetSupabaseClient(): void {
   _clientKey = null;
 }
 
+export async function bootstrapStoredAppSettings(): Promise<void> {
+  const electronAPI = getElectronApi();
+  if (!electronAPI?.getAppSettings) return;
+
+  try {
+    const persisted = await electronAPI.getAppSettings();
+    for (const key of APP_SETTING_KEYS) {
+      const value = persisted[key];
+      if (typeof value === 'string' && value.length > 0) {
+        localStorage.setItem(key, value);
+      }
+    }
+  } catch {
+    // Ignore native storage bootstrap failures and fall back to localStorage only.
+  }
+}
+
+/**
+ * Clears transient auth/session state on Electron launch.
+ * Persistent app settings remain in the shared app-settings store and are
+ * bootstrapped back into localStorage afterwards.
+ */
+export function resetTransientSessionOnLaunch(): void {
+  const electronAPI = getElectronApi();
+  if (!electronAPI?.isElectron) return;
+
+  [
+    STORAGE_KEYS.USER,
+    SUPABASE_SESSION_STORAGE_KEY,
+  ].forEach(key => localStorage.removeItem(key));
+
+  resetSupabaseClient();
+}
+
+export async function setStoredAppSetting(key: string, value: string): Promise<void> {
+  const trimmed = value.trim();
+  if (trimmed) {
+    localStorage.setItem(key, trimmed);
+  } else {
+    localStorage.removeItem(key);
+  }
+
+  const electronAPI = getElectronApi();
+  if (!electronAPI?.setAppSetting) return;
+
+  if (trimmed) {
+    await electronAPI.setAppSetting(key, trimmed);
+  } else {
+    await electronAPI.removeAppSetting(key);
+  }
+}
+
+export async function removeStoredAppSetting(key: string): Promise<void> {
+  localStorage.removeItem(key);
+  const electronAPI = getElectronApi();
+  if (electronAPI?.removeAppSetting) {
+    await electronAPI.removeAppSetting(key);
+  }
+}
+
 /** Clears locally stored app settings and cached auth/session state. */
-export function resetStoredAppSettings(): void {
+export async function resetStoredAppSettings(): Promise<void> {
   [
     STORAGE_KEYS.SUPABASE_URL,
     STORAGE_KEYS.SUPABASE_ANON_KEY,
@@ -90,6 +161,11 @@ export function resetStoredAppSettings(): void {
     STORAGE_KEYS.USER,
     SUPABASE_SESSION_STORAGE_KEY,
   ].forEach(key => localStorage.removeItem(key));
+
+  const electronAPI = getElectronApi();
+  if (electronAPI?.clearAppSettings) {
+    await electronAPI.clearAppSettings([...APP_SETTING_KEYS]);
+  }
 
   resetSupabaseClient();
 }
@@ -169,11 +245,18 @@ export interface ClientRow {
   branch: string | null;
   follow_up: boolean;
   score: number | null;
+  iap_to: string | null;
+  retest_stat: number | null;
+  continue_serv_1_stat: string | null;
+  driving_yn: string | null;
+  own_car_yn: string | null;
+  memo: string | null;
+  participate_type: string | null;
   created_at: string;
-  updated_at: string;
+  update_at: string;
 }
 
-export type ClientInsert = Omit<ClientRow, 'id' | 'created_at' | 'updated_at'> & {
+export type ClientInsert = Omit<ClientRow, 'id' | 'created_at' | 'update_at'> & {
   id?: string;
 };
 
@@ -186,10 +269,26 @@ export interface SessionRow {
   counselor_name: string | null;
   counselor_id: string | null;
   next_action: string | null;
+  session_number: number | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  document_link?: string | null;
+  economic_situation?: number | null;
+  social_situation_family?: number | null;
+  social_situation_society?: number | null;
+  self_esteem?: number | null;
+  self_efficacy?: number | null;
+  holland_code?: string | null;
+  career_fluidity?: number | null;
+  info_gathering?: number | null;
+  personality_test_result?: string | null;
+  life_history_result?: string | null;
+  profiling_grade?: string | null;
+  memo?: string | null;
   created_at: string;
 }
 
-export type SessionInsert = Omit<SessionRow, 'id' | 'created_at'> & { id?: string };
+export type SessionInsert = Omit<SessionRow, 'id' | 'created_at' | 'session_number'> & { id?: string; session_number?: number | null };
 
 export interface CounselorRow {
   id: string;
@@ -198,13 +297,13 @@ export interface CounselorRow {
   client_count: number;
   completed_count: number;
   joined_at: string | null;
-  role: 'counselor' | 'admin' | null;
+  role: AppRole | null;
   auth_user_id: string | null;
   created_at: string;
-  updated_at: string;
+  update_at: string;
 }
 
-export type CounselorInsert = Omit<CounselorRow, 'id' | 'created_at' | 'updated_at'> & { id?: string };
+export type CounselorInsert = Omit<CounselorRow, 'id' | 'created_at' | 'update_at'> & { id?: string };
 
 export interface SurveyRow {
   id: string;
@@ -247,7 +346,7 @@ export interface MemoCardRow {
   client_name: string | null;
   sort_order: number;
   created_at: string;
-  updated_at: string;
+  update_at: string;
 }
 
-export type MemoCardInsert = Omit<MemoCardRow, 'id' | 'created_at' | 'updated_at'> & { id?: string };
+export type MemoCardInsert = Omit<MemoCardRow, 'id' | 'created_at' | 'update_at'> & { id?: string };
