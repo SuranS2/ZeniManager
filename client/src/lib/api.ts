@@ -231,11 +231,74 @@ export async function fetchClientById(id: string): Promise<ClientRow | null> {
   return liveClientToRow(data as LiveClientRecord);
 }
 
-export async function createClient(input: ClientInsert): Promise<ClientRow> {
+export async function createClient(input: any): Promise<ClientRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { data, error } = await sb().from('client').insert(input).select().single();
+
+  const payload = {
+    client_name: input.name,
+    counselor_id: input.counselor_id,
+    age: input.age,
+    gender_code: input.gender,
+    phone_encrypted: input.phone,
+    resident_id: input.resident_id,
+    birth_date: input.birth_date,
+    address_1: input.address_1,
+    address_2: input.address_2,
+    has_car: input.has_car,
+    can_drive: input.can_drive,
+    MBTI: input.MBTI,
+    is_working_parttime: input.is_working_parttime,
+    future_card_stat: input.future_card_stat,
+    capa: input.capa,
+    desired_job_1: input.desired_job_1,
+    desired_job_2: input.desired_job_2,
+    desired_job_3: input.desired_job_3,
+    desired_area_1: input.desired_area_1,
+    desired_area_2: input.desired_area_2,
+    desired_area_3: input.desired_area_3,
+    desired_payment: input.desired_payment,
+    work_ex_desire: input.work_ex_desire,
+    work_ex_type: input.work_ex_type,
+    work_ex_company: input.work_ex_company,
+    work_ex_start: input.work_ex_start,
+    work_ex_end: input.work_ex_end,
+    work_ex_graduate: input.work_ex_graduate,
+    education_level: input.education_level,
+    school_name: input.school,
+    major: input.major,
+    business_type_code: input.business_type ? Number(input.business_type) : null,
+    participation_type: input.participation_type,
+    participation_stage: input.participation_stage,
+    memo: input.memo,
+  };
+
+  const { data, error } = await sb().from('client').insert(payload).select(`
+      client_id,
+      client_name,
+      counselor_id,
+      age,
+      gender_code,
+      phone_encrypted,
+      education_level,
+      school_name,
+      major,
+      business_type_code,
+      participation_type,
+      participation_stage,
+      desired_job_1,
+      hire_type,
+      job_place_start,
+      job_place_end,
+      iap_to,
+      retest_stat,
+      continue_serv_1_stat,
+      memo,
+      created_at,
+      update_at
+  `).single();
+  
   if (error) throw error;
-  return data;
+  return liveClientToRow(data as LiveClientRecord);
 }
 
 export async function updateClient(id: string, input: Partial<ClientInsert>): Promise<ClientRow> {
