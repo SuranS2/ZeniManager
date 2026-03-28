@@ -29,24 +29,23 @@ export interface Session {
   nextAction?: string;
 }
 
+// 스키마 구조(user 테이블)에 맞춘 Counselor 인터페이스
 export interface Counselor {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  branch: string;
+  user_id: string;
+  user_name: string;
+  department: string;
+  memo?: string;
+  role: number;
   clientCount: number;
   completedCount: number;
-  joinedAt: string;
-  status: '재직' | '휴직' | '퇴직';
 }
 
 export const MOCK_COUNSELORS: Counselor[] = [
-  { id: 'c001', name: '김상담', email: 'kim@counsel.com', phone: '010-1234-5678', branch: '서울 강남지점', clientCount: 24, completedCount: 18, joinedAt: '2022-03-15', status: '재직' },
-  { id: 'c002', name: '이민준', email: 'lee@counsel.com', phone: '010-2345-6789', branch: '서울 강북지점', clientCount: 31, completedCount: 22, joinedAt: '2021-07-01', status: '재직' },
-  { id: 'c003', name: '박지영', email: 'park@counsel.com', phone: '010-3456-7890', branch: '경기 수원지점', clientCount: 19, completedCount: 15, joinedAt: '2023-01-10', status: '재직' },
-  { id: 'c004', name: '최수연', email: 'choi@counsel.com', phone: '010-4567-8901', branch: '부산지점', clientCount: 27, completedCount: 20, joinedAt: '2022-09-05', status: '재직' },
-  { id: 'c005', name: '정태호', email: 'jung@counsel.com', phone: '010-5678-9012', branch: '대구지점', clientCount: 15, completedCount: 10, joinedAt: '2023-06-20', status: '재직' },
+  { user_id: 'c001', user_name: '김상담', department: '서울 강남지점', role: 2, clientCount: 6, completedCount: 18 },
+  { user_id: 'c002', user_name: '이민준', department: '서울 강북지점', role: 2, clientCount: 9, completedCount: 22 },
+  { user_id: 'c003', user_name: '박지영', department: '경기 수원지점', role: 2, clientCount: 4, completedCount: 15 },
+  { user_id: 'c004', user_name: '최수연', department: '부산지점', role: 2, clientCount: 7, completedCount: 20 },
+  { user_id: 'c005', user_name: '정태호', department: '대구지점', role: 1, clientCount: 5, completedCount: 10 },
 ];
 
 export const MOCK_CLIENTS: Client[] = [
@@ -132,7 +131,6 @@ export const MOCK_CLIENTS: Client[] = [
   },
 ];
 
-// Monthly stats for charts
 export const MONTHLY_STATS = [
   { month: '1월', clients: 45, completed: 12, sessions: 89 },
   { month: '2월', clients: 52, completed: 18, sessions: 102 },
@@ -164,7 +162,6 @@ export const PROCESS_STAGES = [
   { stage: '사후관리', count: 15, color: '#9F7AEA' },
 ];
 
-// Kanban memo data
 export interface MemoCard {
   id: string;
   title: string;
