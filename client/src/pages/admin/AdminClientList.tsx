@@ -5,7 +5,7 @@
  */
 import { useState, useEffect } from 'react';
 import { usePageGuard } from '@/hooks/usePageGuard';
-import { fetchClients } from '@/lib/api';
+import { fetchClients, fetchCounselors } from '@/lib/api'; // ✅ fetchCounselors 추가
 import type { ClientRow } from '@/lib/supabase';
 import { Search, Download, Filter, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
@@ -30,9 +30,25 @@ export default function AdminClientList() {
 
   const loadClients = () => {
     setLoading(true);
-    fetchClients()
-      .then(data => {
-        setClients(data);
+    // ✅ fetchClients와 fetchCounselors를 동시에 호출
+    Promise.all([fetchClients(), fetchCounselors()])
+      .then(([clientsData, counselorsData]) => {
+        // 상담사 정보를 찾기 쉽게 Map 객체로 변환 (키: user_id, 값: 상담사 데이터)
+        const counselorMap = new Map(counselorsData.map(c => [c.user_id, c]));
+
+        // client 데이터에 상담사 이름(user_name)과 지점(department) 매핑
+        const enrichedClients = clientsData.map(client => {
+          const counselor = client.counselor_id ? counselorMap.get(client.counselor_id) : undefined;
+          return {
+            ...client,
+            // 매칭되는 상담사가 있으면 user_name, 없으면 null (화면에서 '-'로 표시됨)
+            counselor_name: counselor ? counselor.user_name : null,
+            // 지점 필터링도 정상 작동하도록 department 값 매핑
+            branch: counselor && counselor.department ? counselor.department : null
+          };
+        });
+
+        setClients(enrichedClients);
         setLoading(false);
       })
       .catch(err => {

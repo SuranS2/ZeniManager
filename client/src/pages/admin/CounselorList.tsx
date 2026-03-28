@@ -13,17 +13,16 @@ import { isSupabaseConfigured } from '@/lib/supabase';
 
 const PRIMARY_HEX = '#009C64';
 
+// 스키마에 맞춰 Form 인터페이스 변경 (연락처/이메일/상태 삭제)
 interface CounselorForm {
-  name: string;
-  email: string;
-  phone: string;
-  branch: string;
-  status: '재직' | '휴직' | '퇴직';
+  user_name: string;
+  department: string;
+  memo: string;
   role: AppRole;
 }
 
 const EMPTY_FORM: CounselorForm = {
-  name: '', email: '', phone: '', branch: '', status: '재직', role: ROLE_COUNSELOR,
+  user_name: '', department: '', memo: '', role: ROLE_COUNSELOR,
 };
 
 function CounselorModal({
@@ -38,11 +37,9 @@ function CounselorModal({
   const [form, setForm] = useState<CounselorForm>(() =>
     counselor
       ? {
-          name: counselor.name,
-          email: counselor.email || '',
-          phone: counselor.phone || '',
-          branch: counselor.branch || '',
-          status: counselor.status || '재직',
+          user_name: counselor.user_name,
+          department: counselor.department || '',
+          memo: counselor.memo || '',
           role: counselor.role || ROLE_COUNSELOR,
         }
       : EMPTY_FORM
@@ -51,7 +48,7 @@ function CounselorModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim()) { toast.error('이름을 입력해주세요.'); return; }
+    if (!form.user_name.trim()) { toast.error('이름을 입력해주세요.'); return; }
     setSaving(true);
     try {
       await onSave(form);
@@ -78,57 +75,21 @@ function CounselorModal({
             <label className="block text-sm font-medium mb-1.5">이름 <span className="text-destructive">*</span></label>
             <input
               type="text"
-              value={form.name}
-              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              value={form.user_name}
+              onChange={e => setForm(f => ({ ...f, user_name: e.target.value }))}
               className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="홍길동"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium mb-1.5">이메일</label>
-              <input
-                type="email"
-                value={form.email}
-                onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="email@example.com"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">연락처</label>
-              <input
-                type="tel"
-                value={form.phone}
-                onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="010-0000-0000"
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium mb-1.5">지점</label>
-              <input
-                type="text"
-                value={form.branch}
-                onChange={e => setForm(f => ({ ...f, branch: e.target.value }))}
-                className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="서울 강남지점"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">상태</label>
-              <select
-                value={form.status}
-                onChange={e => setForm(f => ({ ...f, status: e.target.value as '재직' | '휴직' | '퇴직' }))}
-                className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="재직">재직</option>
-                <option value="휴직">휴직</option>
-                <option value="퇴직">퇴직</option>
-              </select>
-            </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">지점</label>
+            <input
+              type="text"
+              value={form.department}
+              onChange={e => setForm(f => ({ ...f, department: e.target.value }))}
+              className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="서울 강남지점"
+            />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1.5">권한</label>
@@ -140,6 +101,15 @@ function CounselorModal({
               <option value={ROLE_COUNSELOR}>상담사</option>
               <option value={ROLE_ADMIN}>관리자</option>
             </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">메모</label>
+            <textarea
+              value={form.memo}
+              onChange={e => setForm(f => ({ ...f, memo: e.target.value }))}
+              className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring min-h-[80px]"
+              placeholder="상담사에 대한 참고 사항..."
+            />
           </div>
           <div className="flex gap-2 pt-2">
             <button type="submit" disabled={saving} className="btn-primary flex items-center gap-1.5 disabled:opacity-60">
@@ -177,27 +147,28 @@ export default function CounselorList() {
 
   useEffect(() => { load(); }, [load]);
 
-  const filtered = counselors.filter(c =>
+  // ✅ 변경사항: role 값이 5(상담사)인 데이터만 필터링합니다.
+  const counselorOnlyList = counselors.filter(c => c.role === 5);
+
+  // 검색어에 따른 최종 필터링 적용
+  const filtered = counselorOnlyList.filter(c =>
     !search ||
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    (c.email || '').toLowerCase().includes(search.toLowerCase()) ||
-    (c.branch || '').includes(search)
+    c.user_name.toLowerCase().includes(search.toLowerCase()) ||
+    (c.department || '').includes(search)
   );
 
   const handleSave = async (form: CounselorForm) => {
     if (!isSupabaseConfigured()) {
-      // Demo mode: update local state only
       if (editTarget) {
-        setCounselors(prev => prev.map(c => c.id === editTarget.id ? { ...c, ...form } : c));
+        setCounselors(prev => prev.map(c => c.user_id === editTarget.user_id ? { ...c, ...form } : c));
         toast.success('수정되었습니다. (데모 모드)');
       } else {
         const newC: CounselorRow = {
-          id: `demo_${Date.now()}`,
+          user_id: `demo_${Date.now()}`,
           ...form,
           client_count: 0,
           completed_count: 0,
-          created_at: new Date().toISOString(),
-        } as any;
+        };
         setCounselors(prev => [newC, ...prev]);
         toast.success('등록되었습니다. (데모 모드)');
       }
@@ -205,14 +176,15 @@ export default function CounselorList() {
       setEditTarget(null);
       return;
     }
+    
     try {
       if (editTarget) {
-        const updated = await updateCounselor(editTarget.id, form);
-        setCounselors(prev => prev.map(c => c.id === updated.id ? updated : c));
+        const updated = await updateCounselor(editTarget.user_id, form);
+        setCounselors(prev => prev.map(c => c.user_id === updated.user_id ? { ...updated, client_count: c.client_count, completed_count: c.completed_count } : c));
         toast.success('상담사 정보가 수정되었습니다.');
       } else {
-        const created = await createCounselor(form as any);
-        setCounselors(prev => [created, ...prev]);
+        const created = await createCounselor(form);
+        setCounselors(prev => [{...created, client_count: 0, completed_count: 0}, ...prev]);
         toast.success('상담사가 등록되었습니다.');
       }
       setShowModal(false);
@@ -224,22 +196,20 @@ export default function CounselorList() {
 
   const handleDelete = async (c: CounselorRow) => {
     if (!isSupabaseConfigured()) {
-      setCounselors(prev => prev.filter(x => x.id !== c.id));
+      setCounselors(prev => prev.filter(x => x.user_id !== c.user_id));
       toast.success('삭제되었습니다. (데모 모드)');
       setDeleteTarget(null);
       return;
     }
     try {
-      await deleteCounselor(c.id);
-      setCounselors(prev => prev.filter(x => x.id !== c.id));
+      await deleteCounselor(c.user_id);
+      setCounselors(prev => prev.filter(x => x.user_id !== c.user_id));
       toast.success('삭제되었습니다.');
       setDeleteTarget(null);
     } catch (e: any) {
       toast.error('삭제 실패: ' + e.message);
     }
   };
-
-  const statusColor = (s: string) => s === '재직' ? 'badge-active' : s === '휴직' ? 'badge-pending' : 'badge-cancelled';
 
   if (!canRender) return null;
 
@@ -249,7 +219,7 @@ export default function CounselorList() {
         <div>
           <h1 className="text-xl font-bold text-foreground">상담사 목록</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            전체 {counselors.length}명
+            전체 {counselorOnlyList.length}명
             {!isSupabaseConfigured() && <span className="ml-2 text-amber-600">(데모 데이터)</span>}
           </p>
         </div>
@@ -274,7 +244,7 @@ export default function CounselorList() {
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="이름, 지점, 이메일로 검색..."
+            placeholder="이름, 지점으로 검색..."
             className="w-full pl-9 pr-4 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
@@ -291,12 +261,12 @@ export default function CounselorList() {
             <thead>
               <tr className="border-b border-border bg-muted/30">
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">이름</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">연락처</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">지점</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">지점</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">담당자 수</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">완료</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">상태</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">액션</th>
+                <th className="text-right px-4 py-3 font-medium text-muted-foreground">상담 완료</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">역할</th>
+                <th className="text-right px-4 py-3 font-medium text-muted-foreground">수정</th>
+                <th className="text-right px-4 py-3 font-medium text-muted-foreground">삭제</th>
               </tr>
             </thead>
             <tbody>
@@ -308,47 +278,40 @@ export default function CounselorList() {
                 </tr>
               ) : (
                 filtered.map(c => (
-                  <tr key={c.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
+                  <tr key={c.user_id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-sm flex items-center justify-center text-white text-sm font-bold flex-shrink-0" style={{ background: PRIMARY_HEX }}>
-                          {c.name.charAt(0)}
+                          {c.user_name.charAt(0)}
                         </div>
-                        <div>
-                          <div className="font-medium text-foreground">{c.name}</div>
-                          <div className="text-xs text-muted-foreground">{c.email || '-'}</div>
-                        </div>
+                        <div className="font-medium text-foreground">{c.user_name}</div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">{c.phone || '-'}</td>
-                    <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell">{c.branch || '-'}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{c.department || '-'}</td>
                     <td className="px-4 py-3 text-right font-semibold text-foreground">{c.client_count ?? 0}</td>
-                    <td className="px-4 py-3 text-right hidden sm:table-cell">
+                    <td className="px-4 py-3 text-right">
                       <span style={{ color: PRIMARY_HEX }} className="font-semibold">{c.completed_count ?? 0}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className={statusColor(c.status || '재직')}>{c.status || '재직'}</span>
-                        <span className={isAdminRole(c.role) ? 'badge-pending' : 'badge-active'}>
-                          {isAdminRole(c.role) ? '관리자' : '상담사'}
-                        </span>
-                      </div>
+                      <span className={isAdminRole(c.role) ? 'badge-pending' : 'badge-active'}>
+                        {isAdminRole(c.role) ? '관리자' : '상담사'}
+                      </span>
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => { setEditTarget(c); setShowModal(true); }}
-                          className="p-1.5 rounded-sm hover:bg-muted transition-colors"
-                        >
-                          <Edit3 size={14} />
-                        </button>
-                        <button
-                          onClick={() => setDeleteTarget(c)}
-                          className="p-1.5 rounded-sm hover:bg-destructive/10 transition-colors text-destructive"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
+                    <td className="px-4 py-3 text-right w-[40px]">
+                      <button
+                        onClick={() => { setEditTarget(c); setShowModal(true); }}
+                        className="p-1.5 rounded-sm hover:bg-muted transition-colors inline-flex items-center"
+                      >
+                        <Edit3 size={14} />
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 text-left w-[40px]">
+                      <button
+                        onClick={() => setDeleteTarget(c)}
+                        className="p-1.5 rounded-sm hover:bg-destructive/10 transition-colors text-destructive inline-flex items-center"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -371,7 +334,7 @@ export default function CounselorList() {
           <div className="bg-card rounded-md shadow-xl w-full max-w-sm p-6">
             <h3 className="font-semibold text-foreground mb-2">상담사 삭제</h3>
             <p className="text-sm text-muted-foreground mb-5">
-              <strong>{deleteTarget.name}</strong> 상담사를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+              <strong>{deleteTarget.user_name}</strong> 상담사를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
             </p>
             <div className="flex gap-2 justify-end">
               <button onClick={() => setDeleteTarget(null)} className="btn-cancel">취소</button>
