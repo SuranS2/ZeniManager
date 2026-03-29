@@ -12,14 +12,6 @@ export function useAuth(options?: UseAuthOptions) {
     options ?? {};
   const { user, isAuthenticated, isLoading, logout } = useAuthContext();
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (user) {
-      localStorage.setItem("manus-runtime-user-info", JSON.stringify(user));
-      return;
-    }
-    localStorage.removeItem("manus-runtime-user-info");
-  }, [user]);
 
   useEffect(() => {
     if (!redirectOnUnauthenticated) return;
