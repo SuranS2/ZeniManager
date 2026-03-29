@@ -170,15 +170,14 @@ export async function resetStoredAppSettings(): Promise<void> {
   resetSupabaseClient();
 }
 
-export type Database = { 
+export type Database = {
   public: {
     Tables: {
       clients: { Row: ClientRow; Insert: ClientInsert; Update: Partial<ClientInsert> };
       sessions: { Row: SessionRow; Insert: SessionInsert; Update: Partial<SessionInsert> };
-      user: { Row: CounselorRow; Insert: CounselorInsert; Update: Partial<CounselorInsert> };
+      counselors: { Row: CounselorRow; Insert: CounselorInsert; Update: Partial<CounselorInsert> };
       survey_responses: { Row: SurveyRow; Insert: SurveyInsert; Update: Partial<SurveyInsert> };
       memo_cards: { Row: MemoCardRow; Insert: MemoCardInsert; Update: Partial<MemoCardInsert> };
-      users: { Row: UserRow; Insert: UserInsert; Update: UserUpdate };
     };
   };
 };
@@ -290,18 +289,21 @@ export interface SessionRow {
 
 export type SessionInsert = Omit<SessionRow, 'id' | 'created_at' | 'session_number'> & { id?: string; session_number?: number | null };
 
+// DB 스키마: public.user 테이블 기준
 export interface CounselorRow {
-  user_id: string;
-  role: AppRole | null;
+  user_id: string;       // PK (uuid)
   user_name: string;
-  department: string | null;
+  department: string;
   memo: string | null;
+  role: AppRole | null;   // integer in DB — mapped via AppRole
+  // 클라이언트 계산 필드 (집계용)
   client_count: number;
   completed_count: number;
 }
 
-// client_count와 completed_count는 DB에 직접 넣는 컬럼이 아니므로 제외
-export type CounselorInsert = Omit<CounselorRow, 'client_count' | 'completed_count'> & { user_id?: string };
+export type CounselorInsert = Omit<CounselorRow, 'client_count' | 'completed_count' | 'user_id'> & {
+  user_id?: string;
+};
 
 export interface SurveyRow {
   id: string;
@@ -321,17 +323,6 @@ export interface SurveyRow {
 }
 
 export type SurveyInsert = Omit<SurveyRow, 'id' | 'created_at'> & { id?: string };
-
-export interface UserRow {
-  user_id: string;
-  role: number; // 5: 상담사 / 4: 관리자
-  user_name: string;
-  department: string | null;
-  memo: string | null;
-}
-
-export type UserInsert = Omit<UserRow, 'user_id'> & { user_id?: string };
-export type UserUpdate = Partial<UserInsert>;
 
 export interface MemoCardRow {
   id: string;

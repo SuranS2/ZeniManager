@@ -12,7 +12,7 @@ import {
 import { toast } from 'sonner';
 import {
   fetchClientById, fetchSessions, createSession,
-  deleteSession, fetchSurveys, createSurvey, updateClient, updateClientMemo, updateSession
+  deleteSession, fetchSurveys, createSurvey, updateClient, updateSession
 } from '@/lib/api';
 import type { ClientRow, SessionRow, SurveyRow } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/lib/supabase';
@@ -53,7 +53,7 @@ function SurveyTab({ clientId, counselorId }: { clientId: string; counselorId?: 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchSurveys(clientId, { strict: true });
+      const data = await fetchSurveys(clientId);
       setSurveys(data);
     } catch (e: any) {
       toast.error('설문 데이터 로드 실패: ' + e.message);
@@ -226,7 +226,7 @@ export default function ClientDetail() {
     if (!id) return;
     setLoading(true);
     try {
-      const data = await fetchClientById(id, { strict: true });
+      const data = await fetchClientById(id);
       if (data) setClient(data);
       else toast.error('상담자 정보를 찾을 수 없습니다.');
     } catch (e: any) {
@@ -240,7 +240,7 @@ export default function ClientDetail() {
     if (!id) return;
     setSessionsLoading(true);
     try {
-      const data = await fetchSessions(id, { strict: true });
+      const data = await fetchSessions(id);
       setSessions(data);
     } catch (e: any) {
       toast.error('상담 이력 로드 실패');
@@ -270,8 +270,8 @@ export default function ClientDetail() {
     setSaving(true);
     try {
       if (field === 'memo') {
-        const savedMemo = await updateClientMemo(id, editValue, { strict: true });
-        setClient({ ...client, memo: savedMemo } as ClientRow);
+        await updateClient(id, { memo: editValue });
+        setClient({ ...client, memo: editValue } as ClientRow);
         toast.success('적용되었습니다.');
         setEditingField(null);
         return;
@@ -319,7 +319,7 @@ export default function ClientDetail() {
       await updateSession(session.id, {
         ...session,
         content: editSessionContent
-      }, { strict: true });
+      });
       setSessions(prev => prev.map(s => s.id === session.id ? { ...s, content: editSessionContent } : s));
       toast.success('상담 이력이 수정되었습니다.');
       setEditingSessionId(null);
