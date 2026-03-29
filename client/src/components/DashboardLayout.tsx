@@ -70,11 +70,7 @@ const adminNav: NavItem[] = [
   {
     label: '사업 대시보드',
     icon: <Building2 size={17} />,
-    children: [
-      { label: '지점별 현황', path: '/admin/dashboard', icon: <ChevronRight size={14} /> },
-      { label: '사업별(유형)', path: '/admin/dashboard/business', icon: <ChevronRight size={14} /> },
-      { label: '취업구분(성사율)', path: '/admin/dashboard/employment', icon: <ChevronRight size={14} /> },
-    ],
+    path: '/admin/dashboard',
   },
   {
     label: '상담사 목록',

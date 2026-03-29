@@ -175,7 +175,7 @@ export type Database = {
     Tables: {
       clients: { Row: ClientRow; Insert: ClientInsert; Update: Partial<ClientInsert> };
       sessions: { Row: SessionRow; Insert: SessionInsert; Update: Partial<SessionInsert> };
-      counselors: { Row: CounselorRow; Insert: CounselorInsert; Update: Partial<CounselorInsert> };
+      user: { Row: CounselorRow; Insert: CounselorInsert; Update: Partial<CounselorInsert> };
       survey_responses: { Row: SurveyRow; Insert: SurveyInsert; Update: Partial<SurveyInsert> };
       memo_cards: { Row: MemoCardRow; Insert: MemoCardInsert; Update: Partial<MemoCardInsert> };
       users: { Row: UserRow; Insert: UserInsert; Update: UserUpdate };
@@ -291,19 +291,17 @@ export interface SessionRow {
 export type SessionInsert = Omit<SessionRow, 'id' | 'created_at' | 'session_number'> & { id?: string; session_number?: number | null };
 
 export interface CounselorRow {
-  id: string;
-  name: string;
+  user_id: string;
+  role: AppRole | null;
+  user_name: string;
   department: string | null;
+  memo: string | null;
   client_count: number;
   completed_count: number;
-  joined_at: string | null;
-  role: AppRole | null;
-  auth_user_id: string | null;
-  created_at: string;
-  update_at: string;
 }
 
-export type CounselorInsert = Omit<CounselorRow, 'id' | 'created_at' | 'update_at'> & { id?: string };
+// client_count와 completed_count는 DB에 직접 넣는 컬럼이 아니므로 제외
+export type CounselorInsert = Omit<CounselorRow, 'client_count' | 'completed_count'> & { user_id?: string };
 
 export interface SurveyRow {
   id: string;
