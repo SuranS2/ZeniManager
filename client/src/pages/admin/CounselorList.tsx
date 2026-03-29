@@ -1,28 +1,31 @@
 /**
  * Admin Counselor List Page (상담사 목록)
- * Data: Supabase API (mock fallback when not configured)
+ * Data: Supabase API (mock fallback when not configured) & Electron IPC for Registration
  */
 import { useState, useEffect, useCallback } from 'react';
 import { ROLE_ADMIN, ROLE_COUNSELOR, isAdminRole, type AppRole } from '@shared/const';
 import { Search, Plus, Edit3, Trash2, X, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePageGuard } from '@/hooks/usePageGuard';
-import { fetchCounselors, createCounselor, updateCounselor, deleteCounselor } from '@/lib/api';
+import { fetchCounselors, updateCounselor, deleteCounselor } from '@/lib/api';
 import type { CounselorRow } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import { useElectron } from '@/hooks/useElectron'; // Electron Hook 추가
 
 const PRIMARY_HEX = '#009C64';
 
-// 스키마에 맞춰 Form 인터페이스 변경 (연락처/이메일/상태 삭제)
+// 등록(생성) 시 필요한 이메일, 비밀번호 필드 추가
 interface CounselorForm {
   user_name: string;
+  email: string;
+  password: string;
   department: string;
   memo: string;
   role: AppRole;
 }
 
 const EMPTY_FORM: CounselorForm = {
-  user_name: '', department: '', memo: '', role: ROLE_COUNSELOR,
+  user_name: '', email: '', password: '', department: '', memo: '', role: ROLE_COUNSELOR,
 };
 
 function CounselorModal({
@@ -38,9 +41,11 @@ function CounselorModal({
     counselor
       ? {
           user_name: counselor.user_name,
+          email: '', // 수정 시에는 이메일/비밀번호 변경을 여기서 처리하지 않음
+          password: '',
           department: counselor.department || '',
           memo: counselor.memo || '',
-          role: counselor.role || ROLE_COUNSELOR,
+          role: ROLE_COUNSELOR, // 항상 상담사로 고정
         }
       : EMPTY_FORM
   );
@@ -49,6 +54,14 @@ function CounselorModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.user_name.trim()) { toast.error('이름을 입력해주세요.'); return; }
+    
+    // 신규 등록 시에만 이메일/비밀번호 필수 검사
+    if (!counselor) {
+      if (!form.email.trim()) { toast.error('이메일을 입력해주세요.'); return; }
+      if (!form.password.trim()) { toast.error('비밀번호를 입력해주세요.'); return; }
+      if (form.password.length < 6) { toast.error('비밀번호는 6자리 이상이어야 합니다.'); return; }
+    }
+
     setSaving(true);
     try {
       await onSave(form);
@@ -71,6 +84,7 @@ function CounselorModal({
               Supabase 미설정 — 저장이 실제 DB에 반영되지 않습니다.
             </div>
           )}
+          
           <div>
             <label className="block text-sm font-medium mb-1.5">이름 <span className="text-destructive">*</span></label>
             <input
@@ -81,27 +95,46 @@ function CounselorModal({
               placeholder="홍길동"
             />
           </div>
+
+          {/* 신규 등록일 경우에만 이메일, 비밀번호 입력란 표시 */}
+          {!counselor && (
+            <>
+              <div>
+                <label className="block text-sm font-medium mb-1.5">이메일 (아이디) <span className="text-destructive">*</span></label>
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="counselor@example.com"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1.5">비밀번호 <span className="text-destructive">*</span></label>
+                <input
+                  type="password"
+                  value={form.password}
+                  onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="6자리 이상"
+                />
+              </div>
+            </>
+          )}
+
           <div>
-            <label className="block text-sm font-medium mb-1.5">지점</label>
+            <label className="block text-sm font-medium mb-1.5">지점 <span className="text-destructive">*</span></label>
             <input
               type="text"
               value={form.department}
               onChange={e => setForm(f => ({ ...f, department: e.target.value }))}
               className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="서울 강남지점"
+              placeholder="예: 서울 강남지점"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium mb-1.5">권한</label>
-            <select
-              value={form.role}
-              onChange={e => setForm(f => ({ ...f, role: Number(e.target.value) as AppRole }))}
-              className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value={ROLE_COUNSELOR}>상담사</option>
-              <option value={ROLE_ADMIN}>관리자</option>
-            </select>
-          </div>
+
+          {/* 권한(role) 선택 란은 요구사항에 따라 완전히 제거 (항상 상담사(5)로 등록됨) */}
+
           <div>
             <label className="block text-sm font-medium mb-1.5">메모</label>
             <textarea
@@ -126,6 +159,8 @@ function CounselorModal({
 
 export default function CounselorList() {
   const { canRender } = usePageGuard('admin');
+  const { isElectron, adminRegisterCounselor } = useElectron(); // Electron 함수 가져오기
+  
   const [counselors, setCounselors] = useState<CounselorRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -147,7 +182,7 @@ export default function CounselorList() {
 
   useEffect(() => { load(); }, [load]);
 
-  // ✅ 변경사항: role 값이 5(상담사)인 데이터만 필터링합니다.
+  // role 값이 5(상담사)인 데이터만 필터링합니다.
   const counselorOnlyList = counselors.filter(c => c.role === 5);
 
   // 검색어에 따른 최종 필터링 적용
@@ -179,18 +214,42 @@ export default function CounselorList() {
     
     try {
       if (editTarget) {
-        const updated = await updateCounselor(editTarget.user_id, form);
+        // 수정 모드: 기존 API 사용 (정보만 업데이트)
+        const updated = await updateCounselor(editTarget.user_id, {
+          user_name: form.user_name,
+          department: form.department,
+          memo: form.memo,
+          role: 5 // 강제 5 고정
+        } as any);
         setCounselors(prev => prev.map(c => c.user_id === updated.user_id ? { ...updated, client_count: c.client_count, completed_count: c.completed_count } : c));
         toast.success('상담사 정보가 수정되었습니다.');
+        setShowModal(false);
+        setEditTarget(null);
       } else {
-        const created = await createCounselor(form);
-        setCounselors(prev => [{...created, client_count: 0, completed_count: 0}, ...prev]);
-        toast.success('상담사가 등록되었습니다.');
+        // 신규 등록 모드: Electron IPC 사용 (계정 생성 및 DB 저장)
+        if (!isElectron) {
+          toast.error("데스크톱 앱(관리자 모드)에서만 상담사 등록이 가능합니다.");
+          return;
+        }
+
+        const result = await adminRegisterCounselor({
+          email: form.email,
+          password: form.password,
+          user_name: form.user_name,
+          department: form.department
+        });
+
+        if (result.success) {
+          toast.success('상담사가 안전하게 등록되었습니다.');
+          load(); // 새롭게 추가된 데이터를 DB에서 갱신하기 위해 목록 다시 로드
+          setShowModal(false);
+          setEditTarget(null);
+        } else {
+          toast.error(`등록 실패: ${result.error}`);
+        }
       }
-      setShowModal(false);
-      setEditTarget(null);
     } catch (e: any) {
-      toast.error('저장 실패: ' + e.message);
+      toast.error('작업 실패: ' + e.message);
     }
   };
 

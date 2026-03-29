@@ -7,11 +7,24 @@
 
  * - Production: loads built index.html from dist/public
  */
-
+require('dotenv').config();
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const isDev = !app.isPackaged;
+
+// electron/main.cjs 최상단 부근에 Supabase 클라이언트 세팅 추가
+const { createClient } = require('@supabase/supabase-js');
+
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+});
 
 // ─── Keep a global reference to prevent garbage collection ───────────────────
 let mainWindow = null;
@@ -268,6 +281,37 @@ ipcMain.handle('dialog:message', async (_, options) => {
 // Open external URL
 ipcMain.handle('shell:openExternal', (_, url) => {
   shell.openExternal(url);
+});
+
+// IPC 핸들러 추가: 관리자 권한으로 상담사 등록
+ipcMain.handle('admin-register-counselor', async (event, counselorData) => {
+  try {
+    // 1. Auth: 이메일과 비밀번호로 계정 생성
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email: counselorData.email,
+      password: counselorData.password,
+      email_confirm: true // 생성 즉시 이메일 인증 통과 처리
+    });
+
+    if (authError) throw authError;
+
+    // 2. DB: 생성된 uid를 사용하여 user 테이블에 정보 삽입
+    const { error: dbError } = await supabaseAdmin.from('user').insert([
+      {
+        user_id: authData.user.id,
+        role: 5,
+        user_name: counselorData.user_name,  
+        department: counselorData.department 
+      }
+    ]);
+
+    if (dbError) throw dbError;
+
+    return { success: true }; // 불필요한 데이터 전송 생략
+  } catch (error) {
+    console.error('상담사 등록 에러:', error); // 디버깅용 에러 로그는 유지
+    return { success: false, error: error.message };
+  }
 });
 
 // ─── App lifecycle ─────────────────────────────────────────────────────────────
