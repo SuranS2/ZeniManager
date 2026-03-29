@@ -181,7 +181,7 @@ export default function AdminDashboard() {
       <div className="flex flex-wrap items-center gap-4 bg-card p-4 rounded-md border border-border shadow-sm">
         <div className="flex items-center gap-2">
           <Filter size={16} className="text-muted-foreground" />
-          <span className="text-sm font-medium text-foreground mr-2">성과 필터</span>
+          <span className="text-sm font-medium text-foreground mr-2">필터</span>
         </div>
         <div className="flex gap-3">
           <select 

@@ -1304,18 +1304,6 @@ function liveCounselHistoryToSessionRow(row: LiveCounselHistoryRecord): SessionR
 
 function mockCounselorToRow(c: Counselor): CounselorRow {
   return {
-<<<<<<< HEAD
-    id: c.id,
-    name: c.name,
-    department: c.department,
-    client_count: c.clientCount,
-    completed_count: c.completedCount,
-    joined_at: c.joinedAt,
-    role: ROLE_COUNSELOR,
-    auth_user_id: null,
-    created_at: c.joinedAt,
-    update_at: c.joinedAt,
-=======
     user_id: c.user_id,
     user_name: c.user_name,
     department: c.department,
@@ -1323,7 +1311,6 @@ function mockCounselorToRow(c: Counselor): CounselorRow {
     role: c.role as any,
     client_count: c.clientCount,
     completed_count: c.completedCount,
->>>>>>> feature/#5-admindashboard-rse
   };
 }
 
