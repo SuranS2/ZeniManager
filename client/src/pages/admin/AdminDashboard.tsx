@@ -6,30 +6,48 @@ import { useState, useEffect, useMemo } from 'react';
 import { usePageGuard } from '@/hooks/usePageGuard';
 import { fetchClients, fetchCounselors } from '@/lib/api';
 import type { ClientRow, CounselorRow } from '@/lib/supabase';
+import { Link } from 'wouter';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, AreaChart, Area
+  Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area, XAxis, YAxis, CartesianGrid
 } from 'recharts';
-import { Building2, Users, TrendingUp, Target, Loader2, Filter } from 'lucide-react';
+import { Building2, Users, TrendingUp, Target, Loader2, Filter, ChevronRight } from 'lucide-react';
 
 const PRIMARY_HEX = '#009C64';
 const COLORS = ['#009C64', '#4299E1', '#F6AD55', '#9F7AEA', '#FC8181', '#38B2AC'];
 
-function StatCard({ icon, label, value, highlight, subLabel }: {
-  icon: React.ReactNode; label: string; value: string | number; highlight?: boolean; subLabel?: string;
+const STAGE_COLORS = {
+  '초기상담': '#4299E1',
+  '심층상담': '#9F7AEA',
+  '취업지원': '#F6AD55',
+  '취업완료': '#009C64',
+  '사후관리': '#38B2AC',
+};
+
+// 가로형 구조 정렬 및 링크 우측 상단 배치 적용된 StatCard
+function StatCard({ icon, label, value, subLabel, bgHex, colorHex, linkTo, linkText }: {
+  icon: React.ReactNode; label: string; value: string | number; subLabel?: string; bgHex: string; colorHex: string; linkTo?: string; linkText?: string;
 }) {
   return (
-    <div className={`bg-card rounded-md p-5 shadow-sm border ${highlight ? 'border-primary/50' : 'border-border'}`}>
-      <div className="flex items-start justify-between">
-        <div className="w-10 h-10 rounded-md flex items-center justify-center" style={{ background: highlight ? PRIMARY_HEX : 'oklch(0.96 0.01 75)' }}>
-          <div style={{ color: highlight ? '#fff' : PRIMARY_HEX }}>{icon}</div>
+    <div className="bg-card rounded-md p-5 shadow-sm border border-border flex flex-col justify-between relative">
+      {/* 우측 상단 링크 배치 */}
+      {linkTo && linkText && (
+        <div className="absolute top-4 right-4">
+          <Link href={linkTo}>
+            <a className="inline-flex items-center gap-0.5 text-xs font-medium hover:underline transition-colors" style={{ color: PRIMARY_HEX }}>
+              {linkText} <ChevronRight size={13} />
+            </a>
+          </Link>
         </div>
-      </div>
-      <div className="mt-4">
-        <div className="text-2xl font-bold text-foreground">{value}</div>
-        <div className="flex items-baseline gap-2 mt-1">
+      )}
+      
+      <div className="flex items-start gap-4">
+        <div className="w-12 h-12 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: bgHex, color: colorHex }}>
+          {icon}
+        </div>
+        <div className="flex-1 mt-0.5">
           <div className="text-sm font-medium text-muted-foreground">{label}</div>
-          {subLabel && <div className="text-xs text-muted-foreground/70">({subLabel})</div>}
+          <div className="text-2xl font-bold text-foreground mt-1">{value}</div>
+          {subLabel && <div className="text-xs text-muted-foreground mt-1">{subLabel}</div>}
         </div>
       </div>
     </div>
@@ -60,10 +78,9 @@ export default function AdminDashboard() {
   const branchOptions = useMemo(() => ['all', ...Array.from(new Set(counselors.map(c => c.department).filter(Boolean)))], [counselors]);
   const businessOptions = useMemo(() => ['all', ...Array.from(new Set(clients.map(c => c.business_type).filter(Boolean)))], [clients]);
 
-  // ─── 2. 필터링된 데이터 계산 (모든 차트와 KPI의 기준) ───
+  // ─── 2. 필터링된 데이터 계산 ───
   const filteredClients = useMemo(() => {
     return clients.filter(c => {
-      // 내담자의 담당 상담사 지점 매핑
       const counselor = counselors.find(con => con.user_id === c.counselor_id);
       const clientBranch = counselor?.department || c.branch || '미지정';
       
@@ -79,7 +96,7 @@ export default function AdminDashboard() {
   const inProgress = totalCount - completedCount;
   const avgRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
-  // ─── 4. 참여단계 파이프라인 데이터 ───
+  // ─── 4. 프로세스 과정 수 ───
   const stageData = useMemo(() => {
     const order = ['초기상담', '심층상담', '취업지원', '취업완료', '사후관리'];
     const map: Record<string, number> = { '초기상담': 0, '심층상담': 0, '취업지원': 0, '취업완료': 0, '사후관리': 0 };
@@ -91,20 +108,72 @@ export default function AdminDashboard() {
     return order.map(name => ({ name, value: map[name] }));
   }, [filteredClients]);
 
-  // ─── 5. 월별 성사율 추이 (데모용 동적 데이터) ───
+  // ─── 5. 월별 성사율 추이 (진행 중인 인원 대비 취업 비율) ───
   const trendData = useMemo(() => {
-    const base = avgRate > 0 ? avgRate : 50;
-    return [
-      { month: '7월', rate: Math.max(0, base - 8) },
-      { month: '8월', rate: Math.max(0, base - 5) },
-      { month: '9월', rate: Math.max(0, base - 2) },
-      { month: '10월', rate: Math.min(100, base + 1) },
-      { month: '11월', rate: Math.min(100, base - 1) },
-      { month: '12월', rate: base }, // 현재 필터링된 평균
-    ];
-  }, [avgRate]);
+    const months: string[] = [];
+    const now = new Date();
+    
+    // 최근 6개월 문자열 생성
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
 
-  // ─── 6. 파이 차트 데이터 (사업 유형별 비율 - 비율 계산 추가) ───
+    return months.map(monthStr => {
+      const [yearStr, monStr] = monthStr.split('-');
+      const year = parseInt(yearStr);
+      const month = parseInt(monStr);
+
+      const startOfMonth = new Date(year, month - 1, 1);
+      const endOfMonth = new Date(year, month, 0, 23, 59, 59);
+
+      let activeCount = 0;
+      let employedCount = 0;
+
+      filteredClients.forEach(c => {
+        // 내담자 등록일 확인
+        const createdDateStr = c.created_at || c.initial_counsel_date;
+        if (!createdDateStr) return;
+        const createdDate = new Date(createdDateStr);
+        if (isNaN(createdDate.getTime())) return;
+
+        // 해당 월이 끝나기 전에 등록하지 않았다면 활성 대상 아님
+        if (createdDate > endOfMonth) return;
+
+        let isEmployedThisMonth = false;
+        let isEmployedBeforeThisMonth = false;
+
+        // 취업일자 기준 상태 계산
+        if (c.employment_date) {
+          const empDate = new Date(c.employment_date);
+          if (!isNaN(empDate.getTime())) {
+            if (empDate < startOfMonth) {
+              isEmployedBeforeThisMonth = true;
+            } else if (empDate >= startOfMonth && empDate <= endOfMonth) {
+              isEmployedThisMonth = true;
+            }
+          }
+        }
+
+        // 해당 월이 시작하기 전에 이미 취업했다면, 해당 월에는 '진행 중'이 아님
+        if (isEmployedBeforeThisMonth) return;
+
+        // 조건을 통과했다면 해당 월에 '상담 진행 중'이었거나 '해당 월에 취업'한 활성 인원임
+        activeCount++;
+
+        if (isEmployedThisMonth) {
+          employedCount++;
+        }
+      });
+
+      return {
+        month: `${month}월`,
+        rate: activeCount > 0 ? Math.round((employedCount / activeCount) * 100) : 0
+      };
+    });
+  }, [filteredClients]);
+
+  // ─── 6. 파이 차트 데이터 ───
   const pieData = useMemo(() => {
     const map: Record<string, number> = {};
     let total = 0;
@@ -120,20 +189,17 @@ export default function AdminDashboard() {
     })).sort((a, b) => b.value - a.value);
   }, [filteredClients]);
 
-  // ─── 7. 테이블 데이터 (드릴다운 및 상담사 수 추가) ───
+  // ─── 7. 테이블 데이터 ───
   const tableData = useMemo(() => {
     if (selectedBranch === 'all') {
-      // 지점별 실적 요약
       const map: Record<string, { total: number; done: number; counselorCount: number }> = {};
       
-      // 1. 해당 지점의 전체 상담사 수 먼저 집계
       counselors.forEach(con => {
         const b = con.department || '미지정';
         if (!map[b]) map[b] = { total: 0, done: 0, counselorCount: 0 };
         map[b].counselorCount++;
       });
 
-      // 2. 필터링된 내담자 수 집계
       filteredClients.forEach(c => {
         const counselor = counselors.find(con => con.user_id === c.counselor_id);
         const b = counselor?.department || c.branch || '미지정';
@@ -143,28 +209,23 @@ export default function AdminDashboard() {
       });
 
       return Object.entries(map).map(([name, v]) => ({
-        name, 
-        counselorCount: v.counselorCount,
-        total: v.total, 
-        done: v.done, 
+        name, counselorCount: v.counselorCount, total: v.total, done: v.done, 
         rate: v.total > 0 ? Math.round((v.done / v.total) * 100) : 0
       })).sort((a, b) => b.rate - a.rate);
-
     } else {
-      // 선택된 지점 내의 상담사별 실적
       const branchCounselors = counselors.filter(c => c.department === selectedBranch);
       return branchCounselors.map(con => {
         const conClients = filteredClients.filter(c => c.counselor_id === con.user_id);
         const done = conClients.filter(c => !!c.employment_type || c.participation_stage === '취업완료').length;
         return {
-          name: con.user_name,
-          total: conClients.length,
-          done: done,
+          name: con.user_name, total: conClients.length, done: done,
           rate: conClients.length > 0 ? Math.round((done / conClients.length) * 100) : 0
         };
       }).sort((a, b) => b.rate - a.rate);
     }
   }, [filteredClients, counselors, selectedBranch]);
+
+  const maxStageValue = Math.max(...stageData.map(s => s.value), 1);
 
   if (!canRender) return null;
 
@@ -181,7 +242,7 @@ export default function AdminDashboard() {
       <div className="flex flex-wrap items-center gap-4 bg-card p-4 rounded-md border border-border shadow-sm">
         <div className="flex items-center gap-2">
           <Filter size={16} className="text-muted-foreground" />
-          <span className="text-sm font-medium text-foreground mr-2">필터</span>
+          <span className="text-sm font-medium text-foreground mr-2">성과 필터</span>
         </div>
         <div className="flex gap-3">
           <select 
@@ -207,58 +268,108 @@ export default function AdminDashboard() {
         <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" size={32} /></div>
       ) : (
         <>
-          {/* ─── 1. KPI Cards ─── */}
+          {/* ─── 1. KPI Cards (아이콘 우측 정렬, 노란색 아이콘 반영) ─── */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard icon={<Users size={20} />} label="관리 내담자" value={`${totalCount}명`} subLabel="필터 적용" />
-            <StatCard icon={<TrendingUp size={20} />} label="진행 중" value={`${inProgress}명`} subLabel="취업 전 단계" />
-            <StatCard icon={<Target size={20} />} label="취업 성공" value={`${completedCount}명`} subLabel="누적 완료" />
-            <StatCard icon={<Building2 size={20} />} label="취업 성사율" value={`${avgRate}%`} subLabel="평균" />
+            <StatCard 
+              icon={<Users size={20} />} 
+              label="관리 상담자" 
+              value={`${totalCount}명`} 
+              subLabel="필터 적용" 
+              bgHex="#E8F5E9" // 옅은 초록
+              colorHex={PRIMARY_HEX}
+              linkTo="/admin/clients"
+              linkText="상담자 목록 열기"
+            />
+            <StatCard 
+              icon={<TrendingUp size={20} />} 
+              label="진행 중" 
+              value={`${inProgress}명`} 
+              subLabel="취업 전 단계" 
+              bgHex="#EBF8FF" // 옅은 파랑
+              colorHex="#4299E1"
+            />
+            <StatCard 
+              icon={<Target size={20} />} 
+              label="취업 성공" 
+              value={`${completedCount}명`} 
+              subLabel="누적 완료" 
+              bgHex="#E8F5E9" // 옅은 초록
+              colorHex={PRIMARY_HEX}
+            />
+            <StatCard 
+              icon={<Building2 size={20} />} 
+              label="취업 성사율" 
+              value={`${avgRate}%`} 
+              subLabel="평균" 
+              bgHex="#FEF3C7" // 노란색(Amber) 계열
+              colorHex="#D97706" // 짙은 노란색
+            />
           </div>
 
-          {/* ─── 2. Pipeline & Trend ─── */}
+          {/* ─── 2. Pipeline & Trend (높이 확장 및 여백 조절) ─── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* 참여단계 파이프라인 */}
-            <div className="bg-card rounded-md p-5 shadow-sm border border-border">
-              <h3 className="text-sm font-semibold text-foreground mb-1">참여단계별 파이프라인</h3>
-              <p className="text-xs text-muted-foreground mb-6">현재 선택된 조건의 내담자 분포입니다.</p>
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={stageData} layout="vertical" margin={{ left: 20, right: 30 }}>
-                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="oklch(0.88 0.008 75)" />
-                  <XAxis type="number" hide />
-                  <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'oklch(0.55 0.015 65)' }} width={80} />
-                  <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ borderRadius: '6px', fontSize: '12px' }} formatter={(val: number) => [`${val}명`, '인원']} />
-                  <Bar dataKey="value" fill={PRIMARY_HEX} radius={[0, 4, 4, 0]} barSize={24}>
-                    {stageData.map((_, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+            
+            {/* 프로세스 과정 수 (커스텀 프로그레스 바) */}
+            <div className="bg-card rounded-md p-6 shadow-sm border border-border flex flex-col min-h-[400px]">
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground mb-1">프로세스 과정 수</h3>
+                  <p className="text-xs text-muted-foreground">현재 선택된 조건의 내담자 분포입니다.</p>
+                </div>
+              </div>
+              
+              <div className="flex-1 flex flex-col justify-center space-y-7 pb-4">
+                {stageData.map((stage) => {
+                  const widthPct = maxStageValue > 0 ? (stage.value / maxStageValue) * 100 : 0;
+                  const barColor = STAGE_COLORS[stage.name as keyof typeof STAGE_COLORS] || '#CBD5E0';
+                  
+                  return (
+                    <div key={stage.name}>
+                      <div className="flex justify-between text-sm mb-2">
+                        <span className="text-foreground font-medium">{stage.name}</span>
+                        <span className="text-foreground font-semibold">{stage.value}명</span>
+                      </div>
+                      <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-700"
+                          style={{ width: `${widthPct}%`, backgroundColor: barColor }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
-            {/* 월별 추이 */}
-            <div className="bg-card rounded-md p-5 shadow-sm border border-border">
-              <h3 className="text-sm font-semibold text-foreground mb-1">월별 성사율 추이</h3>
-              <p className="text-xs text-muted-foreground mb-6">최근 6개월간의 성사율 흐름입니다.</p>
-              <ResponsiveContainer width="100%" height={240}>
-                <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorRate" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={PRIMARY_HEX} stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor={PRIMARY_HEX} stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="oklch(0.88 0.008 75)" />
-                  <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
-                  <YAxis domain={['auto', 100]} axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
-                  <Tooltip contentStyle={{ borderRadius: '6px', fontSize: '12px' }} formatter={(val: number) => [`${val}%`, '성사율']} />
-                  <Area type="monotone" dataKey="rate" stroke={PRIMARY_HEX} strokeWidth={3} fillOpacity={1} fill="url(#colorRate)" activeDot={{ r: 6 }} />
-                </AreaChart>
-              </ResponsiveContainer>
+            {/* 월별 추이 (DB 연동 기반 진행 중 인원 대비) */}
+            <div className="bg-card rounded-md p-6 shadow-sm border border-border flex flex-col min-h-[400px]">
+              <div className="mb-6">
+                <h3 className="text-sm font-semibold text-foreground mb-1">월별 성사율 추이</h3>
+                <p className="text-xs text-muted-foreground">상담 진행 중인 사람 중 해당 월에 취업한 비율입니다.</p>
+              </div>
+              <div className="flex-1 relative min-h-[260px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorRate" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={PRIMARY_HEX} stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor={PRIMARY_HEX} stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="oklch(0.88 0.008 75)" />
+                    <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
+                    <YAxis domain={['auto', 100]} axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
+                    <Tooltip contentStyle={{ borderRadius: '6px', fontSize: '12px' }} formatter={(val: number) => [`${val}%`, '성사율']} />
+                    <Area type="monotone" dataKey="rate" stroke={PRIMARY_HEX} strokeWidth={3} fillOpacity={1} fill="url(#colorRate)" activeDot={{ r: 6 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
 
           {/* ─── 3. Drill-down Analysis (Pie & Table) ─── */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* 동적 파이 차트 (전체 사업 유형일 때만 렌더링) */}
+            {/* 동적 파이 차트 */}
             {selectedBusiness === 'all' && (
               <div className="bg-card rounded-md p-5 shadow-sm border border-border lg:col-span-1">
                 <h3 className="text-sm font-semibold text-foreground mb-1">사업 유형별 비율</h3>
@@ -278,7 +389,7 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {/* 동적 실적 테이블 (선택된 사업 유형에 따라 넓이 자동 조절) */}
+            {/* 동적 실적 테이블 */}
             <div className={`bg-card rounded-md p-0 shadow-sm border border-border flex flex-col ${selectedBusiness === 'all' ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
               <div className="p-5 border-b border-border">
                 <h3 className="text-sm font-semibold text-foreground mb-1">
