@@ -96,6 +96,10 @@ type LiveCounselorRecord = {
   role: unknown;
 };
 
+type ApiModeOptions = {
+  strict?: boolean;
+};
+
 const DEMO_CLIENT_MEMO_PREFIX = 'counsel_demo_client_memo:';
 const missingOptionalTablesByUrl = new Map<string, Set<string>>();
 
@@ -188,6 +192,12 @@ function assertDashboardRuntimeContract(scopeLabel: string, authUserId: string |
   return normalizedAuthUserId;
 }
 
+function assertClientApiConfiguredIfStrict(scopeLabel: string, options: ApiModeOptions = {}): void {
+  if (options.strict) {
+    assertDashboardSupabaseConfigured(scopeLabel);
+  }
+}
+
 function assertDashboardDateRange(scopeLabel: string, rangeStart: string, rangeEnd: string): void {
   if (!ISO_DATE_KEY_PATTERN.test(rangeStart) || !ISO_DATE_KEY_PATTERN.test(rangeEnd)) {
     throw new Error(`${scopeLabel} 기능을 호출하려면 YYYY-MM-DD 형식의 조회 기간이 필요합니다.`);
@@ -200,8 +210,14 @@ function assertDashboardDateRange(scopeLabel: string, rangeStart: string, rangeE
 
 // ─── Clients ─────────────────────────────────────────────────────────────────
 
-export async function fetchClients(counselorId?: string): Promise<ClientRow[]> {
+export async function fetchClients(
+  counselorId?: string,
+  options: ApiModeOptions = {},
+): Promise<ClientRow[]> {
+  // Shared API default keeps existing fallback; counselor callers pass strict for live-only behavior.
   if (!isSupabaseConfigured()) {
+    assertClientApiConfiguredIfStrict('상담자 목록 조회', options);
+
     const normalizedCounselorId = normalizeMockCounselorId(counselorId);
     return MOCK_CLIENTS
       .filter(c => !normalizedCounselorId || c.counselorId === normalizedCounselorId)
@@ -254,8 +270,13 @@ export async function fetchClients(counselorId?: string): Promise<ClientRow[]> {
   return ((data ?? []) as LiveClientRecord[]).map(row => liveClientToRow(row));
 }
 
-export async function fetchClientById(id: string): Promise<ClientRow | null> {
+export async function fetchClientById(
+  id: string,
+  options: ApiModeOptions = {},
+): Promise<ClientRow | null> {
   if (!isSupabaseConfigured()) {
+    assertClientApiConfiguredIfStrict('상담자 상세 조회', options);
+
     const c = MOCK_CLIENTS.find(c => c.id === id);
     return c ? mockClientToRow(c) : null;
   }
@@ -390,10 +411,14 @@ export async function deleteClient(id: string): Promise<void> {
   if (error) throw error;
 }
 
-export async function fetchClientMemo(clientId: string): Promise<string | null> {
+export async function fetchClientMemo(
+  clientId: string,
+  options: ApiModeOptions = {},
+): Promise<string | null> {
   if (!clientId) return null;
 
   if (!isSupabaseConfigured()) {
+    assertClientApiConfiguredIfStrict('상담자 메모 조회', options);
     return localStorage.getItem(`${DEMO_CLIENT_MEMO_PREFIX}${clientId}`) || null;
   }
 
@@ -416,12 +441,17 @@ export async function fetchClientMemo(clientId: string): Promise<string | null> 
   return normalizeMemoValue((data as LiveUserMemoRecord | null)?.memo ?? null);
 }
 
-export async function updateClientMemo(clientId: string, memo: string | null): Promise<string | null> {
+export async function updateClientMemo(
+  clientId: string,
+  memo: string | null,
+  options: ApiModeOptions = {},
+): Promise<string | null> {
   const normalizedMemo = normalizeMemoValue(memo);
 
   if (!clientId) throw new Error('유효한 상담자 ID가 아닙니다.');
 
   if (!isSupabaseConfigured()) {
+    assertClientApiConfiguredIfStrict('상담자 메모 저장', options);
     const key = `${DEMO_CLIENT_MEMO_PREFIX}${clientId}`;
     if (normalizedMemo == null) localStorage.removeItem(key);
     else localStorage.setItem(key, normalizedMemo);
@@ -441,7 +471,7 @@ export async function updateClientMemo(clientId: string, memo: string | null): P
 
   if (error) throw error;
 
-  const refreshedMemo = await fetchClientMemo(clientId);
+  const refreshedMemo = await fetchClientMemo(clientId, options);
   if (refreshedMemo !== normalizedMemo) {
     if (refreshedMemo == null && normalizedMemo == null) {
       return null;
@@ -498,8 +528,13 @@ export async function updateMyMemo(authUserId: string, memo: string | null): Pro
 
 // ─── Sessions ─────────────────────────────────────────────────────────────────
 
-export async function fetchSessions(clientId: string): Promise<SessionRow[]> {
+export async function fetchSessions(
+  clientId: string,
+  options: ApiModeOptions = {},
+): Promise<SessionRow[]> {
   if (!isSupabaseConfigured()) {
+    assertClientApiConfiguredIfStrict('상담 이력 조회', options);
+
     const c = MOCK_CLIENTS.find(c => c.id === clientId);
     return (c?.sessions ?? []).map(s => mockSessionToRow(s, clientId));
   }
@@ -565,8 +600,15 @@ export async function createSession(input: SessionInsert): Promise<SessionRow> {
   return liveCounselHistoryToSessionRow(data as LiveCounselHistoryRecord);
 }
 
-export async function updateSession(id: string, input: Partial<SessionInsert>): Promise<void> {
-  if (!isSupabaseConfigured()) return;
+export async function updateSession(
+  id: string,
+  input: Partial<SessionInsert>,
+  options: ApiModeOptions = {},
+): Promise<void> {
+  if (!isSupabaseConfigured()) {
+    assertClientApiConfiguredIfStrict('상담 이력 수정', options);
+    return;
+  }
 
   const { error } = await sb()
     .from('counsel_history')
@@ -667,8 +709,14 @@ export async function deleteCounselor(id: string): Promise<void> {
 
 // ─── Survey Responses ─────────────────────────────────────────────────────────
 
-export async function fetchSurveys(clientId: string): Promise<SurveyRow[]> {
-  if (!isSupabaseConfigured()) return [];
+export async function fetchSurveys(
+  clientId: string,
+  options: ApiModeOptions = {},
+): Promise<SurveyRow[]> {
+  if (!isSupabaseConfigured()) {
+    assertClientApiConfiguredIfStrict('구직준비도 설문 조회', options);
+    return [];
+  }
   if (isOptionalTableMarkedMissing(SURVEY_RESPONSES_TABLE)) return [];
   const { data, error } = await sb()
     .from(SURVEY_RESPONSES_TABLE)
