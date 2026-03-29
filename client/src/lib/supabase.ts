@@ -75,6 +75,7 @@ export function getSupabaseClient(): SupabaseClient | null {
         persistSession: true,
         autoRefreshToken: true,
         storageKey: SUPABASE_SESSION_STORAGE_KEY,
+        storage: window.sessionStorage,
       },
     });
     _clientUrl = url;
