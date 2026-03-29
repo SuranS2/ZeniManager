@@ -144,6 +144,7 @@ export default function Login() {
       navigate(isAdminRole(result.user?.role) ? '/admin/dashboard' : '/dashboard');
     } else {
       setError(result.error || '이메일 또는 비밀번호가 올바르지 않습니다.');
+      setPassword(''); // Clear password on failure
     }
   };
 
