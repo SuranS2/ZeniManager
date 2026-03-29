@@ -53,7 +53,7 @@ function SurveyTab({ clientId, counselorId }: { clientId: string; counselorId?: 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchSurveys(clientId);
+      const data = await fetchSurveys(clientId, { strict: true });
       setSurveys(data);
     } catch (e: any) {
       toast.error('설문 데이터 로드 실패: ' + e.message);
@@ -226,7 +226,7 @@ export default function ClientDetail() {
     if (!id) return;
     setLoading(true);
     try {
-      const data = await fetchClientById(id);
+      const data = await fetchClientById(id, { strict: true });
       if (data) setClient(data);
       else toast.error('상담자 정보를 찾을 수 없습니다.');
     } catch (e: any) {
@@ -240,7 +240,7 @@ export default function ClientDetail() {
     if (!id) return;
     setSessionsLoading(true);
     try {
-      const data = await fetchSessions(id);
+      const data = await fetchSessions(id, { strict: true });
       setSessions(data);
     } catch (e: any) {
       toast.error('상담 이력 로드 실패');
@@ -270,7 +270,7 @@ export default function ClientDetail() {
     setSaving(true);
     try {
       if (field === 'memo') {
-        const savedMemo = await updateClientMemo(id, editValue);
+        const savedMemo = await updateClientMemo(id, editValue, { strict: true });
         setClient({ ...client, memo: savedMemo } as ClientRow);
         toast.success('적용되었습니다.');
         setEditingField(null);
@@ -319,7 +319,7 @@ export default function ClientDetail() {
       await updateSession(session.id, {
         ...session,
         content: editSessionContent
-      });
+      }, { strict: true });
       setSessions(prev => prev.map(s => s.id === session.id ? { ...s, content: editSessionContent } : s));
       toast.success('상담 이력이 수정되었습니다.');
       setEditingSessionId(null);
