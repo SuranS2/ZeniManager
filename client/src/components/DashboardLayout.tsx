@@ -168,14 +168,19 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           />
         </div>
 
-        {/* Role badge */}
-        <div className="px-4 py-2.5 border-b border-border">
-          <span className={isAdmin ? 'badge-pending' : 'badge-active'}>
-            {roleLabel}
-          </span>
-          {organizationLabel && (
-            <span className="ml-2 text-xs text-muted-foreground">{organizationLabel}</span>
-          )}
+        {/* Role & Affiliation badge */}
+        <div className="px-4 py-3 border-b border-border bg-muted/30">
+          <div className="flex flex-col gap-1.5">
+            <span className={`w-fit px-2 py-0.5 text-[10px] font-bold rounded-full uppercase tracking-wider ${isAdmin ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+              {roleLabel}
+            </span>
+            {organizationLabel && (
+              <div className="flex items-center gap-1 text-xs font-medium text-foreground">
+                <Building2 size={12} className="text-muted-foreground" />
+                <span>{organizationLabel}</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Nav */}
@@ -184,20 +189,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             <NavGroup key={i} item={item} />
           ))}
         </nav>
-
-        {/* Settings */}
-        <div className="border-t border-border py-2">
-          <Link href="/settings">
-            <div className="sidebar-item">
-              <Settings size={17} className="opacity-70" />
-              <span>설정</span>
-            </div>
-          </Link>
-          <button onClick={handleLogout} className="sidebar-item w-full text-left">
-            <LogOut size={17} className="opacity-70" />
-            <span>로그아웃</span>
-          </button>
-        </div>
       </aside>
 
       {/* Main */}
