@@ -594,29 +594,55 @@ export async function fetchCounselors(): Promise<CounselorRow[]> {
   if (!isSupabaseConfigured()) {
     return MOCK_COUNSELORS.map(c => mockCounselorToRow(c));
   }
-  const { data, error } = await sb()
-    .from('user')
-    .select('user_id, user_name, department, role')
-    .neq('role', 5) // role 컬럼의 값이 5가 아닌 데이터만 필터링
-    .order('user_name');
 
-  if (error) throw error;
-  return ((data ?? []) as LiveCounselorRecord[]).map(row => liveCounselorToRow(row));
+  const { data, error } = await sb().from('user').select(`
+    user_id,
+    role,
+    user_name,
+    department,
+    memo,
+    client (
+      client_id,
+      job_place_support_end
+    )
+  `).order('user_name');
+
+  if (error) {
+    if (isMissingSchemaError(error)) {
+      return MOCK_COUNSELORS.map(c => mockCounselorToRow(c));
+    }
+    throw error;
+  }
+
+  const today = new Date().toISOString().split('T')[0];
+
+  return (data ?? []).map((row: any) => {
+    const clients = row.client || [];
+    
+    const completedCount = clients.filter((c: any) => 
+      c.job_place_support_end && c.job_place_support_end > today
+    ).length;
+
+    const inProgressCount = clients.length - completedCount;
+
+    return {
+      user_id: row.user_id,
+      role: row.role,
+      user_name: row.user_name,
+      department: row.department,
+      memo: row.memo,
+      client_count: inProgressCount,
+      completed_count: completedCount,
+    } as CounselorRow;
+  });
 }
 
-export async function createCounselor(
-  input: Pick<CounselorInsert, 'name' | 'department' | 'role'> & Partial<CounselorInsert>,
-): Promise<CounselorRow> {
+export async function createCounselor(input: CounselorInsert): Promise<CounselorRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const payload: CounselorInsert = {
-    client_count: 0,
-    completed_count: 0,
-    joined_at: new Date().toISOString(),
-    auth_user_id: null,
-    ...input,
-  };
-
-  const { data, error } = await sb().from('counselors').insert(payload).select().single();
+  
+  // 주의: user 테이블에 insert 하려면 auth.users와 연동된 UUID가 필요합니다.
+  const { data, error } = await sb().from('user').insert(input).select().single();
+  
   if (error) throw error;
   return data;
 }
@@ -624,9 +650,9 @@ export async function createCounselor(
 export async function updateCounselor(id: string, input: Partial<CounselorInsert>): Promise<CounselorRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
   const { data, error } = await sb()
-    .from('counselors')
-    .update({ ...input, update_at: new Date().toISOString() })
-    .eq('id', id)
+    .from('user')
+    .update({ ...input })
+    .eq('user_id', id)
     .select()
     .single();
   if (error) throw error;
@@ -635,7 +661,7 @@ export async function updateCounselor(id: string, input: Partial<CounselorInsert
 
 export async function deleteCounselor(id: string): Promise<void> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { error } = await sb().from('counselors').delete().eq('id', id);
+  const { error } = await sb().from('user').delete().eq('user_id', id);
   if (error) throw error;
 }
 
@@ -1278,6 +1304,7 @@ function liveCounselHistoryToSessionRow(row: LiveCounselHistoryRecord): SessionR
 
 function mockCounselorToRow(c: Counselor): CounselorRow {
   return {
+<<<<<<< HEAD
     id: c.id,
     name: c.name,
     department: c.department,
@@ -1288,6 +1315,15 @@ function mockCounselorToRow(c: Counselor): CounselorRow {
     auth_user_id: null,
     created_at: c.joinedAt,
     update_at: c.joinedAt,
+=======
+    user_id: c.user_id,
+    user_name: c.user_name,
+    department: c.department,
+    memo: c.memo || null,
+    role: c.role as any,
+    client_count: c.clientCount,
+    completed_count: c.completedCount,
+>>>>>>> feature/#5-admindashboard-rse
   };
 }
 
