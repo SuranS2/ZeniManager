@@ -13,6 +13,7 @@ import DaumPostcode from 'react-daum-postcode';
 export default function ClientRegister() {
   const { canRender, user } = usePageGuard('counselor');
   const [, navigate] = useLocation();
+  const STORAGE_KEY = 'zeni_client_register_draft';
 
   const [form, setForm] = useState({
     name: '',
@@ -101,6 +102,28 @@ export default function ClientRegister() {
     }
   }, [form.resident_id]);
 
+  // Auto-save logic
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setForm(f => ({ ...f, ...parsed }));
+        toast.info('이전에 작성 중이던 임시 저장 데이터를 불러왔습니다.', { duration: 3000 });
+      } catch (e) {
+        console.error('Failed to load draft:', e);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    // Exclude sensitive fields like resident_id if needed, but for usability we keep it.
+    // We only save if there is at least some data (e.g. name or phone)
+    if (form.name || form.phone || form.resident_id) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(form));
+    }
+  }, [form]);
+
   const handleCompleteAddress = (data: any) => {
     let fullAddress = data.address;
     let extraAddress = '';
@@ -167,10 +190,11 @@ export default function ClientRegister() {
         work_ex_end: form.work_ex_end || null,
         work_ex_graduate: form.work_ex_graduate ? parseInt(form.work_ex_graduate, 10) : null,
         memo: form.notes || null,
-        counselor_id: user?.id || null,
+        counselor_id: user?.counselorId || null,
       } as any);
 
       toast.success(`${form.name}님이 등록되었습니다.`);
+      localStorage.removeItem(STORAGE_KEY); // Clear draft on success
       navigate('/clients/list');
     } catch (err: any) {
       console.error(err);
