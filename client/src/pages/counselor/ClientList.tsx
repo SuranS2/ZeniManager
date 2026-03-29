@@ -1,6 +1,5 @@
 /**
  * Client List Page (상담자 목록)
- * - Supabase 연동 (미설정 시 mock data fallback)
  * - 탭: 상담관리 / 상담이력 / 상담내용 입력 / 구직준비도 설문
  * - 필터: 전체 / 점수미확정 / 후속상담 / 취업처리
  */
@@ -80,7 +79,7 @@ function SurveyTab({ clientId, counselorId }: { clientId: string; counselorId?: 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchSurveys(clientId);
+      const data = await fetchSurveys(clientId, { strict: true });
       setSurveys(data);
     } catch (e: any) {
       toast.error('설문 데이터 로드 실패: ' + e.message);
@@ -307,7 +306,7 @@ function ClientDetailModal({
   const loadSessions = useCallback(async () => {
     setSessionsLoading(true);
     try {
-      const data = await fetchSessions(client.id);
+      const data = await fetchSessions(client.id, { strict: true });
       setSessions(data);
     } catch (e: any) {
       toast.error('이력 로드 실패: ' + e.message);
@@ -649,7 +648,7 @@ export default function ClientList() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchClients(user?.role === ROLE_COUNSELOR ? user.counselorId : undefined);
+      const data = await fetchClients(user?.role === ROLE_COUNSELOR ? user.counselorId : undefined, { strict: true });
       setClients(data);
     } catch (e: any) {
       toast.error('데이터 로드 실패: ' + e.message);
@@ -661,11 +660,6 @@ export default function ClientList() {
   useEffect(() => { load(); }, [load]);
 
   const handleStageUpdate = async (clientId: string, newStage: string) => {
-    if (!isSupabaseConfigured()) {
-      setClients(prev => prev.map(c => c.id === clientId ? { ...c, participation_stage: newStage } : c));
-      toast.success('데모 모드: 취업단계가 업데이트되었습니다.');
-      return;
-    }
     try {
       await updateClient(clientId, { participation_stage: newStage });
       setClients(prev => prev.map(c => c.id === clientId ? { ...c, participation_stage: newStage } : c));
@@ -725,7 +719,6 @@ export default function ClientList() {
           <h1 className="text-xl font-bold text-foreground">상담자 목록</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             전체 {clients.length}명
-            {!isSupabaseConfigured() && <span className="ml-2 text-amber-600">(데모 데이터)</span>}
           </p>
         </div>
         <div className="flex items-center gap-2">

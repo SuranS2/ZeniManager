@@ -40,6 +40,20 @@ const SCORE_RANGE_FALLBACK = [
   { range: '80-89', count: 0 },
   { range: '90-100', count: 0 },
 ];
+const PROCESS_STAGE_ORDER = [
+  '초기상담',
+  '심층상담',
+  '취업지원',
+  '직업훈련',
+  '취업알선',
+  '취업완료',
+  '사후관리',
+] as const;
+
+type ProcessStage = {
+  stage: string;
+  count: number;
+};
 
 type CalendarRangeMode = 'today' | 'week' | 'selected-period';
 type DashboardTab = 'overview' | 'calendar' | 'memo';
@@ -730,16 +744,19 @@ export default function CounselorDashboard() {
   const scoreDistribution = stats?.scoreDistribution ?? SCORE_RANGE_FALLBACK;
   const hasScoreDistribution = scoreDistribution.some(item => item.count > 0);
 
-  const processStages = stats?.stageBreakdown ?? [
-    { stage: '초기상담', count: 0 },
-    { stage: '심층상담', count: 0 },
-    { stage: '취업지원', count: 0 },
-    { stage: '취업완료', count: 0 },
-    { stage: '사후관리', count: 0 },
-  ];
+  const processBreakdownByStage = new Map(stats?.stageBreakdown?.map(item => [item.stage, item.count]) ?? []);
+  const processStages: ProcessStage[] = PROCESS_STAGE_ORDER.map(stage => ({
+    stage,
+    count: processBreakdownByStage.get(stage) ?? 0,
+  }));
   const stageColors: Record<string, string> = {
-    '초기상담': '#4299E1', '심층상담': '#9F7AEA',
-    '취업지원': '#F6AD55', '취업완료': PRIMARY_HEX, '사후관리': '#68D391',
+    '초기상담': '#4299E1',
+    '심층상담': '#9F7AEA',
+    '취업지원': '#F6AD55',
+    '직업훈련': '#ED8936',
+    '취업알선': '#38BDF8',
+    '취업완료': PRIMARY_HEX,
+    '사후관리': '#68D391',
   };
   const maxStageCount = Math.max(...processStages.map(s => s.count), 1);
 
