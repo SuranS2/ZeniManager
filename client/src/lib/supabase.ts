@@ -289,23 +289,21 @@ export interface SessionRow {
 
 export type SessionInsert = Omit<SessionRow, 'id' | 'created_at' | 'session_number'> & { id?: string; session_number?: number | null };
 
+// DB 스키마: public.user 테이블 기준
 export interface CounselorRow {
-  id: string;
-  name: string;
-  email: string | null;
-  phone: string | null;
-  branch: string | null;
+  user_id: string;       // PK (uuid)
+  user_name: string;
+  department: string;
+  memo: string | null;
+  role: AppRole | null;   // integer in DB — mapped via AppRole
+  // 클라이언트 계산 필드 (집계용)
   client_count: number;
   completed_count: number;
-  joined_at: string | null;
-  status: '재직' | '휴직' | '퇴직' | null;
-  role: AppRole | null;
-  auth_user_id: string | null;
-  created_at: string;
-  update_at: string;
 }
 
-export type CounselorInsert = Omit<CounselorRow, 'id' | 'created_at' | 'update_at'> & { id?: string };
+export type CounselorInsert = Omit<CounselorRow, 'client_count' | 'completed_count' | 'user_id'> & {
+  user_id?: string;
+};
 
 export interface SurveyRow {
   id: string;

@@ -1,9 +1,9 @@
 /**
  * api.ts — Supabase data access layer
- * All functions read credentials from localStorage at call time.
- * Falls back to mock data when Supabase is not configured.
+ * All functions require Supabase to be configured.
+ * Mock data has been removed.
  */
-import { ROLE_COUNSELOR } from '@shared/const';
+import { normalizeAppRole } from '@shared/const';
 import { getSupabaseClient, isSupabaseConfigured } from './supabase';
 import type {
   ClientRow, ClientInsert,
@@ -12,10 +12,6 @@ import type {
   SurveyRow, SurveyInsert,
   MemoCardRow, MemoCardInsert,
 } from './supabase';
-import {
-  MOCK_CLIENTS, MOCK_COUNSELORS, INITIAL_KANBAN,
-  type Client, type Counselor, type Session,
-} from './mockData';
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
@@ -47,8 +43,6 @@ type LiveClientRecord = {
   iap_to: string | null;
   retest_stat: number | null;
   continue_serv_1_stat: string | null;
-  driving_yn?: string | null;
-  own_car_yn?: string | null;
   memo: string | null;
   business_code?: { participate_type: string | null }[] | null;
   created_at: string | null;
@@ -80,12 +74,6 @@ type LiveCounselHistoryRecord = {
   profiling_grade?: string | null;
   memo?: string | null;
 };
-
-function normalizeMockCounselorId(counselorId?: string): string | undefined {
-  if (!counselorId) return undefined;
-  const demoMatch = counselorId.match(/^demo-(c\d+)$/);
-  return demoMatch?.[1] ?? counselorId;
-}
 
 function encodeSessionPayload(type: string, content: string, nextAction?: string | null): string {
   const meta = JSON.stringify({ type, nextAction: nextAction || null });
@@ -120,112 +108,65 @@ function decodeSessionPayload(
   }
 }
 
-function isMissingSchemaError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false;
-
-  const code = 'code' in error ? error.code : undefined;
-  return code === 'PGRST202' || code === 'PGRST205';
-}
-
 // ─── Clients ─────────────────────────────────────────────────────────────────
 
+const CLIENT_SELECT_FIELDS = `
+  client_id,
+  client_name,
+  counselor_id,
+  age,
+  gender_code,
+  phone_encrypted,
+  education_level,
+  school_name,
+  major,
+  business_type_code,
+  participation_type,
+  participation_stage,
+  desired_job_1,
+  hire_type,
+  job_place_start,
+  job_place_end,
+  iap_to,
+  retest_stat,
+  continue_serv_1_stat,
+  memo,
+  business_code (
+    participate_type
+  ),
+  created_at,
+  update_at
+`;
+
 export async function fetchClients(counselorId?: string): Promise<ClientRow[]> {
-  if (!isSupabaseConfigured()) {
-    const normalizedCounselorId = normalizeMockCounselorId(counselorId);
-    return MOCK_CLIENTS
-      .filter(c => !normalizedCounselorId || c.counselorId === normalizedCounselorId)
-      .map(c => mockClientToRow(c));
-  }
+  if (!isSupabaseConfigured()) return [];
 
   let q = sb()
     .from('client')
-    .select(`
-      client_id,
-      client_name,
-      counselor_id,
-      age,
-      gender_code,
-      phone_encrypted,
-      education_level,
-      school_name,
-      major,
-      business_type_code,
-      participation_type,
-      participation_stage,
-      desired_job_1,
-      hire_type,
-      job_place_start,
-      job_place_end,
-      iap_to,
-      retest_stat,
-      continue_serv_1_stat,
-      memo,
-      business_code (
-        participate_type
-      ),
-      created_at,
-      update_at
-    `)
+    .select(CLIENT_SELECT_FIELDS)
     .order('iap_to', { ascending: true, nullsFirst: false });
 
   if (counselorId) q = q.eq('counselor_id', counselorId);
 
   const { data, error } = await q;
-  if (error) {
-    if (isMissingSchemaError(error)) {
-      const mockClients = MOCK_CLIENTS.map(c => mockClientToRow(c));
-      return counselorId
-        ? mockClients.filter(client => client.counselor_id === counselorId)
-        : mockClients;
-    }
-    throw error;
-  }
+  if (error) throw error;
   return ((data ?? []) as LiveClientRecord[]).map(row => liveClientToRow(row));
 }
 
 export async function fetchClientById(id: string): Promise<ClientRow | null> {
-  if (!isSupabaseConfigured()) {
-    const c = MOCK_CLIENTS.find(c => c.id === id);
-    return c ? mockClientToRow(c) : null;
-  }
+  if (!isSupabaseConfigured()) return null;
 
   const numericId = Number(id);
   if (Number.isNaN(numericId)) return null;
 
   const { data, error } = await sb()
     .from('client')
-    .select(`
-      client_id,
-      client_name,
-      counselor_id,
-      age,
-      gender_code,
-      phone_encrypted,
-      education_level,
-      school_name,
-      major,
-      business_type_code,
-      participation_type,
-      participation_stage,
-      desired_job_1,
-      hire_type,
-      job_place_start,
-      job_place_end,
-      iap_to,
-      retest_stat,
-      continue_serv_1_stat,
-      memo,
-      created_at,
-      update_at
-    `)
+    .select(CLIENT_SELECT_FIELDS)
     .eq('client_id', numericId)
     .single();
 
   if (error) {
-    if (isMissingSchemaError(error)) {
-      const c = MOCK_CLIENTS.find(client => client.id === id);
-      return c ? mockClientToRow(c) : null;
-    }
+    if (error.code === 'PGRST116') return null; // not found
     throw error;
   }
   return liveClientToRow(data as LiveClientRecord);
@@ -248,7 +189,7 @@ export async function createClient(input: any): Promise<ClientRow> {
     can_drive: input.can_drive,
     MBTI: input.MBTI,
     is_working_parttime: input.is_working_parttime,
-    future_card_stat: input.future_card_stat,
+    future_card_stat: input.future_card_stat ? 1 : 0,
     capa: input.capa,
     desired_job_1: input.desired_job_1,
     desired_job_2: input.desired_job_2,
@@ -257,12 +198,12 @@ export async function createClient(input: any): Promise<ClientRow> {
     desired_area_2: input.desired_area_2,
     desired_area_3: input.desired_area_3,
     desired_payment: input.desired_payment,
-    work_ex_desire: input.work_ex_desire,
-    work_ex_type: input.work_ex_type,
+    work_ex_desire: input.work_ex_desire ? Number(input.work_ex_desire) : null,
+    work_ex_type: input.work_ex_type ? Number(input.work_ex_type) : null,
     work_ex_company: input.work_ex_company,
     work_ex_start: input.work_ex_start,
     work_ex_end: input.work_ex_end,
-    work_ex_graduate: input.work_ex_graduate,
+    work_ex_graduate: input.work_ex_graduate ? Number(input.work_ex_graduate) : null,
     education_level: input.education_level,
     school_name: input.school,
     major: input.major,
@@ -272,31 +213,12 @@ export async function createClient(input: any): Promise<ClientRow> {
     memo: input.memo,
   };
 
-  const { data, error } = await sb().from('client').insert(payload).select(`
-      client_id,
-      client_name,
-      counselor_id,
-      age,
-      gender_code,
-      phone_encrypted,
-      education_level,
-      school_name,
-      major,
-      business_type_code,
-      participation_type,
-      participation_stage,
-      desired_job_1,
-      hire_type,
-      job_place_start,
-      job_place_end,
-      iap_to,
-      retest_stat,
-      continue_serv_1_stat,
-      memo,
-      created_at,
-      update_at
-  `).single();
-  
+  const { data, error } = await sb()
+    .from('client')
+    .insert(payload)
+    .select(CLIENT_SELECT_FIELDS)
+    .single();
+
   if (error) throw error;
   return liveClientToRow(data as LiveClientRecord);
 }
@@ -305,12 +227,12 @@ export async function updateClient(id: string, input: Partial<ClientInsert>): Pr
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
   const { data, error } = await sb()
     .from('client')
-    .update({ ...input, update_at: new Date().toISOString() })
+    .update({ ...input, update_at: new Date().toISOString().split('T')[0] })
     .eq('client_id', Number(id))
-    .select()
+    .select(CLIENT_SELECT_FIELDS)
     .single();
   if (error) throw error;
-  return data;
+  return liveClientToRow(data as LiveClientRecord);
 }
 
 export async function deleteClient(id: string): Promise<void> {
@@ -321,29 +243,23 @@ export async function deleteClient(id: string): Promise<void> {
 
 // ─── Sessions ─────────────────────────────────────────────────────────────────
 
+const SESSION_SELECT_FIELDS =
+  'counsel_id, client_id, user_id, counsel_date, start_time, end_time, session_number, counselor_opinion, counsel_type, document_link, economic_situation, social_situation_family, social_situation_society, self_esteem, self_efficacy, holland_code, career_fluidity, info_gathering, personality_test_result, life_history_result, profiling_grade, memo, create_at';
+
 export async function fetchSessions(clientId: string): Promise<SessionRow[]> {
-  if (!isSupabaseConfigured()) {
-    const c = MOCK_CLIENTS.find(c => c.id === clientId);
-    return (c?.sessions ?? []).map(s => mockSessionToRow(s, clientId));
-  }
+  if (!isSupabaseConfigured()) return [];
 
   const numericClientId = Number(clientId);
   if (Number.isNaN(numericClientId)) return [];
 
   const { data, error } = await sb()
     .from('counsel_history')
-    .select('counsel_id, client_id, user_id, counsel_date, start_time, end_time, session_number, counselor_opinion, counsel_type, document_link, economic_situation, social_situation_family, social_situation_society, self_esteem, self_efficacy, holland_code, career_fluidity, info_gathering, personality_test_result, life_history_result, profiling_grade, memo, create_at')
+    .select(SESSION_SELECT_FIELDS)
     .eq('client_id', numericClientId)
     .order('counsel_date', { ascending: false })
     .order('start_time', { ascending: false });
 
-  if (error) {
-    if (isMissingSchemaError(error)) {
-      const c = MOCK_CLIENTS.find(client => client.id === clientId);
-      return (c?.sessions ?? []).map(s => mockSessionToRow(s, clientId));
-    }
-    throw error;
-  }
+  if (error) throw error;
   return ((data ?? []) as LiveCounselHistoryRecord[]).map(row => liveCounselHistoryToSessionRow(row));
 }
 
@@ -381,7 +297,7 @@ export async function createSession(input: SessionInsert): Promise<SessionRow> {
   const { data, error } = await sb()
     .from('counsel_history')
     .insert(payload)
-    .select('counsel_id, client_id, user_id, counsel_date, start_time, end_time, session_number, counselor_opinion, counsel_type, document_link, economic_situation, social_situation_family, social_situation_society, self_esteem, self_efficacy, holland_code, career_fluidity, info_gathering, personality_test_result, life_history_result, profiling_grade, memo, create_at')
+    .select(SESSION_SELECT_FIELDS)
     .single();
 
   if (error) throw error;
@@ -389,11 +305,11 @@ export async function createSession(input: SessionInsert): Promise<SessionRow> {
 }
 
 export async function updateSession(id: string, input: Partial<SessionInsert>): Promise<void> {
-  if (!isSupabaseConfigured()) return;
+  if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
 
   const { error } = await sb()
     .from('counsel_history')
-    .update({ 
+    .update({
       counselor_opinion: input.content || '',
       counsel_type: input.type || '상담기록',
       counsel_date: input.date,
@@ -414,45 +330,82 @@ export async function deleteSession(id: string): Promise<void> {
 // ─── Counselors ───────────────────────────────────────────────────────────────
 
 export async function fetchCounselors(): Promise<CounselorRow[]> {
-  if (!isSupabaseConfigured()) {
-    return MOCK_COUNSELORS.map(c => mockCounselorToRow(c));
-  }
-  const { data, error } = await sb().from('counselors').select('*').order('name');
-  if (error) {
-    if (isMissingSchemaError(error)) {
-      return MOCK_COUNSELORS.map(c => mockCounselorToRow(c));
-    }
-    throw error;
-  }
-  return data ?? [];
+  if (!isSupabaseConfigured()) return [];
+
+  const { data, error } = await sb()
+    .from('user')
+    .select('user_id, user_name, department, memo, role')
+    .order('user_name');
+
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    user_id: row.user_id,
+    user_name: row.user_name ?? '이름 미상',
+    department: row.department ?? '',
+    memo: row.memo ?? null,
+    role: row.role != null ? normalizeAppRole(row.role) : null,
+    client_count: 0,
+    completed_count: 0,
+  }));
 }
 
 export async function createCounselor(input: CounselorInsert): Promise<CounselorRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { data, error } = await sb().from('counselors').insert(input).select().single();
-  if (error) throw error;
-  return data;
-}
-
-export async function updateCounselor(id: string, input: Partial<CounselorInsert>): Promise<CounselorRow> {
-  if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
+  const payload = {
+    user_name: input.user_name,
+    department: input.department ?? '',
+    memo: input.memo ?? null,
+    role: input.role ?? null,
+  };
   const { data, error } = await sb()
-    .from('counselors')
-    .update({ ...input, update_at: new Date().toISOString() })
-    .eq('id', id)
-    .select()
+    .from('user')
+    .insert(payload)
+    .select('user_id, user_name, department, memo, role')
     .single();
   if (error) throw error;
-  return data;
+  return {
+    user_id: (data as any).user_id,
+    user_name: (data as any).user_name ?? '이름 미상',
+    department: (data as any).department ?? '',
+    memo: (data as any).memo ?? null,
+    role: (data as any).role != null ? normalizeAppRole((data as any).role) : null,
+    client_count: 0,
+    completed_count: 0,
+  };
 }
 
-export async function deleteCounselor(id: string): Promise<void> {
+export async function updateCounselor(userId: string, input: Partial<CounselorInsert>): Promise<CounselorRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { error } = await sb().from('counselors').delete().eq('id', id);
+  const payload: Record<string, unknown> = {};
+  if (input.user_name != null) payload.user_name = input.user_name;
+  if (input.department != null) payload.department = input.department;
+  if (input.memo !== undefined) payload.memo = input.memo;
+  if (input.role !== undefined) payload.role = input.role;
+  const { data, error } = await sb()
+    .from('user')
+    .update(payload)
+    .eq('user_id', userId)
+    .select('user_id, user_name, department, memo, role')
+    .single();
+  if (error) throw error;
+  return {
+    user_id: (data as any).user_id,
+    user_name: (data as any).user_name ?? '이름 미상',
+    department: (data as any).department ?? '',
+    memo: (data as any).memo ?? null,
+    role: (data as any).role != null ? normalizeAppRole((data as any).role) : null,
+    client_count: 0,
+    completed_count: 0,
+  };
+}
+
+export async function deleteCounselor(userId: string): Promise<void> {
+  if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
+  const { error } = await sb().from('user').delete().eq('user_id', userId);
   if (error) throw error;
 }
 
-// ─── Survey Responses ─────────────────────────────────────────────────────────
+// ─── Surveys ─────────────────────────────────────────────────────────────────
 
 export async function fetchSurveys(clientId: string): Promise<SurveyRow[]> {
   if (!isSupabaseConfigured()) return [];
@@ -461,12 +414,7 @@ export async function fetchSurveys(clientId: string): Promise<SurveyRow[]> {
     .select('*')
     .eq('client_id', clientId)
     .order('survey_date', { ascending: false });
-  if (error) {
-    if (isMissingSchemaError(error)) {
-      return [];
-    }
-    throw error;
-  }
+  if (error) throw error;
   return data ?? [];
 }
 
@@ -477,68 +425,44 @@ export async function createSurvey(input: SurveyInsert): Promise<SurveyRow> {
   return data;
 }
 
-// ─── Memo Cards (Kanban) ──────────────────────────────────────────────────────
+export async function updateSurvey(id: string, input: Partial<SurveyInsert>): Promise<SurveyRow> {
+  if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
+  const { data, error } = await sb()
+    .from('survey_responses')
+    .update(input)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// ─── Memo Cards ───────────────────────────────────────────────────────────────
 
 export async function fetchMemoCards(counselorId: string): Promise<MemoCardRow[]> {
-  if (!isSupabaseConfigured()) {
-    const all: MemoCardRow[] = [];
-    INITIAL_KANBAN.forEach(col => {
-      col.cards.forEach((card, idx) => {
-        all.push({
-          id: card.id,
-          counselor_id: counselorId,
-          column_id: col.id,
-          title: card.title,
-          content: card.content,
-          priority: card.priority,
-          due_date: card.dueDate ?? null,
-          client_name: card.clientName ?? null,
-          sort_order: idx,
-          created_at: new Date().toISOString(),
-          update_at: new Date().toISOString(),
-        });
-      });
-    });
-    return all;
-  }
-
+  if (!isSupabaseConfigured()) return [];
   const { data, error } = await sb()
     .from('memo_cards')
     .select('*')
     .eq('counselor_id', counselorId)
-    .order('sort_order');
-  if (error) {
-    if (isMissingSchemaError(error)) {
-      const all: MemoCardRow[] = [];
-      INITIAL_KANBAN.forEach(col => {
-        col.cards.forEach((card, idx) => {
-          all.push({
-            id: card.id,
-            counselor_id: counselorId,
-            column_id: col.id,
-            title: card.title,
-            content: card.content,
-            priority: card.priority,
-            due_date: card.dueDate ?? null,
-            client_name: card.clientName ?? null,
-            sort_order: idx,
-            created_at: new Date().toISOString(),
-            update_at: new Date().toISOString(),
-          });
-        });
-      });
-      return all;
-    }
-    throw error;
-  }
+    .order('sort_order', { ascending: true });
+  if (error) throw error;
   return data ?? [];
 }
 
-export async function upsertMemoCard(input: MemoCardInsert): Promise<MemoCardRow> {
+export async function createMemoCard(input: MemoCardInsert): Promise<MemoCardRow> {
+  if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
+  const { data, error } = await sb().from('memo_cards').insert(input).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateMemoCard(id: string, input: Partial<MemoCardInsert>): Promise<MemoCardRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
   const { data, error } = await sb()
     .from('memo_cards')
-    .upsert({ ...input, update_at: new Date().toISOString() })
+    .update(input)
+    .eq('id', id)
     .select()
     .single();
   if (error) throw error;
@@ -559,6 +483,17 @@ export interface DashboardStats {
   employed: number;
   followUpNeeded: number;
   stageBreakdown: { stage: string; count: number }[];
+  averageScore: number | null;
+  scoredClients: number;
+  unscoredClients: number;
+  scoreDistribution: { range: string; count: number }[];
+}
+
+export interface DashboardMonthlyStat {
+  month: string;   // 'YYYY-MM'
+  total: number;
+  employed: number;
+  rate: number;    // 0-100
 }
 
 export interface DashboardCalendarEntry {
@@ -571,54 +506,81 @@ export interface DashboardCalendarEntry {
   participationStage: string | null;
 }
 
+const SCORE_DIST_FALLBACK = [
+  { range: '0-59', count: 0 },
+  { range: '60-69', count: 0 },
+  { range: '70-79', count: 0 },
+  { range: '80-89', count: 0 },
+  { range: '90-100', count: 0 },
+];
+
 export async function fetchDashboardStats(counselorId?: string): Promise<DashboardStats> {
   if (!isSupabaseConfigured()) {
-    const normalizedCounselorId = normalizeMockCounselorId(counselorId);
-    const clients = normalizedCounselorId
-      ? MOCK_CLIENTS.filter(c => c.counselorId === normalizedCounselorId)
-      : MOCK_CLIENTS;
-    const stages = ['초기상담', '심층상담', '취업지원', '취업완료', '사후관리'];
     return {
-      totalClients: clients.length,
-      inProgress: clients.filter(c => c.processStage !== '취업완료').length,
-      employed: clients.filter(c => c.processStage === '취업완료').length,
-      followUpNeeded: clients.filter(c => c.followUp).length,
-      stageBreakdown: stages.map(s => ({ stage: s, count: clients.filter(c => c.processStage === s).length })),
+      totalClients: 0, inProgress: 0, employed: 0, followUpNeeded: 0,
+      stageBreakdown: [], averageScore: null, scoredClients: 0,
+      unscoredClients: 0, scoreDistribution: SCORE_DIST_FALLBACK,
     };
   }
 
   let q = sb().from('client').select('participation_stage, hire_type');
   if (counselorId) q = q.eq('counselor_id', counselorId);
   const { data, error } = await q;
-  if (error) {
-    if (isMissingSchemaError(error)) {
-      const clients = counselorId
-        ? MOCK_CLIENTS.filter(c => c.counselorId === counselorId)
-        : MOCK_CLIENTS;
-      const stages = ['초기상담', '심층상담', '취업지원', '취업완료', '사후관리'];
-      return {
-        totalClients: clients.length,
-        inProgress: clients.filter(c => c.processStage !== '취업완료').length,
-        employed: clients.filter(c => c.processStage === '취업완료').length,
-        followUpNeeded: clients.filter(c => c.followUp).length,
-        stageBreakdown: stages.map(s => ({ stage: s, count: clients.filter(c => c.processStage === s).length })),
-      };
-    }
-    throw error;
-  }
+  if (error) throw error;
 
   const rows = data ?? [];
-  const stages = ['초기상담', '심층상담', '취업지원', '취업완료', '사후관리'];
+  const stages = ['초기상담', '심층상담', '취업지원', '직업훈련', '취업알선', '취업완료', '사후관리'];
   return {
     totalClients: rows.length,
-    inProgress: rows.filter(r => r.participation_stage !== '취업완료').length,
-    employed: rows.filter(r => r.hire_type != null).length,
+    inProgress: rows.filter((r: any) => r.participation_stage !== '취업완료').length,
+    employed: rows.filter((r: any) => r.hire_type != null).length,
     followUpNeeded: 0,
     stageBreakdown: stages.map(s => ({
       stage: s,
-      count: rows.filter(r => r.participation_stage === s).length,
+      count: rows.filter((r: any) => r.participation_stage === s).length,
     })),
+    averageScore: null,
+    scoredClients: 0,
+    unscoredClients: rows.length,
+    scoreDistribution: SCORE_DIST_FALLBACK,
   };
+}
+
+export async function fetchDashboardMonthlyStats(counselorId: string): Promise<DashboardMonthlyStat[]> {
+  if (!isSupabaseConfigured()) return [];
+
+  const now = new Date();
+  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+  const startDate = `${sixMonthsAgo.getFullYear()}-${String(sixMonthsAgo.getMonth() + 1).padStart(2, '0')}-01`;
+
+  const { data, error } = await sb()
+    .from('client')
+    .select('participation_stage, hire_type, created_at')
+    .eq('counselor_id', counselorId)
+    .gte('created_at', startDate);
+
+  if (error) return [];
+
+  const monthMap: Record<string, { total: number; employed: number }> = {};
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    monthMap[key] = { total: 0, employed: 0 };
+  }
+
+  (data ?? []).forEach((row: any) => {
+    const key = (row.created_at as string)?.slice(0, 7);
+    if (!key || !monthMap[key]) return;
+    monthMap[key].total++;
+    if (row.hire_type != null) monthMap[key].employed++;
+  });
+
+  return Object.entries(monthMap).map(([month, v]) => ({
+    month,
+    total: v.total,
+    employed: v.employed,
+    rate: v.total > 0 ? Math.round((v.employed / v.total) * 100) : 0,
+  }));
 }
 
 export async function fetchDashboardCalendarMonthCounts(
@@ -626,17 +588,7 @@ export async function fetchDashboardCalendarMonthCounts(
   monthStart: string,
   monthEnd: string,
 ): Promise<Record<string, number>> {
-  if (!isSupabaseConfigured()) {
-    const normalizedCounselorId = normalizeMockCounselorId(authUserId);
-    return MOCK_CLIENTS
-      .filter(c => !normalizedCounselorId || c.counselorId === normalizedCounselorId)
-      .flatMap(c => c.sessions.map(s => ({ date: s.date })))
-      .filter(s => s.date >= monthStart && s.date <= monthEnd)
-      .reduce<Record<string, number>>((acc, row) => {
-        acc[row.date] = (acc[row.date] ?? 0) + 1;
-        return acc;
-      }, {});
-  }
+  if (!isSupabaseConfigured()) return {};
 
   const { data: histories, error } = await sb()
     .from('counsel_history')
@@ -647,168 +599,96 @@ export async function fetchDashboardCalendarMonthCounts(
 
   if (error) throw error;
 
-  const clientIds = Array.from(
-    new Set((histories ?? []).map(row => row.client_id).filter((id): id is number => typeof id === 'number')),
-  );
-  if (clientIds.length === 0) return {};
-
-  const { data: clients, error: clientError } = await sb()
-    .from('client')
-    .select('client_id')
-    .eq('counselor_id', authUserId)
-    .in('client_id', clientIds);
-
-  if (clientError) throw clientError;
-
-  const allowedClientIds = new Set((clients ?? []).map(row => row.client_id));
-
-  return (histories ?? []).reduce<Record<string, number>>((acc, row) => {
-    if (!row.counsel_date || !allowedClientIds.has(row.client_id)) return acc;
-    acc[row.counsel_date] = (acc[row.counsel_date] ?? 0) + 1;
+  return (histories ?? []).reduce<Record<string, number>>((acc, row: any) => {
+    const date = row.counsel_date as string;
+    acc[date] = (acc[date] ?? 0) + 1;
     return acc;
   }, {});
 }
 
 export async function fetchDashboardCalendarEntries(
   authUserId: string,
-  rangeStart: string,
-  rangeEnd: string,
+  startDate: string,
+  endDate: string,
 ): Promise<DashboardCalendarEntry[]> {
-  if (!isSupabaseConfigured()) {
-    const normalizedCounselorId = normalizeMockCounselorId(authUserId);
-    return MOCK_CLIENTS
-      .filter(c => !normalizedCounselorId || c.counselorId === normalizedCounselorId)
-      .flatMap(c => c.sessions
-        .filter(s => s.date >= rangeStart && s.date <= rangeEnd)
-        .map(s => ({
-          counselId: s.id,
-          clientId: c.id,
-          clientName: c.name,
-          counselDate: s.date,
-          startTime: null,
-          endTime: null,
-          participationStage: c.processStage,
-        })))
-      .sort((a, b) => `${b.counselDate}${b.startTime ?? ''}`.localeCompare(`${a.counselDate}${a.startTime ?? ''}`));
-  }
+  if (!isSupabaseConfigured()) return [];
 
   const { data: histories, error } = await sb()
     .from('counsel_history')
-    .select('counsel_id, client_id, user_id, counsel_date, start_time, end_time, session_number, counselor_opinion, counsel_type, document_link, economic_situation, social_situation_family, social_situation_society, self_esteem, self_efficacy, holland_code, career_fluidity, info_gathering, personality_test_result, life_history_result, profiling_grade, memo, create_at')
+    .select('counsel_id, client_id, counsel_date, start_time, end_time')
     .eq('user_id', authUserId)
-    .gte('counsel_date', rangeStart)
-    .lte('counsel_date', rangeEnd)
-    .order('counsel_date', { ascending: false })
-    .order('start_time', { ascending: false });
+    .gte('counsel_date', startDate)
+    .lte('counsel_date', endDate)
+    .order('counsel_date', { ascending: true })
+    .order('start_time', { ascending: true });
 
   if (error) throw error;
 
-  const clientIds = Array.from(
-    new Set((histories ?? []).map(row => row.client_id).filter((id): id is number => typeof id === 'number')),
-  );
-  if (clientIds.length === 0) return [];
+  const clientIds = Array.from(new Set((histories ?? []).map((h: any) => h.client_id)));
+  let clientMap: Record<number, { client_name: string; participation_stage: string | null }> = {};
 
-  const { data: clients, error: clientError } = await sb()
+  if (clientIds.length > 0) {
+    const { data: clients } = await sb()
+      .from('client')
+      .select('client_id, client_name, participation_stage')
+      .in('client_id', clientIds);
+    (clients ?? []).forEach((c: any) => {
+      clientMap[c.client_id] = { client_name: c.client_name, participation_stage: c.participation_stage };
+    });
+  }
+
+  return (histories ?? []).map((h: any) => {
+    const client = clientMap[h.client_id];
+    return {
+      counselId: String(h.counsel_id),
+      clientId: String(h.client_id),
+      clientName: client?.client_name ?? '(이름 없음)',
+      counselDate: h.counsel_date,
+      startTime: h.start_time ?? null,
+      endTime: h.end_time ?? null,
+      participationStage: client?.participation_stage ?? null,
+    };
+  });
+}
+
+// ─── 개인 메모 ─────────────────────────────────────────────────────────────────
+
+export async function fetchMyMemo(userId: string): Promise<string | null> {
+  if (!isSupabaseConfigured()) return null;
+  const { data, error } = await sb().from('user').select('memo').eq('user_id', userId).single();
+  if (error) return null;
+  return (data as any)?.memo ?? null;
+}
+
+export async function updateMyMemo(userId: string, memo: string): Promise<string | null> {
+  if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
+  const { data, error } = await sb()
+    .from('user')
+    .update({ memo })
+    .eq('user_id', userId)
+    .select('memo')
+    .single();
+  if (error) throw error;
+  return (data as any)?.memo ?? null;
+}
+
+// ─── 내담자 검색 ───────────────────────────────────────────────────────────────
+
+export async function searchDashboardClients(counselorId: string, query: string): Promise<ClientRow[]> {
+  if (!isSupabaseConfigured()) return [];
+
+  const { data, error } = await sb()
     .from('client')
-    .select('client_id, client_name, counselor_id, participation_stage')
-    .eq('counselor_id', authUserId)
-    .in('client_id', clientIds);
+    .select(CLIENT_SELECT_FIELDS)
+    .eq('counselor_id', counselorId)
+    .ilike('client_name', `%${query}%`)
+    .limit(20);
 
-  if (clientError) throw clientError;
-
-  const clientMap = new Map((clients ?? []).map(client => [client.client_id, client]));
-
-  return (histories ?? [])
-    .map(row => {
-      const client = row.client_id != null ? clientMap.get(row.client_id) : undefined;
-      if (!client || !row.counsel_date) return null;
-      return {
-        counselId: String(row.counsel_id),
-        clientId: String(client.client_id),
-        clientName: client.client_name,
-        counselDate: row.counsel_date,
-        startTime: row.start_time,
-        endTime: row.end_time,
-        participationStage: client.participation_stage,
-      } satisfies DashboardCalendarEntry;
-    })
-    .filter((row): row is DashboardCalendarEntry => row !== null);
+  if (error) throw error;
+  return ((data ?? []) as LiveClientRecord[]).map(row => liveClientToRow(row));
 }
 
-// ─── Mock → Row converters ────────────────────────────────────────────────────
-
-function mockClientToRow(c: Client): ClientRow {
-  return {
-    id: c.id,
-    seq_no: null,
-    year: new Date(c.registeredAt).getFullYear(),
-    assignment_type: null,
-    name: c.name,
-    resident_id_masked: null,
-    phone: c.phone,
-    last_counsel_date: c.sessions.at(-1)?.date ?? null,
-    age: c.age,
-    gender: c.gender,
-    business_type: null,
-    participation_type: null,
-    participation_stage: c.processStage,
-    competency_grade: null,
-    recognition_date: null,
-    desired_job: null,
-    counsel_notes: c.notes ?? null,
-    address: null,
-    school: null,
-    major: null,
-    education_level: null,
-    initial_counsel_date: c.registeredAt,
-    iap_date: null,
-    iap_duration: null,
-    allowance_apply_date: null,
-    rediagnosis_date: null,
-    rediagnosis_yn: null,
-    work_exp_type: null,
-    work_exp_intent: null,
-    work_exp_company: null,
-    work_exp_period: null,
-    work_exp_completed: null,
-    training_name: null,
-    training_start: null,
-    training_end: null,
-    training_allowance: null,
-    intensive_start: null,
-    intensive_end: null,
-    support_end_date: null,
-    employment_type: c.employmentStatus === '취업완료' ? '본인' : null,
-    employment_date: null,
-    employer: null,
-    job_title: null,
-    salary: null,
-    employment_duration: null,
-    resignation_date: null,
-    retention_1m_date: null,
-    retention_1m_yn: null,
-    retention_6m_date: null,
-    retention_6m_yn: null,
-    retention_12m_date: null,
-    retention_12m_yn: null,
-    retention_18m_date: null,
-    retention_18m_yn: null,
-    counselor_name: c.counselorName,
-    counselor_id: c.counselorId,
-    branch: c.branch,
-    follow_up: c.followUp,
-    score: c.score ?? null,
-    iap_to: null,
-    retest_stat: null,
-    continue_serv_1_stat: null,
-    driving_yn: null,
-    own_car_yn: null,
-    memo: null,
-    participate_type: null,
-    created_at: c.registeredAt,
-    update_at: c.registeredAt,
-  };
-}
+// ─── Mappers ──────────────────────────────────────────────────────────────────
 
 function liveClientToRow(row: LiveClientRecord): ClientRow {
   const createdAt = row.created_at ?? new Date().toISOString();
@@ -879,42 +759,26 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
     iap_to: row.iap_to ?? null,
     retest_stat: row.retest_stat ?? null,
     continue_serv_1_stat: row.continue_serv_1_stat ?? null,
-    driving_yn: row.driving_yn ?? null,
-    own_car_yn: row.own_car_yn ?? null,
+    driving_yn: null,
+    own_car_yn: null,
     memo: row.memo ?? null,
-    participate_type: Array.isArray(row.business_code) ? row.business_code[0]?.participate_type ?? null : null,
+    participate_type: Array.isArray(row.business_code)
+      ? row.business_code[0]?.participate_type ?? null
+      : null,
     created_at: createdAt,
     update_at: updatedAt,
   };
 }
 
-function mockSessionToRow(s: Session, clientId: string): SessionRow {
-  return {
-    id: s.id,
-    client_id: clientId,
-    date: s.date,
-    type: s.type,
-    content: s.content,
-    counselor_name: s.counselorName,
-    counselor_id: null,
-    next_action: s.nextAction ?? null,
-    session_number: null,
-    created_at: s.date,
-  };
-}
-
 function liveCounselHistoryToSessionRow(row: LiveCounselHistoryRecord): SessionRow {
-  const decoded = decodeSessionPayload(
-    row.counselor_opinion,
-    '일반상담',
-  );
+  const decoded = decodeSessionPayload(row.counselor_opinion, '일반상담');
 
   return {
     id: String(row.counsel_id),
     client_id: String(row.client_id),
     date: row.counsel_date,
-    type: row.counsel_type || decoded.type, // prioritization
-    content: row.counsel_type ? row.counselor_opinion : decoded.content, // only use decoder if no new column data
+    type: row.counsel_type || decoded.type,
+    content: row.counsel_type ? row.counselor_opinion : decoded.content,
     counselor_name: null,
     counselor_id: row.user_id ?? null,
     next_action: decoded.nextAction,
@@ -938,20 +802,5 @@ function liveCounselHistoryToSessionRow(row: LiveCounselHistoryRecord): SessionR
   };
 }
 
-function mockCounselorToRow(c: Counselor): CounselorRow {
-  return {
-    id: c.id,
-    name: c.name,
-    email: c.email,
-    phone: c.phone,
-    branch: c.branch,
-    client_count: c.clientCount,
-    completed_count: c.completedCount,
-    joined_at: c.joinedAt,
-    status: c.status,
-    role: ROLE_COUNSELOR,
-    auth_user_id: null,
-    created_at: c.joinedAt,
-    update_at: c.joinedAt,
-  };
-}
+// encodeSessionPayload 외부 노출 (ClientDetail 등에서 사용 가능)
+export { encodeSessionPayload };
