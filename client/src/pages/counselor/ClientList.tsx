@@ -79,7 +79,7 @@ function SurveyTab({ clientId, counselorId }: { clientId: string; counselorId?: 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchSurveys(clientId, { strict: true });
+      const data = await fetchSurveys(clientId);
       setSurveys(data);
     } catch (e: any) {
       toast.error('설문 데이터 로드 실패: ' + e.message);
@@ -306,7 +306,7 @@ function ClientDetailModal({
   const loadSessions = useCallback(async () => {
     setSessionsLoading(true);
     try {
-      const data = await fetchSessions(client.id, { strict: true });
+      const data = await fetchSessions(client.id);
       setSessions(data);
     } catch (e: any) {
       toast.error('이력 로드 실패: ' + e.message);
@@ -648,7 +648,7 @@ export default function ClientList() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchClients(user?.role === ROLE_COUNSELOR ? user.counselorId : undefined, { strict: true });
+      const data = await fetchClients(user?.role === ROLE_COUNSELOR ? user.counselorId : undefined);
       setClients(data);
     } catch (e: any) {
       toast.error('데이터 로드 실패: ' + e.message);

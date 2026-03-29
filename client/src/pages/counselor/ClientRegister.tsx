@@ -30,7 +30,7 @@ export default function ClientRegister() {
     school: '',
     major: '',
     MBTI: '',
-    businessType: '취업성공패키지',
+    businessType: '1',
     participationType: '',
     processStage: '초기상담',
     is_working_parttime: false,
@@ -58,6 +58,22 @@ export default function ClientRegister() {
   const [showPostcode, setShowPostcode] = useState(false);
 
   const update = (field: string, value: any) => setForm(f => ({ ...f, [field]: value }));
+
+  // 전화번호 자동 하이픈
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/\D/g, '').slice(0, 11);
+    let formatted = raw;
+    if (raw.length > 7) formatted = `${raw.slice(0, 3)}-${raw.slice(3, 7)}-${raw.slice(7)}`;
+    else if (raw.length > 3) formatted = `${raw.slice(0, 3)}-${raw.slice(3)}`;
+    update('phone', formatted);
+  };
+
+  // 주민등록번호 자동 하이픈
+  const handleResidentIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 13);
+    const formatted = raw.length > 6 ? `${raw.slice(0, 6)}-${raw.slice(6)}` : raw;
+    update('resident_id', formatted);
+  };
 
   // 주민등록번호 입력 시 성별, 생년월일, 나이 자동 계산
   useEffect(() => {
@@ -133,7 +149,7 @@ export default function ClientRegister() {
         school: form.school || null,
         major: form.major || null,
         MBTI: form.MBTI || null,
-        business_type: form.businessType === '취업성공패키지' ? '1' : null,
+        business_type: form.businessType ? form.businessType : null,
         participation_type: form.participationType || null,
         participation_stage: form.processStage || null,
         is_working_parttime: form.is_working_parttime,
@@ -154,7 +170,6 @@ export default function ClientRegister() {
         work_ex_graduate: form.work_ex_graduate ? parseInt(form.work_ex_graduate, 10) : null,
         memo: form.notes || null,
         counselor_id: user?.id || null,
-        counselor_name: user?.name || null,
       } as any);
 
       toast.success(`${form.name}님이 등록되었습니다.`);
@@ -208,8 +223,9 @@ export default function ClientRegister() {
               <input
                 type="tel"
                 value={form.phone}
-                onChange={e => update('phone', e.target.value)}
+                onChange={handlePhoneChange}
                 placeholder="010-0000-0000"
+                maxLength={13}
                 className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -221,7 +237,7 @@ export default function ClientRegister() {
               <input
                 type="text"
                 value={form.resident_id}
-                onChange={e => update('resident_id', e.target.value)}
+                onChange={handleResidentIdChange}
                 placeholder="900101-1234567"
                 maxLength={14}
                 className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
