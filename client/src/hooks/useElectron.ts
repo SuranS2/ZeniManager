@@ -5,12 +5,21 @@
  * Falls back gracefully in web browser context.
  */
 
-// 상담사 등록 시 사용할 데이터 타입 정의 추가
+// 🚨 상담사 등록 시 사용할 데이터 타입에 키 추가
 export interface CounselorRegisterData {
+  supabaseUrl: string;
+  serviceRoleKey: string;
   email: string;
   password?: string;
   user_name: string;
   department: string;
+}
+
+// 🚨 상담사 삭제 시 사용할 데이터 타입 정의 추가
+export interface CounselorDeleteData {
+  supabaseUrl: string;
+  serviceRoleKey: string;
+  userId: string;
 }
 
 // Extend Window interface for Electron API
@@ -90,9 +99,9 @@ declare global {
       adminRegisterCounselor: (
         data: CounselorRegisterData
       ) => Promise<{ success: boolean; error?: string }>;
-      // 상담사 삭제 API
+      // 🚨 상담사 삭제 API (string 대신 객체를 받도록 수정됨)
       adminDeleteCounselor: (
-        userId: string
+        data: CounselorDeleteData
       ) => Promise<{ success: boolean; error?: string }>;
     };
   }

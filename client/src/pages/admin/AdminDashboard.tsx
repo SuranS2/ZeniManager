@@ -280,7 +280,7 @@ export default function AdminDashboard() {
               bgHex="#E8F5E9" // 옅은 초록
               colorHex={PRIMARY_HEX}
               linkTo="/admin/counselors"
-              linkText="상담사 목록 관리"
+              linkText="상담자 목록 보기"
             />
             <StatCard 
               icon={<TrendingUp size={20} />} 
