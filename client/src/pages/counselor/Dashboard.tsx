@@ -19,7 +19,7 @@ import {
   type DashboardStats,
   type DashboardMonthlyStat,
   type DashboardCalendarEntry,
-} from '@/lib/api';
+} from '@/lib/api.dashboard';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import type { ClientRow } from '@/lib/supabase';
 import {
