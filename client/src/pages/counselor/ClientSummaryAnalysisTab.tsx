@@ -1,12 +1,14 @@
-import { useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
-  BarChart3,
-  Brain,
+  Award,
+  Briefcase,
   FilePlus2,
   FileText,
+  GraduationCap,
   Loader2,
   Sparkles,
+  Target,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -14,16 +16,27 @@ import { toast } from 'sonner';
 import type { ClientRow } from '@/lib/supabase';
 import {
   analyzeDocumentFile,
-  buildMergedSummary,
-  mergeFocusFields,
-  stringifyFocusValue,
+  mergeDocumentAnalyses,
   type DocumentAnalysisResult,
-  type FocusFieldKey,
-  type FocusFieldValue,
 } from '@/lib/summaryAnalysis';
+import {
+  buildRecommendation,
+  buildStructuredSummaryJson,
+  calculateCompetencyScoring,
+  getRecommendationSystemPrompt,
+  getSummaryExtractionPromptPreview,
+  type CompetencyScoring,
+  type RecommendationResult,
+  type StructuredSummaryJson,
+} from '@/lib/summaryAnalysisPipeline';
+import {
+  fetchClientSummaryAnalysis,
+  uploadSummaryAnalysisFiles,
+  upsertClientSummaryAnalysis,
+} from '@/lib/summaryAnalysisStore';
 
 const PRIMARY = '#009C64';
-const ACCEPTED_EXTENSIONS = '.pdf,.xls,.xlsx,.hwp,.hwpx,.txt,.csv';
+const ACCEPTED_EXTENSIONS = '.pdf,.xls,.xlsx,.hwp,.hwpx,.txt,.csv,.png,.jpg,.jpeg,.webp';
 
 type UploadItem = {
   id: string;
@@ -33,47 +46,79 @@ type UploadItem = {
   error: string | null;
 };
 
-const focusFieldLabels: Record<FocusFieldKey, string> = {
-  desiredJob: '희망직업',
-  gender: '성별',
-  competencyGrade: '역량 등급',
-  certifications: '자격증',
-  extraSpecs: '부가 스펙',
-};
-
 export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [items, setItems] = useState<UploadItem[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [structuredJson, setStructuredJson] = useState<StructuredSummaryJson | null>(null);
+  const [competencyScoring, setCompetencyScoring] = useState<CompetencyScoring | null>(null);
+  const [recommendation, setRecommendation] = useState<RecommendationResult | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const completedAnalyses = useMemo(
     () => items.map(item => item.analysis).filter(Boolean) as DocumentAnalysisResult[],
     [items],
   );
 
-  const mergedSummary = useMemo(
-    () => buildMergedSummary(completedAnalyses),
+  const mergedProfile = useMemo(
+    () => (completedAnalyses.length > 0 ? mergeDocumentAnalyses(completedAnalyses) : null),
     [completedAnalyses],
   );
 
-  const mergedFocusFields = useMemo(
-    () => mergeFocusFields(completedAnalyses),
-    [completedAnalyses],
-  );
+  useEffect(() => {
+    let cancelled = false;
 
-  const focusCoverage = useMemo(() => {
-    if (completedAnalyses.length === 0) return 0;
-    return Math.round(
-      completedAnalyses.reduce((sum, item) => sum + item.focusCoverageScore, 0) / completedAnalyses.length,
-    );
-  }, [completedAnalyses]);
+    fetchClientSummaryAnalysis(client.id)
+      .then(saved => {
+        if (cancelled || !saved || completedAnalyses.length > 0) return;
+        setStructuredJson(saved.structured_json);
+        setCompetencyScoring(saved.competency_scoring);
+        setRecommendation(saved.recommendation);
+      })
+      .catch(() => {
+        // Keep the tab usable even if the saved snapshot cannot be loaded.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client.id, completedAnalyses.length]);
+
+  useEffect(() => {
+    if (!mergedProfile) return;
+
+    const nextJson = buildStructuredSummaryJson(client, mergedProfile);
+    const nextScoring = calculateCompetencyScoring(nextJson);
+    setStructuredJson(nextJson);
+    setCompetencyScoring(nextScoring);
+
+    let cancelled = false;
+    buildRecommendation(nextJson)
+      .then(result => {
+        if (!cancelled) setRecommendation(result);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRecommendation({
+            recommendedJobs: nextJson.desiredJobs,
+            industries: [],
+            reasons: ['추천 분석을 생성하지 못했습니다.'],
+            requiredCapabilities: [],
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, mergedProfile]);
 
   const addFiles = async (incoming: FileList | File[]) => {
     const nextFiles = Array.from(incoming).filter(file => isSupportedFile(file.name));
 
     if (nextFiles.length === 0) {
-      toast.error('지원 형식(pdf, xls, xlsx, hwpx, txt, csv) 파일을 선택해 주세요.');
+      toast.error('지원 형식(pdf, xls, xlsx, hwpx, txt, csv, png, jpg, webp) 파일을 선택해 주세요.');
       return;
     }
 
@@ -127,6 +172,43 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
     setItems(prev => prev.filter(item => item.id !== id));
   };
 
+  const handleSave = async () => {
+    if (!structuredJson || !competencyScoring || !recommendation) {
+      toast.error('저장할 분석 데이터가 아직 준비되지 않았습니다.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const completedFiles = items.filter((item): item is UploadItem & { file: File } => item.status === 'done');
+      const uploadedFileRefs = completedFiles.length > 0
+        ? await uploadSummaryAnalysisFiles({
+            clientId: client.id,
+            files: completedFiles.map(item => item.file),
+          })
+        : undefined;
+
+      await upsertClientSummaryAnalysis({
+        clientId: client.id,
+        structuredJson,
+        competencyScoring,
+        recommendation,
+        promptSnapshot: {
+          summaryExtraction: getSummaryExtractionPromptPreview(),
+          recommendationSystemPrompt: getRecommendationSystemPrompt(),
+        },
+        fileRefs: uploadedFileRefs,
+      });
+
+      toast.success('요약 및 분석 데이터를 저장했습니다.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '저장에 실패했습니다.';
+      toast.error(message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <section className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
@@ -156,8 +238,8 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
               </div>
               <h3 className="text-base font-semibold text-foreground">요약 및 분석 자료 추가</h3>
               <p className="text-sm leading-6 text-muted-foreground">
-                상담사가 문서를 끌어다 놓거나 직접 선택하면 텍스트를 추출해 요약합니다.
-                AI는 희망직업, 성별, 역량 등급, 자격증, 부가 스펙을 우선적으로 파악합니다.
+                드래그 앤 드롭 또는 직접 선택으로 문서를 추가하면 텍스트를 추출해 AI 요약,
+                희망 직업, 자격증, 부가 스펙, 추천 직종을 정리합니다.
               </p>
             </div>
             <div className="hidden rounded-2xl bg-white p-3 text-[#009C64] shadow-sm sm:block">
@@ -176,7 +258,7 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
               파일 선택
             </button>
             <span className="text-xs text-muted-foreground">
-              지원 형식: PDF, XLS, XLSX, HWPX, TXT, CSV
+              지원 형식: PDF, XLS, XLSX, HWPX, TXT, CSV, PNG, JPG, WEBP
             </span>
           </div>
 
@@ -198,17 +280,28 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
 
         <div className="rounded-xl border border-border bg-muted/10 p-5">
           <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <BarChart3 size={16} style={{ color: PRIMARY }} />
+            <Target size={16} style={{ color: PRIMARY }} />
             분석 상태
           </div>
           <div className="mt-4 space-y-3 text-sm">
             <InfoRow label="분석 문서" value={`${completedAnalyses.length}건`} />
-            <InfoRow label="핵심 항목 포착률" value={`${focusCoverage}%`} />
-            <InfoRow label="비교 점수" value={completedAnalyses.length > 0 ? 'Supabase 연동 대기' : '-'} />
+            <InfoRow
+              label="추출 항목"
+              value={mergedProfile ? `${countCapturedFields(mergedProfile)} / 4` : '-'}
+            />
           </div>
           <div className="mt-4 rounded-lg bg-white/80 p-3 text-xs leading-5 text-muted-foreground">
-            같은 사람에게 같은 자료를 다시 넣으면 문서 해시 기반 캐시를 우선 사용해서 결과를 안정적으로 유지합니다.
+            같은 사람과 같은 문서를 다시 넣으면 문서 해시 캐시를 우선 사용해 결과를 최대한 일관되게 유지합니다.
           </div>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={isSaving || !structuredJson || !competencyScoring || !recommendation}
+            className="mt-4 inline-flex w-full items-center justify-center rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            style={{ backgroundColor: PRIMARY }}
+          >
+            {isSaving ? '저장 중...' : '분석 결과 저장'}
+          </button>
         </div>
       </section>
 
@@ -217,7 +310,7 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <FileText size={16} style={{ color: PRIMARY }} />
-              업로드된 문서
+              업로드한 문서
             </div>
             {isAnalyzing && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -255,96 +348,112 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
                     <span>{item.error}</span>
                   </div>
                 )}
-
-                {item.analysis && (
-                  <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-                    <div className="space-y-3">
-                      <section className="rounded-lg bg-white p-4 shadow-sm">
-                        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                          <Sparkles size={14} style={{ color: PRIMARY }} />
-                          AI 요약
-                        </div>
-                        <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-foreground">
-                          {item.analysis.summary}
-                        </p>
-                        {item.analysis.keyPoints.length > 0 && (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {item.analysis.keyPoints.map(point => (
-                              <span key={point} className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-                                {point}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </section>
-                    </div>
-
-                    <div className="space-y-3">
-                      <section className="rounded-lg bg-white p-4 shadow-sm">
-                        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                          <Brain size={14} style={{ color: PRIMARY }} />
-                          중점 파악 항목
-                        </div>
-                        <div className="mt-3 space-y-3">
-                          {Object.entries(item.analysis.focusFields).map(([key, value]) => (
-                            <FocusFieldCard
-                              key={key}
-                              label={focusFieldLabels[key as FocusFieldKey]}
-                              value={value}
-                            />
-                          ))}
-                        </div>
-                      </section>
-                    </div>
-                  </div>
-                )}
               </div>
             ))}
           </div>
         </section>
       )}
 
-      {completedAnalyses.length > 0 && (
-        <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-          <div className="rounded-xl border border-border bg-card p-5">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Sparkles size={16} style={{ color: PRIMARY }} />
-              통합 요약
-            </div>
-            <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-foreground">
-              {mergedSummary}
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-border bg-card p-5">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <BarChart3 size={16} style={{ color: PRIMARY }} />
-              통합 핵심 정보
-            </div>
-            <div className="mt-4 space-y-3">
-              {Object.entries(mergedFocusFields).map(([key, value]) => (
-                <FocusFieldCard
-                  key={key}
-                  label={focusFieldLabels[key as FocusFieldKey]}
-                  value={value}
-                />
-              ))}
-            </div>
-          </div>
+      {mergedProfile && (
+        <section className="grid gap-4 xl:grid-cols-2">
+          <AnalysisCard
+            title="AI 요약"
+            icon={<Sparkles size={16} style={{ color: PRIMARY }} />}
+            value={mergedProfile.aiSummary}
+            multiline
+          />
+          <AnalysisCard
+            title="희망 직업"
+            icon={<Briefcase size={16} style={{ color: PRIMARY }} />}
+            value={renderList(structuredJson?.desiredJobs ?? mergedProfile.desiredJobs)}
+          />
+          <AnalysisCard
+            title="자격증"
+            icon={<Award size={16} style={{ color: PRIMARY }} />}
+            value={renderQualifications(structuredJson)}
+          />
+          <AnalysisCard
+            title="부가 스펙"
+            icon={<GraduationCap size={16} style={{ color: PRIMARY }} />}
+            value={renderStructuredExtraSpecs(structuredJson)}
+            multiline
+          />
         </section>
       )}
 
-      <section className="rounded-xl border border-border bg-muted/10 p-5">
-        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <AlertCircle size={15} style={{ color: PRIMARY }} />
-          비교 점수 연결 포인트
-        </div>
-        <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          비교 점수는 추후 Supabase에 저장될 상담 이력 데이터를 기준으로 산출되도록 비워 두었습니다.
-          현재 탭은 그 연결 지점을 유지한 채 문서 추출, 요약, 핵심 항목 구조화까지만 담당합니다.
-        </p>
-      </section>
+      {competencyScoring && (
+        <section className="grid gap-4 xl:grid-cols-2">
+          <ScoreCard
+            title="평가 점수"
+            value={`${competencyScoring.score}점`}
+            detail="기본 50점 + 최종 학력 1개 + 자격증/어학 가산"
+          />
+          <ScoreCard
+            title="최종 역량 등급"
+            value={competencyScoring.finalGrade}
+            detail={`평가 점수 ${competencyScoring.score}점 기준`}
+          />
+        </section>
+      )}
+
+      {recommendation && (
+        <section className="grid gap-4">
+          <AnalysisCard
+            title="추천 직종 및 산업"
+            icon={<Target size={16} style={{ color: PRIMARY }} />}
+            value={[
+              `추천 직종: ${renderList(recommendation.recommendedJobs)}`,
+              `산업 분야: ${renderList(recommendation.industries)}`,
+              `추천 사유: ${renderList(recommendation.reasons)}`,
+              `필요 역량: ${renderList(recommendation.requiredCapabilities)}`,
+            ].join('\n\n')}
+            multiline
+          />
+        </section>
+      )}
     </div>
+  );
+}
+
+function AnalysisCard({
+  title,
+  icon,
+  value,
+  multiline,
+}: {
+  title: string;
+  icon: ReactNode;
+  value: string;
+  multiline?: boolean;
+}) {
+  return (
+    <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+      <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+        {icon}
+        {title}
+      </div>
+      <div className={`mt-4 text-sm leading-6 text-foreground ${multiline ? 'whitespace-pre-wrap' : ''}`}>
+        {value}
+      </div>
+    </section>
+  );
+}
+
+function ScoreCard({
+  title,
+  value,
+  detail,
+}: {
+  title: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+      <div className="text-sm font-semibold text-foreground">{title}</div>
+      <div className="mt-4 text-3xl font-bold text-foreground">{value}</div>
+      <div className="mt-2 text-sm text-muted-foreground">{detail}</div>
+    </section>
   );
 }
 
@@ -358,48 +467,69 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 function StatusBadge({ status }: { status: UploadItem['status'] }) {
-  const labelMap = {
+  const labels: Record<UploadItem['status'], string> = {
     queued: '대기',
     analyzing: '분석 중',
     done: '완료',
     error: '실패',
-  } satisfies Record<UploadItem['status'], string>;
+  };
 
-  const classNameMap = {
+  const classNames: Record<UploadItem['status'], string> = {
     queued: 'bg-muted text-muted-foreground',
     analyzing: 'bg-[#009C64]/10 text-[#009C64]',
     done: 'bg-green-100 text-green-700',
     error: 'bg-destructive/10 text-destructive',
-  } satisfies Record<UploadItem['status'], string>;
+  };
 
   return (
-    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${classNameMap[status]}`}>
-      {labelMap[status]}
+    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${classNames[status]}`}>
+      {labels[status]}
     </span>
   );
 }
 
-function FocusFieldCard({ label, value }: { label: string; value: FocusFieldValue }) {
-  const displayValue = value.value
-    ? stringifyFocusValue(value.value)
-    : '확인되지 않음';
+function renderList(values: string[]): string {
+  return values.length > 0 ? values.join('\n') : '정보 없음';
+}
 
-  return (
-    <div className="rounded-lg border border-border bg-muted/10 p-3">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
-        <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-foreground">
-          {value.confidence}
-        </span>
-      </div>
-      <div className="mt-2 text-sm font-medium text-foreground">{displayValue}</div>
-      {value.evidence && (
-        <div className="mt-1 text-xs leading-5 text-muted-foreground">
-          근거: {value.evidence}
-        </div>
-      )}
-    </div>
-  );
+function renderQualifications(structuredJson: StructuredSummaryJson | null): string {
+  if (!structuredJson) return '정보 없음';
+
+  const values = [
+    ...structuredJson.qualifications,
+    ...structuredJson.languageScores,
+  ];
+
+  return values.length > 0 ? values.join('\n') : '정보 없음';
+}
+
+function renderStructuredExtraSpecs(structuredJson: StructuredSummaryJson | null): string {
+  if (!structuredJson) return '정보 없음';
+
+  const rows = [
+    ...(structuredJson.education ? [structuredJson.education] : []),
+    ...structuredJson.experience.map(item => {
+      if (item.company && item.task) return `${item.company} - ${item.task}`;
+      return item.company || item.task || '';
+    }),
+    ...structuredJson.additionalSpecs.completedEducation,
+  ].filter(Boolean);
+
+  return rows.length > 0 ? Array.from(new Set(rows)).join('\n') : '정보 없음';
+}
+
+function countCapturedFields(profile: {
+  desiredJobs: string[];
+  certifications: string[];
+  extraSpecs: string[];
+  aiSummary: string;
+}): number {
+  return [
+    profile.aiSummary.trim().length > 0,
+    profile.desiredJobs.length > 0,
+    profile.certifications.length > 0,
+    profile.extraSpecs.length > 0,
+  ].filter(Boolean).length;
 }
 
 function buildFileSignature(file: File): string {
@@ -407,9 +537,8 @@ function buildFileSignature(file: File): string {
 }
 
 function isSupportedFile(name: string): boolean {
-  return ['pdf', 'xls', 'xlsx', 'hwp', 'hwpx', 'txt', 'csv'].includes(
-    name.toLowerCase().split('.').at(-1) ?? '',
-  );
+  const extension = name.toLowerCase().split('.').at(-1) ?? '';
+  return ['pdf', 'xls', 'xlsx', 'hwp', 'hwpx', 'txt', 'csv', 'png', 'jpg', 'jpeg', 'webp'].includes(extension);
 }
 
 function formatFileSize(size: number): string {

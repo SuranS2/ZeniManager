@@ -8,33 +8,25 @@ import type { ClientRow } from './supabase';
 
 GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
-const ANALYSIS_CACHE_PREFIX = 'summary-analysis-cache:v1:';
+const ANALYSIS_CACHE_PREFIX = 'summary-analysis-cache:v4:';
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
   trimValues: true,
 });
 
-export type FocusFieldKey =
-  | 'desiredJob'
-  | 'gender'
-  | 'competencyGrade'
-  | 'certifications'
-  | 'extraSpecs';
+export interface ParsedDocumentProfile {
+  aiSummary: string;
+  desiredJobs: string[];
+  certifications: string[];
+  extraSpecs: string[];
+  gender: string | null;
+  reliability: 'high' | 'medium' | 'low';
+  keywordTags: string[];
+}
 
-export type FocusFieldValue = {
-  value: string | string[] | null;
-  evidence: string | null;
-  confidence: 'high' | 'medium' | 'low';
-};
-
-export interface FileAnalysisResult {
+export interface FileAnalysisResult extends ParsedDocumentProfile {
   sourceHash: string;
   generatedAt: string;
-  summary: string;
-  keyPoints: string[];
-  keywordTags: string[];
-  reliability: 'high' | 'medium' | 'low';
-  focusFields: Record<FocusFieldKey, FocusFieldValue>;
   extractionMethod: string;
   extractedText: string;
   extractedCharCount: number;
@@ -44,28 +36,33 @@ export interface DocumentAnalysisResult extends FileAnalysisResult {
   fileName: string;
   fileType: string;
   fileSize: number;
-  comparisonScore: number | null;
-  comparisonStatus: 'pending_benchmark';
-  comparisonLabel: string;
-  focusCoverageScore: number;
+}
+
+export interface MergedDocumentProfile extends ParsedDocumentProfile {
+  sourceHash: string;
+  fileCount: number;
 }
 
 export async function analyzeDocumentFile(
   file: File,
   client: ClientRow,
 ): Promise<DocumentAnalysisResult> {
+  if (isImageFile(file.name)) {
+    return analyzeImageFile(file, client);
+  }
+
   const extracted = await extractTextFromFile(file);
   const normalizedText = normalizeText(extracted.text);
 
   if (!normalizedText) {
-    throw new Error('문서에서 읽을 수 있는 텍스트를 찾지 못했습니다.');
+    throw new Error('문서에서 추출할 수 있는 텍스트가 없습니다.');
   }
 
   const sourceHash = await sha256(
     JSON.stringify({
       clientId: client.id,
       fileName: file.name,
-      size: file.size,
+      fileSize: file.size,
       text: normalizedText,
     }),
   );
@@ -77,16 +74,12 @@ export async function analyzeDocumentFile(
       fileName: file.name,
       fileType: file.type,
       fileSize: file.size,
-      comparisonScore: null,
-      comparisonStatus: 'pending_benchmark',
-      comparisonLabel: 'Supabase 비교 데이터 연결 대기',
-      focusCoverageScore: calculateFocusCoverageScore(cached.focusFields),
     };
   }
 
-  const analysis = await summarizeWithDeterministicFallback(normalizedText, client);
+  const profile = await summarizeWithDeterministicFallback(normalizedText, client);
   const payload: FileAnalysisResult = {
-    ...analysis,
+    ...profile,
     sourceHash,
     generatedAt: new Date().toISOString(),
     extractionMethod: extracted.method,
@@ -101,14 +94,80 @@ export async function analyzeDocumentFile(
     fileName: file.name,
     fileType: file.type,
     fileSize: file.size,
-    comparisonScore: null,
-    comparisonStatus: 'pending_benchmark',
-    comparisonLabel: 'Supabase 비교 데이터 연결 대기',
-    focusCoverageScore: calculateFocusCoverageScore(payload.focusFields),
   };
 }
 
-export async function extractTextFromFile(file: File): Promise<{ text: string; method: string }> {
+async function analyzeImageFile(
+  file: File,
+  client: ClientRow,
+): Promise<DocumentAnalysisResult> {
+  const sourceHash = await sha256Bytes(await file.arrayBuffer(), {
+    clientId: client.id,
+    fileName: file.name,
+    fileSize: file.size,
+  });
+
+  const cached = readCachedAnalysis(sourceHash);
+  if (cached) {
+    return {
+      ...cached,
+      fileName: file.name,
+      fileType: file.type,
+      fileSize: file.size,
+    };
+  }
+
+  const profile = await summarizeImageWithOpenAI(file, client);
+  const payload: FileAnalysisResult = {
+    ...profile,
+    sourceHash,
+    generatedAt: new Date().toISOString(),
+    extractionMethod: 'openai-vision',
+    extractedText: '',
+    extractedCharCount: 0,
+  };
+
+  writeCachedAnalysis(sourceHash, payload);
+
+  return {
+    ...payload,
+    fileName: file.name,
+    fileType: file.type,
+    fileSize: file.size,
+  };
+}
+
+export function mergeDocumentAnalyses(
+  analyses: DocumentAnalysisResult[],
+): MergedDocumentProfile {
+  const desiredJobs = uniqueStrings(analyses.flatMap(item => item.desiredJobs));
+  const certifications = uniqueStrings(analyses.flatMap(item => item.certifications));
+  const extraSpecs = uniqueStrings(analyses.flatMap(item => item.extraSpecs));
+  const gender = analyses.map(item => item.gender).find(Boolean) ?? null;
+  const summary = buildMergedSummary({ desiredJobs, certifications, extraSpecs, gender, fileCount: analyses.length });
+  const reliability = pickMergedReliability(analyses);
+  const keywordTags = uniqueStrings([
+    ...desiredJobs,
+    ...certifications.slice(0, 3),
+    ...extraSpecs.slice(0, 3),
+  ]);
+
+  return {
+    sourceHash: analyses.map(item => item.sourceHash).sort().join(':'),
+    fileCount: analyses.length,
+    aiSummary: summary,
+    desiredJobs,
+    certifications,
+    extraSpecs,
+    gender,
+    reliability,
+    keywordTags,
+  };
+}
+
+export async function extractTextFromFile(
+  file: File,
+): Promise<{ text: string; method: string }> {
   const extension = getFileExtension(file.name);
 
   if (['txt', 'md', 'csv', 'json'].includes(extension)) {
@@ -140,7 +199,7 @@ export async function extractTextFromFile(file: File): Promise<{ text: string; m
   }
 
   if (extension === 'hwp') {
-    throw new Error('HWP 본문 추출은 아직 연결되지 않았습니다. HWPX 또는 PDF로 변환 후 업로드해 주세요.');
+    throw new Error('HWP 본문 추출은 아직 지원하지 않습니다. HWPX 또는 PDF로 변환 후 업로드해 주세요.');
   }
 
   return {
@@ -149,83 +208,42 @@ export async function extractTextFromFile(file: File): Promise<{ text: string; m
   };
 }
 
-export function buildMergedSummary(analyses: DocumentAnalysisResult[]): string {
-  if (analyses.length === 0) return '';
-
-  const focusSummary = mergeFocusFields(analyses);
-  const parts = [
-    `총 ${analyses.length}개 문서를 분석했습니다.`,
-    focusSummary.desiredJob.value
-      ? `희망직업은 ${stringifyFocusValue(focusSummary.desiredJob.value)}로 파악됩니다.`
-      : '희망직업은 문서 간 확인이 더 필요합니다.',
-    focusSummary.competencyGrade.value
-      ? `역량 등급은 ${stringifyFocusValue(focusSummary.competencyGrade.value)}로 확인됩니다.`
-      : '역량 등급은 추가 문서 또는 확인이 필요합니다.',
-    focusSummary.certifications.value && Array.isArray(focusSummary.certifications.value) && focusSummary.certifications.value.length > 0
-      ? `자격증은 ${focusSummary.certifications.value.slice(0, 5).join(', ')} 중심으로 확인되었습니다.`
-      : '자격증 정보는 문서에서 뚜렷하게 확인되지 않았습니다.',
+function buildMergedSummary(input: {
+  desiredJobs: string[];
+  certifications: string[];
+  extraSpecs: string[];
+  gender: string | null;
+  fileCount: number;
+}): string {
+  const segments = [
+    `총 ${input.fileCount}개 문서를 기준으로 핵심 항목만 정리했습니다.`,
+    input.desiredJobs.length > 0
+      ? `희망 직업은 ${input.desiredJobs.join(', ')}로 파악됩니다.`
+      : '희망 직업 정보는 문서에서 확인되지 않았습니다.',
+    input.gender
+      ? `성별은 ${input.gender}로 확인됩니다.`
+      : '성별 정보는 문서에 명시되지 않았습니다.',
+    input.certifications.length > 0
+      ? `자격증은 ${input.certifications.join(', ')}가 확인됩니다.`
+      : '자격증 정보는 확인되지 않았습니다.',
+    input.extraSpecs.length > 0
+      ? `부가 스펙은 ${input.extraSpecs.join(', ')} 중심으로 정리됩니다.`
+      : '부가 스펙 정보는 확인되지 않았습니다.',
   ];
 
-  return parts.join(' ');
+  return segments.join(' ');
 }
 
-export function mergeFocusFields(
-  analyses: DocumentAnalysisResult[],
-): Record<FocusFieldKey, FocusFieldValue> {
-  const merged = {
-    desiredJob: pickBestFocusField(analyses, 'desiredJob'),
-    gender: pickBestFocusField(analyses, 'gender'),
-    competencyGrade: pickBestFocusField(analyses, 'competencyGrade'),
-    certifications: mergeArrayFocusField(analyses, 'certifications'),
-    extraSpecs: mergeArrayFocusField(analyses, 'extraSpecs'),
-  } satisfies Record<FocusFieldKey, FocusFieldValue>;
-
-  return merged;
-}
-
-function pickBestFocusField(
-  analyses: DocumentAnalysisResult[],
-  key: Exclude<FocusFieldKey, 'certifications' | 'extraSpecs'>,
-): FocusFieldValue {
-  const ranked = analyses
-    .map(item => item.focusFields[key])
-    .filter(item => item.value)
-    .sort((a, b) => confidenceRank(b.confidence) - confidenceRank(a.confidence));
-
-  return ranked[0] ?? { value: null, evidence: null, confidence: 'low' };
-}
-
-function mergeArrayFocusField(
-  analyses: DocumentAnalysisResult[],
-  key: Extract<FocusFieldKey, 'certifications' | 'extraSpecs'>,
-): FocusFieldValue {
-  const values = analyses
-    .flatMap(item => {
-      const raw = item.focusFields[key].value;
-      return Array.isArray(raw) ? raw : raw ? [raw] : [];
-    })
-    .map(item => item.trim())
-    .filter(Boolean);
-
-  const unique = Array.from(new Set(values));
-
-  return {
-    value: unique.length > 0 ? unique : null,
-    evidence: unique.length > 0 ? `${unique.length}개 문서 항목에서 통합 추출` : null,
-    confidence: unique.length > 0 ? 'medium' : 'low',
-  };
-}
-
-function confidenceRank(value: FocusFieldValue['confidence']): number {
-  if (value === 'high') return 3;
-  if (value === 'medium') return 2;
-  return 1;
+function pickMergedReliability(analyses: DocumentAnalysisResult[]): ParsedDocumentProfile['reliability'] {
+  if (analyses.some(item => item.reliability === 'high')) return 'high';
+  if (analyses.some(item => item.reliability === 'medium')) return 'medium';
+  return 'low';
 }
 
 async function summarizeWithDeterministicFallback(
   extractedText: string,
   client: ClientRow,
-): Promise<Omit<FileAnalysisResult, 'sourceHash' | 'generatedAt' | 'extractionMethod' | 'extractedText' | 'extractedCharCount'>> {
+): Promise<ParsedDocumentProfile> {
   const fallback = buildRuleBasedAnalysis(extractedText, client);
   const openAIKey = getOpenAIKey();
 
@@ -250,40 +268,35 @@ async function summarizeWithDeterministicFallback(
           {
             role: 'system',
             content:
-              '당신은 취업 상담 문서를 일관되게 판독하는 분석기다. 같은 입력에는 같은 JSON 결과를 반환한다. 추측을 최소화하고 문서 근거가 없으면 null 또는 빈 배열을 사용한다. 반드시 JSON만 반환한다.',
+              'You extract only job-counseling-relevant structured facts from Korean documents. Return strict JSON only. Be consistent for the same input. If a field is missing, return an empty array or null instead of guessing.',
           },
           {
             role: 'user',
             content: JSON.stringify({
-              task: '문서를 요약하고 핵심 필드만 구조화',
+              task: 'Extract only the requested structured fields from the document.',
               clientContext: {
                 id: client.id,
                 name: client.name,
                 desiredJob: client.desired_job,
                 gender: client.gender,
-                competencyGrade: client.competency_grade,
               },
-              priorities: [
-                '희망직업',
-                '성별',
-                '역량 등급',
-                '자격증',
-                '부가 스펙',
-              ],
+              extractionRules: {
+                aiSummary: 'Summarize only desired job, gender, certifications, and extra specs such as education, work history, projects, activities, awards.',
+                desiredJobs: 'Return only atomic desired job keywords or role names mentioned in the document. Split composite phrases like "사무직 마케팅" into ["사무직", "마케팅"]. Exclude salary, location, working days, time conditions, counseling notes, and explanatory sentences.',
+                certifications: 'Return only certificate names and language test scores explicitly mentioned. Examples: 정보처리기사, 토익 850점. Exclude counseling notes, schedules, benefits, eligibility notes.',
+                extraSpecs: 'Return only previous companies/career history and completed education or training programs. Examples: 인텔 2년 경력직, KOSA 하이브리드 인프라 교육. Exclude projects, generic activities, counseling notes, checklist text, scores, or schedule lines.',
+                gender: 'Return gender only if explicitly present in the text.',
+              },
               outputSchema: {
-                summary: 'string',
-                keyPoints: ['string'],
+                aiSummary: 'string',
+                desiredJobs: ['string'],
+                certifications: ['string'],
+                extraSpecs: ['string'],
+                gender: 'string|null',
                 keywordTags: ['string'],
-                reliability: 'high | medium | low',
-                focusFields: {
-                  desiredJob: { value: 'string|null', evidence: 'string|null', confidence: 'high|medium|low' },
-                  gender: { value: 'string|null', evidence: 'string|null', confidence: 'high|medium|low' },
-                  competencyGrade: { value: 'string|null', evidence: 'string|null', confidence: 'high|medium|low' },
-                  certifications: { value: ['string'], evidence: 'string|null', confidence: 'high|medium|low' },
-                  extraSpecs: { value: ['string'], evidence: 'string|null', confidence: 'high|medium|low' },
-                },
+                reliability: 'high|medium|low',
               },
-              text: extractedText.slice(0, 18000),
+              text: extractedText.slice(0, 20000),
             }),
           },
         ],
@@ -291,241 +304,404 @@ async function summarizeWithDeterministicFallback(
     });
 
     if (!response.ok) {
-      throw new Error(`OpenAI 응답 실패 (${response.status})`);
+      throw new Error(`OpenAI request failed with status ${response.status}`);
     }
 
     const data = await response.json();
     const rawContent = data?.choices?.[0]?.message?.content;
 
     if (!rawContent) {
-      throw new Error('OpenAI 응답 내용이 비어 있습니다.');
+      throw new Error('OpenAI returned an empty response.');
     }
 
-    const parsed = JSON.parse(rawContent);
+    const parsed = JSON.parse(rawContent) as Partial<ParsedDocumentProfile> & { aiSummary?: unknown; keywordTags?: unknown };
 
     return {
-      summary: typeof parsed.summary === 'string' && parsed.summary.trim() ? parsed.summary.trim() : fallback.summary,
-      keyPoints: sanitizeStringArray(parsed.keyPoints, fallback.keyPoints),
+      aiSummary: typeof parsed.aiSummary === 'string' && parsed.aiSummary.trim()
+        ? parsed.aiSummary.trim()
+        : fallback.aiSummary,
+      desiredJobs: normalizeDesiredJobs(sanitizeStringArray(parsed.desiredJobs, fallback.desiredJobs)),
+      certifications: normalizeCertifications(sanitizeStringArray(parsed.certifications, fallback.certifications)),
+      extraSpecs: normalizeExtraSpecs(sanitizeStringArray(parsed.extraSpecs, fallback.extraSpecs)),
+      gender: typeof parsed.gender === 'string' && parsed.gender.trim()
+        ? parsed.gender.trim()
+        : fallback.gender,
       keywordTags: sanitizeStringArray(parsed.keywordTags, fallback.keywordTags),
       reliability: parsed.reliability === 'high' || parsed.reliability === 'medium' || parsed.reliability === 'low'
         ? parsed.reliability
         : fallback.reliability,
-      focusFields: normalizeFocusFields(parsed.focusFields, fallback.focusFields),
     };
   } catch {
     return fallback;
   }
 }
 
+async function summarizeImageWithOpenAI(
+  file: File,
+  client: ClientRow,
+): Promise<ParsedDocumentProfile> {
+  const openAIKey = getOpenAIKey();
+  if (!openAIKey) {
+    throw new Error('이미지 분석은 OpenAI API Key 설정 후 사용할 수 있습니다.');
+  }
+
+  const imageUrl = await fileToDataUrl(file);
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${openAIKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      temperature: 0,
+      top_p: 1,
+      seed: 42,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You read Korean resume-like images and return strict JSON only. Extract only desired jobs, gender if explicit, certificate names, and extra specs such as training, work history, projects, activities, awards.',
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                task: 'Extract structured career profile fields from the image document.',
+                clientContext: {
+                  id: client.id,
+                  name: client.name,
+                  desiredJob: client.desired_job,
+                },
+                outputSchema: {
+                  aiSummary: 'string',
+                  desiredJobs: ['string'],
+                  certifications: ['string'],
+                  extraSpecs: ['string'],
+                  gender: 'string|null',
+                  keywordTags: ['string'],
+                  reliability: 'high|medium|low',
+                },
+              }),
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: imageUrl,
+              },
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`이미지 분석 요청 실패 (${response.status})`);
+  }
+
+  const data = await response.json();
+  const rawContent = data?.choices?.[0]?.message?.content;
+
+  if (!rawContent) {
+    throw new Error('이미지 분석 결과가 비어 있습니다.');
+  }
+
+  const parsed = JSON.parse(rawContent) as Partial<ParsedDocumentProfile> & { aiSummary?: unknown; keywordTags?: unknown };
+
+  return {
+    aiSummary: typeof parsed.aiSummary === 'string' && parsed.aiSummary.trim()
+      ? parsed.aiSummary.trim()
+      : '이미지 문서에서 핵심 정보를 추출했지만 요약 본문은 비어 있습니다.',
+    desiredJobs: normalizeDesiredJobs(sanitizeStringArray(parsed.desiredJobs, [])),
+    certifications: normalizeCertifications(sanitizeStringArray(parsed.certifications, [])),
+    extraSpecs: normalizeExtraSpecs(sanitizeStringArray(parsed.extraSpecs, [])),
+    gender: typeof parsed.gender === 'string' && parsed.gender.trim() ? parsed.gender.trim() : null,
+    keywordTags: sanitizeStringArray(parsed.keywordTags, []),
+    reliability: parsed.reliability === 'high' || parsed.reliability === 'medium' || parsed.reliability === 'low'
+      ? parsed.reliability
+      : 'medium',
+  };
+}
+
 function buildRuleBasedAnalysis(
   extractedText: string,
   client: ClientRow,
-): Omit<FileAnalysisResult, 'sourceHash' | 'generatedAt' | 'extractionMethod' | 'extractedText' | 'extractedCharCount'> {
+): ParsedDocumentProfile {
   const lines = extractedText
     .split(/\n+/)
     .map(line => line.trim())
     .filter(Boolean);
 
-  const desiredJob = pickFirstMatch(lines, [
-    /희망\s*직업[:：]?\s*(.+)/i,
-    /희망\s*직무[:：]?\s*(.+)/i,
-    /희망\s*직종[:：]?\s*(.+)/i,
-    /지원\s*직무[:：]?\s*(.+)/i,
-  ]) ?? client.desired_job ?? null;
+  const desiredJobs = normalizeDesiredJobs([
+    ...collectMatches(lines, [
+      /희망\s*직업[:：]?\s*(.+)/i,
+      /희망\s*직무[:：]?\s*(.+)/i,
+      /희망\s*직종[:：]?\s*(.+)/i,
+      /지원\s*직무[:：]?\s*(.+)/i,
+    ]),
+    ...(client.desired_job ? [client.desired_job] : []),
+  ]).slice(0, 5);
 
-  const gender = pickFirstMatch(lines, [
+  const gender = collectMatches(lines, [
     /성별[:：]?\s*(남성|여성|남|여)/i,
-  ]) ?? client.gender ?? null;
+  ])[0] ?? client.gender ?? null;
 
-  const competencyGrade = pickFirstMatch(lines, [
-    /역량\s*등급[:：]?\s*([A-D][+]?)/i,
-    /프로파일링\s*등급[:：]?\s*([A-D][+]?)/i,
-    /등급[:：]?\s*([A-D][+]?)/i,
-  ]) ?? client.competency_grade ?? null;
+  const certifications = normalizeCertifications([
+    ...collectKeywordValues(lines, ['자격증', '보유자격', '취득자격', '자격 사항']),
+    ...collectInlineList(lines, /(산업기사|기사|기능사|컴활|TOEIC|TOEFL|MOS|워드프로세서)/i),
+  ]).slice(0, 12);
 
-  const certifications = collectKeywordValues(lines, [
-    '자격증',
-    '보유자격',
-    '취득자격',
-    '자격 사항',
-  ]);
-
-  const extraSpecs = collectKeywordValues(lines, [
-    '어학',
-    '수상',
-    '교육',
-    '훈련',
-    '경력',
-    '포트폴리오',
-    '활동',
-    '스펙',
-  ]);
-
-  const keyPoints = [
-    desiredJob ? `희망직업: ${desiredJob}` : '희망직업 확인 필요',
-    competencyGrade ? `역량등급: ${competencyGrade}` : '역량등급 확인 필요',
-    certifications.length > 0 ? `자격증 ${certifications.slice(0, 3).join(', ')}` : '자격증 정보 부족',
-  ];
+  const extraSpecs = normalizeExtraSpecs([
+    ...collectKeywordValues(lines, ['교육', '훈련', '수료', '프로젝트', '경력', '근무', '수상', '활동', '포트폴리오']),
+    ...collectContextLines(lines, ['교육', '훈련', '프로젝트', '경력', '활동', '수상']),
+  ]).filter(item => !certifications.includes(item)).slice(0, 12);
 
   return {
-    summary: buildLocalSummary({
-      desiredJob,
-      gender,
-      competencyGrade,
-      certifications,
-      extraSpecs,
-      lines,
-    }),
-    keyPoints,
-    keywordTags: [
-      ...(desiredJob ? [String(desiredJob)] : []),
-      ...(competencyGrade ? [String(competencyGrade)] : []),
-      ...certifications.slice(0, 2),
-      ...extraSpecs.slice(0, 2),
-    ].filter(Boolean),
-    reliability: lines.length > 20 ? 'medium' : 'low',
-    focusFields: {
-      desiredJob: {
-        value: desiredJob,
-        evidence: findEvidenceLine(lines, '희망') ?? findEvidenceLine(lines, '직무'),
-        confidence: desiredJob ? 'medium' : 'low',
-      },
-      gender: {
-        value: gender,
-        evidence: findEvidenceLine(lines, '성별'),
-        confidence: gender ? 'medium' : 'low',
-      },
-      competencyGrade: {
-        value: competencyGrade,
-        evidence: findEvidenceLine(lines, '등급') ?? findEvidenceLine(lines, '역량'),
-        confidence: competencyGrade ? 'medium' : 'low',
-      },
-      certifications: {
-        value: certifications.length > 0 ? certifications : null,
-        evidence: findEvidenceLine(lines, '자격'),
-        confidence: certifications.length > 0 ? 'medium' : 'low',
-      },
-      extraSpecs: {
-        value: extraSpecs.length > 0 ? extraSpecs : null,
-        evidence: findEvidenceLine(lines, '경력') ?? findEvidenceLine(lines, '교육'),
-        confidence: extraSpecs.length > 0 ? 'medium' : 'low',
-      },
-    },
+    aiSummary: buildFallbackSummary({ desiredJobs, certifications, extraSpecs, gender }),
+    desiredJobs,
+    certifications,
+    extraSpecs,
+    gender,
+    keywordTags: uniqueStrings([
+      ...desiredJobs,
+      ...certifications.slice(0, 3),
+      ...extraSpecs.slice(0, 3),
+    ]),
+    reliability: lines.length > 25 ? 'medium' : 'low',
   };
 }
 
-function buildLocalSummary(input: {
-  desiredJob: string | null;
-  gender: string | null;
-  competencyGrade: string | null;
+function buildFallbackSummary(input: {
+  desiredJobs: string[];
   certifications: string[];
   extraSpecs: string[];
-  lines: string[];
+  gender: string | null;
 }): string {
-  const snippets = input.lines.filter(line => line.length >= 12).slice(0, 3);
-
   const parts = [
-    input.desiredJob ? `희망직업은 ${input.desiredJob}로 보입니다.` : '희망직업은 추가 확인이 필요합니다.',
-    input.gender ? `성별 정보는 ${input.gender}로 확인됩니다.` : '성별 정보는 문서에서 뚜렷하지 않습니다.',
-    input.competencyGrade ? `역량 등급은 ${input.competencyGrade}입니다.` : '역량 등급은 확인되지 않았습니다.',
+    input.desiredJobs.length > 0
+      ? `희망 직업은 ${input.desiredJobs.join(', ')}입니다.`
+      : '희망 직업 정보는 확인되지 않았습니다.',
+    input.gender
+      ? `성별은 ${input.gender}입니다.`
+      : '성별 정보는 확인되지 않았습니다.',
     input.certifications.length > 0
-      ? `자격증은 ${input.certifications.slice(0, 4).join(', ')} 중심입니다.`
-      : '자격증 정보는 제한적입니다.',
+      ? `자격증은 ${input.certifications.join(', ')}입니다.`
+      : '자격증 정보는 없습니다.',
     input.extraSpecs.length > 0
-      ? `부가 스펙은 ${input.extraSpecs.slice(0, 4).join(', ')}가 확인됩니다.`
-      : '부가 스펙 정보는 제한적입니다.',
+      ? `부가 스펙은 ${input.extraSpecs.join(', ')}입니다.`
+      : '부가 스펙 정보는 없습니다.',
   ];
-
-  if (snippets.length > 0) {
-    parts.push(`문서 주요 문장: ${snippets.join(' / ')}`);
-  }
 
   return parts.join(' ');
 }
 
-function sanitizeStringArray(value: unknown, fallback: string[]): string[] {
-  if (!Array.isArray(value)) return fallback;
-  const sanitized = value
-    .map(item => (typeof item === 'string' ? item.trim() : ''))
-    .filter(Boolean);
+function collectMatches(lines: string[], patterns: RegExp[]): string[] {
+  const matches: string[] = [];
 
-  return sanitized.length > 0 ? sanitized.slice(0, 8) : fallback;
-}
-
-function normalizeFocusFields(
-  value: unknown,
-  fallback: Record<FocusFieldKey, FocusFieldValue>,
-): Record<FocusFieldKey, FocusFieldValue> {
-  const raw = typeof value === 'object' && value ? value as Record<string, any> : {};
-
-  return {
-    desiredJob: normalizeSingleFocusField(raw.desiredJob, fallback.desiredJob),
-    gender: normalizeSingleFocusField(raw.gender, fallback.gender),
-    competencyGrade: normalizeSingleFocusField(raw.competencyGrade, fallback.competencyGrade),
-    certifications: normalizeArrayFocusField(raw.certifications, fallback.certifications),
-    extraSpecs: normalizeArrayFocusField(raw.extraSpecs, fallback.extraSpecs),
-  };
-}
-
-function normalizeSingleFocusField(input: unknown, fallback: FocusFieldValue): FocusFieldValue {
-  if (!input || typeof input !== 'object') return fallback;
-  const raw = input as Record<string, unknown>;
-
-  return {
-    value: typeof raw.value === 'string' && raw.value.trim() ? raw.value.trim() : fallback.value,
-    evidence: typeof raw.evidence === 'string' && raw.evidence.trim() ? raw.evidence.trim() : fallback.evidence,
-    confidence: raw.confidence === 'high' || raw.confidence === 'medium' || raw.confidence === 'low'
-      ? raw.confidence
-      : fallback.confidence,
-  };
-}
-
-function normalizeArrayFocusField(input: unknown, fallback: FocusFieldValue): FocusFieldValue {
-  if (!input || typeof input !== 'object') return fallback;
-  const raw = input as Record<string, unknown>;
-  const values = Array.isArray(raw.value)
-    ? raw.value.map(item => (typeof item === 'string' ? item.trim() : '')).filter(Boolean)
-    : [];
-
-  return {
-    value: values.length > 0 ? values : fallback.value,
-    evidence: typeof raw.evidence === 'string' && raw.evidence.trim() ? raw.evidence.trim() : fallback.evidence,
-    confidence: raw.confidence === 'high' || raw.confidence === 'medium' || raw.confidence === 'low'
-      ? raw.confidence
-      : fallback.confidence,
-  };
-}
-
-function collectKeywordValues(lines: string[], keywords: string[]): string[] {
-  const collected = lines
-    .filter(line => keywords.some(keyword => line.includes(keyword)))
-    .flatMap(line => splitCandidateValues(line))
-    .map(item => item.replace(/^[\-\d.\s]+/, '').trim())
-    .filter(item => item.length > 1 && item.length < 60);
-
-  return Array.from(new Set(collected)).slice(0, 8);
-}
-
-function splitCandidateValues(line: string): string[] {
-  return line
-    .split(/[,:/|]|·|•|;|，/g)
-    .map(item => item.trim())
-    .filter(Boolean);
-}
-
-function pickFirstMatch(lines: string[], patterns: RegExp[]): string | null {
   for (const line of lines) {
     for (const pattern of patterns) {
       const match = line.match(pattern);
       const value = match?.[1]?.trim();
-      if (value) return value;
+      if (value) {
+        matches.push(...splitCandidateValues(value));
+      }
     }
   }
-  return null;
+
+  return uniqueStrings(matches);
 }
 
-function findEvidenceLine(lines: string[], keyword: string): string | null {
-  return lines.find(line => line.includes(keyword)) ?? null;
+function collectInlineList(lines: string[], pattern: RegExp): string[] {
+  return lines
+    .filter(line => pattern.test(line))
+    .flatMap(line => splitCandidateValues(line))
+    .filter(Boolean);
+}
+
+function collectKeywordValues(lines: string[], keywords: string[]): string[] {
+  return lines
+    .filter(line => keywords.some(keyword => line.includes(keyword)))
+    .flatMap(line => splitCandidateValues(line))
+    .map(item => item.replace(/^[\-\d.\s]+/, '').trim())
+    .filter(item => item.length > 1 && item.length < 80);
+}
+
+function collectContextLines(lines: string[], keywords: string[]): string[] {
+  return lines
+    .filter(line => keywords.some(keyword => line.includes(keyword)))
+    .map(line => line.trim())
+    .filter(line => line.length > 4);
+}
+
+function splitCandidateValues(value: string): string[] {
+  return value
+    .split(/[,\n/|;·•]/g)
+    .map(item => item.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
+function sanitizeStringArray(value: unknown, fallback: string[]): string[] {
+  if (!Array.isArray(value)) return fallback;
+
+  const normalized = value
+    .map(item => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean);
+
+  return normalized.length > 0 ? uniqueStrings(normalized) : fallback;
+}
+
+function normalizeDesiredJobs(values: string[]): string[] {
+  return uniqueStrings(
+    values.flatMap(value => splitDesiredJobValue(value)),
+  ).slice(0, 8);
+}
+
+function normalizeCertifications(values: string[]): string[] {
+  return uniqueStrings(
+    values
+      .flatMap(value => splitCertificateValue(value))
+      .filter(item => isLikelyCertificate(item)),
+  ).slice(0, 12);
+}
+
+function normalizeExtraSpecs(values: string[]): string[] {
+  return uniqueStrings(
+    values
+      .flatMap(value => splitExtraSpecValue(value))
+      .filter(item => isLikelyExtraSpec(item)),
+  ).slice(0, 12);
+}
+
+function splitDesiredJobValue(value: string): string[] {
+  let cleaned = value
+    .replace(/\s+/g, ' ')
+    .replace(/^\uD76C\uB9DD\s*\uC9C1\uC5C5[:?]?\s*/i, '')
+    .replace(/^\uD76C\uB9DD\s*\uC9C1\uBB34[:?]?\s*/i, '')
+    .replace(/^\uD76C\uB9DD\s*\uC9C1\uC885[:?]?\s*/i, '')
+    .replace(/^\uC9C0\uC6D0\s*\uC9C1\uBB34[:?]?\s*/i, '')
+    .trim();
+
+  cleaned = truncateAtFirstMarker(cleaned, [
+    '\uD76C\uB9DD\uADFC\uBB34',
+    '\uD76C\uB9DD \uADFC\uBB34',
+    '\uD76C\uB9DD\uC784\uAE08',
+    '\uD76C\uB9DD \uC784\uAE08',
+    '\uD76C\uB9DD\uADFC\uBB34\uC9C0\uC5ED',
+    '\uD76C\uB9DD \uADFC\uBB34\uC9C0\uC5ED',
+    '\uAD6C\uC9C1\uC560\uB85C',
+    '\uD504\uB85C\uD30C\uC77C\uB9C1',
+    '\uAD6C\uC9C1\uACC4\uD68D\uC0C1\uB2F4',
+    '\uCC38\uC5EC\uC790\uB294',
+    '\uCC38\uC5EC\uC790',
+  ]);
+
+  cleaned = cleaned
+    .replace(/\s*-\s*/g, ' ')
+    .replace(/\([^)]*\)/g, ' ')
+    .trim();
+
+  const keywordMatches = cleaned.match(/([\uAC00-\uD7A3A-Za-z0-9]+(?:\uC9C1|\uB9C8\uCF00\uD305|\uC601\uC5C5|\uD64D\uBCF4|\uAE30\uD68D|\uD589\uC815|\uD68C\uACC4|\uC7AC\uBB34|\uCD1D\uBB34|\uB514\uC790\uC778|\uAC1C\uBC1C|\uC0C1\uB2F4|\uAC04\uD638|\uC870\uAD50|\uC5F0\uAD6C\uC6D0|\uAC15\uC0AC|\uAD50\uC0AC|\uAD00\uB9AC))/g);
+  if (keywordMatches && keywordMatches.length > 0) {
+    return uniqueStrings(keywordMatches.map(item => item.trim()));
+  }
+
+  return cleaned
+    .split(/,|\/|\||;|\u00B7|\u2022|\s+(?:\uBC0F|\uC640|\uACFC)\s+|\s+/g)
+    .map(item => item.replace(/(\uBD84\uC57C|\uC5C5\uBB34|\uC9C1\uBB34|\uC9C1\uC885|\uD76C\uB9DD|\uC9C0\uC6D0|\uCDE8\uC5C5).*/g, '').trim())
+    .filter(item => isLikelyDesiredJobToken(item));
+}
+
+function splitCertificateValue(value: string): string[] {
+  const cleaned = truncateAtFirstMarker(
+    value
+      .replace(/\s+/g, ' ')
+      .replace(/^\uC790\uACA9\uC99D[:：]?\s*/i, '')
+      .replace(/^\uBCF4\uC720\uC790\uACA9[:：]?\s*/i, '')
+      .replace(/^\uCDE8\uB4DD\uC790\uACA9[:：]?\s*/i, '')
+      .trim(),
+    [
+      '\uD76C\uB9DD\uADFC\uBB34',
+      '\uD76C\uB9DD\uC784\uAE08',
+      '\uD76C\uB9DD\uADFC\uBB34\uC9C0\uC5ED',
+      '\uAD6C\uC9C1\uC560\uB85C',
+      '\uD504\uB85C\uD30C\uC77C\uB9C1',
+      '\uAD6C\uC9C1\uACC4\uD68D\uC0C1\uB2F4',
+    ],
+  );
+
+  const exactMatches = cleaned.match(/([가-힣A-Za-z0-9+\- ]+(?:기사|산업기사|기능사|기술사|관리사|컴활\s*\d?급|워드프로세서|MOS|GTQ|OPIc|OPIC|TOEIC\s*\d+점|TOEFL\s*\d+점|TEPS\s*\d+점|토익\s*\d+점|토플\s*\d+점|텝스\s*\d+점))/g);
+  if (exactMatches && exactMatches.length > 0) {
+    return exactMatches.map(item => item.replace(/\s+/g, ' ').trim());
+  }
+
+  return cleaned
+    .split(/,|\/|\||;|\u00B7|\u2022|\n/g)
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function splitExtraSpecValue(value: string): string[] {
+  const cleaned = truncateAtFirstMarker(
+    value
+      .replace(/\s+/g, ' ')
+      .replace(/^\uACBD\uB825[:：]?\s*/i, '')
+      .replace(/^\uAD50\uC721[:：]?\s*/i, '')
+      .replace(/^\uD6C8\uB828[:：]?\s*/i, '')
+      .replace(/^\uC218\uB8CC[:：]?\s*/i, '')
+      .trim(),
+    [
+      '\uD76C\uB9DD\uADFC\uBB34',
+      '\uD76C\uB9DD\uC784\uAE08',
+      '\uD76C\uB9DD\uADFC\uBB34\uC9C0\uC5ED',
+      '\uAD6C\uC9C1\uC560\uB85C',
+      '\uD504\uB85C\uD30C\uC77C\uB9C1',
+      '\uAD6C\uC9C1\uACC4\uD68D\uC0C1\uB2F4',
+    ],
+  );
+
+  const exactMatches = cleaned.match(/([가-힣A-Za-z0-9().+\- ]+(?:경력(?:직)?|근무|재직|인턴|교육|훈련|수료|아카데미|부트캠프))/g);
+  if (exactMatches && exactMatches.length > 0) {
+    return exactMatches.map(item => item.replace(/\s+/g, ' ').trim());
+  }
+
+  return cleaned
+    .split(/,|\/|\||;|\u00B7|\u2022|\n/g)
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function isLikelyDesiredJobToken(value: string): boolean {
+  if (!value) return false;
+  if (/^\d/.test(value)) return false;
+  if (/(\uC6D4|\uB9CC\uC6D0|\uC8FC\s*\d|\uC2DC\uAC04|\uC694\uC77C|\uC9C0\uC5ED|\uC6B8\uC0B0|\uBD80\uC0B0|\uC11C\uC6B8|\uACBD\uAE30|\uC560\uB85C|\uC0C1\uB2F4|\uC784\uAE08|\uADFC\uBB34)/.test(value)) return false;
+  return /(\uC9C1|\uB9C8\uCF00\uD305|\uC601\uC5C5|\uD64D\uBCF4|\uAE30\uD68D|\uD589\uC815|\uD68C\uACC4|\uC7AC\uBB34|\uCD1D\uBB34|\uB514\uC790\uC778|\uAC1C\uBC1C|\uAC04\uD638|\uC870\uAD50|\uC5F0\uAD6C\uC6D0|\uAC15\uC0AC|\uAD50\uC0AC|\uAD00\uB9AC)/.test(value);
+}
+
+function isLikelyCertificate(value: string): boolean {
+  if (!value) return false;
+  if (value.length > 40) return false;
+  if (/(\[|\]|\d+회차|상담|안내|희망근무|희망임금|희망근무지역|구직애로|등록일|참여)/.test(value)) return false;
+  return /(기사|산업기사|기능사|기술사|관리사|컴활|워드프로세서|MOS|GTQ|OPIc|OPIC|TOEIC|TOEFL|TEPS|토익|토플|텝스)/i.test(value);
+}
+
+function isLikelyExtraSpec(value: string): boolean {
+  if (!value) return false;
+  if (value.length > 80) return false;
+  if (/(\[|\]|\d+회차|상담|안내|희망근무|희망임금|희망근무지역|구직애로|체크리스트|점검|취약성|자아존중감|자기효능감|의사전달|정보수집활용)/.test(value)) return false;
+  return /(경력|근무|재직|인턴|교육|훈련|수료|아카데미|부트캠프)/.test(value);
+}
+
+function truncateAtFirstMarker(value: string, markers: string[]): string {
+  const indexes = markers
+    .map(marker => value.indexOf(marker))
+    .filter(index => index >= 0);
+
+  if (indexes.length === 0) return value;
+  return value.slice(0, Math.min(...indexes)).trim();
 }
 
 async function extractPdfText(file: File): Promise<string> {
@@ -547,22 +723,23 @@ async function extractPdfText(file: File): Promise<string> {
 
 async function extractSpreadsheetText(file: File): Promise<string> {
   const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-  const sections = workbook.SheetNames.map(sheetName => {
-    const sheet = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json(sheet, {
-      header: 1,
-      raw: false,
-      defval: '',
-    }) as Array<Array<string | number>>;
 
-    const textRows = rows
-      .map(row => row.map(cell => String(cell).trim()).filter(Boolean).join(' | '))
-      .filter(Boolean);
+  return workbook.SheetNames
+    .map(sheetName => {
+      const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+        header: 1,
+        raw: false,
+        defval: '',
+      }) as Array<Array<string | number>>;
 
-    return [`[시트] ${sheetName}`, ...textRows].join('\n');
-  });
+      const body = rows
+        .map(row => row.map(cell => String(cell).trim()).filter(Boolean).join(' | '))
+        .filter(Boolean)
+        .join('\n');
 
-  return sections.join('\n\n');
+      return `[시트] ${sheetName}\n${body}`;
+    })
+    .join('\n\n');
 }
 
 async function extractHwpxText(file: File): Promise<string> {
@@ -575,15 +752,14 @@ async function extractHwpxText(file: File): Promise<string> {
     throw new Error('HWPX 본문 XML을 찾지 못했습니다.');
   }
 
-  const texts = await Promise.all(
+  const parts = await Promise.all(
     xmlEntries.map(async entry => {
       const xml = await zip.file(entry)?.async('text');
-      if (!xml) return '';
-      return extractXmlText(xml);
+      return xml ? extractXmlText(xml) : '';
     }),
   );
 
-  return texts.join('\n');
+  return parts.join('\n');
 }
 
 function extractXmlText(xml: string): string {
@@ -615,9 +791,32 @@ function normalizeText(input: string): string {
     .trim();
 }
 
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(
+    new Set(
+      values
+        .map(item => item.replace(/\s+/g, ' ').trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
 async function sha256(value: string): Promise<string> {
   const buffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(buffer)).map(byte => byte.toString(16).padStart(2, '0')).join('');
+  return Array.from(new Uint8Array(buffer))
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function sha256Bytes(buffer: ArrayBuffer, meta: Record<string, string | number>): Promise<string> {
+  const metaBytes = new TextEncoder().encode(JSON.stringify(meta));
+  const merged = new Uint8Array(metaBytes.byteLength + buffer.byteLength);
+  merged.set(metaBytes, 0);
+  merged.set(new Uint8Array(buffer), metaBytes.byteLength);
+  const digest = await crypto.subtle.digest('SHA-256', merged);
+  return Array.from(new Uint8Array(digest))
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 function readCachedAnalysis(hash: string): FileAnalysisResult | null {
@@ -638,21 +837,20 @@ function writeCachedAnalysis(hash: string, payload: FileAnalysisResult): void {
   }
 }
 
-function calculateFocusCoverageScore(focusFields: Record<FocusFieldKey, FocusFieldValue>): number {
-  const total = Object.values(focusFields).length;
-  const filled = Object.values(focusFields).filter(field => {
-    if (Array.isArray(field.value)) return field.value.length > 0;
-    return Boolean(field.value);
-  }).length;
-
-  return Math.round((filled / total) * 100);
-}
-
 function getFileExtension(name: string): string {
   const parts = name.toLowerCase().split('.');
   return parts.length > 1 ? parts.at(-1) ?? '' : '';
 }
 
-export function stringifyFocusValue(value: string | string[]): string {
-  return Array.isArray(value) ? value.join(', ') : value;
+function isImageFile(name: string): boolean {
+  return ['png', 'jpg', 'jpeg', 'webp'].includes(getFileExtension(name));
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(reader.error ?? new Error('파일을 읽을 수 없습니다.'));
+    reader.readAsDataURL(file);
+  });
 }
