@@ -6,13 +6,9 @@ import {
   resetTransientSessionOnLaunch,
 } from "./lib/supabase";
 
-async function bootstrap() {
-  await bootstrapStoredAppSettings();
-  resetTransientSessionOnLaunch();
+bootstrapStoredAppSettings();
+// resetTransientSessionOnLaunch(); // 새로고침 시 세션 초기화 방지를 위해 주석 처리
 
-  createRoot(document.getElementById("root")!).render(
-    <App />
-  );
-}
-
-void bootstrap();
+createRoot(document.getElementById("root")!).render(
+  <App />
+);
