@@ -7,14 +7,22 @@
 
  * - Production: loads built index.html from dist/public
  */
-require('dotenv').config();
-const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require('electron');
-const fs = require('fs');
-const path = require('path');
+require("dotenv").config();
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  shell,
+  Menu,
+  dialog,
+} = require("electron");
+const { spawn } = require("child_process");
+const fs = require("fs");
+const path = require("path");
 const isDev = !app.isPackaged;
 
 // electron/main.cjs 최상단 부근에 Supabase 클라이언트 세팅 추가
-const { createClient } = require('@supabase/supabase-js');
+const { createClient } = require("@supabase/supabase-js");
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -22,22 +30,22 @@ const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
   auth: {
     autoRefreshToken: false,
-    persistSession: false
-  }
+    persistSession: false,
+  },
 });
 
 // ─── Keep a global reference to prevent garbage collection ───────────────────
 let mainWindow = null;
 
 function getSettingsFilePath() {
-  return path.join(app.getPath('userData'), 'app-settings.json');
+  return path.join(app.getPath("userData"), "app-settings.json");
 }
 
 function readAppSettings() {
   try {
-    const raw = fs.readFileSync(getSettingsFilePath(), 'utf8');
+    const raw = fs.readFileSync(getSettingsFilePath(), "utf8");
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
     return {};
   }
@@ -47,12 +55,149 @@ function writeAppSettings(settings) {
   fs.writeFileSync(
     getSettingsFilePath(),
     JSON.stringify(settings, null, 2),
-    'utf8',
+    "utf8"
   );
 }
 
+function runCommand(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      windowsHide: true,
+      ...options,
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout?.on("data", chunk => {
+      stdout += chunk.toString();
+    });
+
+    child.stderr?.on("data", chunk => {
+      stderr += chunk.toString();
+    });
+
+    child.on("error", reject);
+    child.on("close", code => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+      reject(
+        new Error(stderr || stdout || `${command} exited with code ${code}`)
+      );
+    });
+  });
+}
+
+async function tryConvertWithLibreOffice(inputPath, outputDir) {
+  const candidates = [
+    "soffice",
+    "C:\\Program Files\\LibreOffice\\program\\soffice.exe",
+    "C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe",
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      await runCommand(candidate, [
+        "--headless",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        outputDir,
+        inputPath,
+      ]);
+
+      const pdfPath = path.join(
+        outputDir,
+        `${path.basename(inputPath, path.extname(inputPath))}.pdf`
+      );
+      if (fs.existsSync(pdfPath)) {
+        return { pdfPath, method: "libreoffice" };
+      }
+    } catch {
+      // Try the next converter.
+    }
+  }
+
+  return null;
+}
+
+async function tryConvertWithHancom(inputPath, outputDir) {
+  const pdfPath = path.join(
+    outputDir,
+    `${path.basename(inputPath, path.extname(inputPath))}.pdf`
+  );
+
+  const script = [
+    '$ErrorActionPreference = "Stop"',
+    `$inputPath = '${inputPath.replace(/'/g, "''")}'`,
+    `$outputPath = '${pdfPath.replace(/'/g, "''")}'`,
+    "$hwp = $null",
+    "try {",
+    "  $hwp = New-Object -ComObject HWPFrame.HwpObject",
+    "  try { $null = $hwp.XHwpWindows.Item(0).Visible = $false } catch {}",
+    '  try { $hwp.RegisterModule("FilePathCheckDLL", "SecurityModule") | Out-Null } catch {}',
+    "  $opened = $hwp.Open($inputPath)",
+    '  if (-not $opened) { throw "Failed to open HWP file." }',
+    '  $saved = $hwp.SaveAs($outputPath, "PDF")',
+    '  if (-not $saved) { throw "Failed to save PDF file." }',
+    "} finally {",
+    "  if ($hwp) {",
+    "    try { $hwp.Quit() } catch {}",
+    "  }",
+    "}",
+  ].join("; ");
+
+  try {
+    await runCommand("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      script,
+    ]);
+
+    if (fs.existsSync(pdfPath)) {
+      return { pdfPath, method: "hancom-office" };
+    }
+  } catch {
+    // Fall back to other converters.
+  }
+
+  return null;
+}
+
+async function convertHwpToPdfBuffer(fileName, bytes) {
+  const tempRoot = fs.mkdtempSync(path.join(app.getPath("temp"), "zeni-hwp-"));
+  const inputPath = path.join(tempRoot, fileName);
+
+  try {
+    fs.writeFileSync(inputPath, Buffer.from(bytes));
+
+    const converted =
+      (await tryConvertWithHancom(inputPath, tempRoot)) ??
+      (await tryConvertWithLibreOffice(inputPath, tempRoot));
+
+    if (!converted) {
+      throw new Error(
+        "HWP 자동 변환을 실행할 수 없습니다. 한컴오피스 또는 LibreOffice가 설치되어 있는지 확인해 주세요."
+      );
+    }
+
+    return {
+      fileName: `${path.basename(fileName, path.extname(fileName))}.pdf`,
+      method: converted.method,
+      data: new Uint8Array(fs.readFileSync(converted.pdfPath)),
+    };
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
 // ─── App metadata ─────────────────────────────────────────────────────────────
-const APP_NAME = '상담 관리 시스템';
+const APP_NAME = "상담 관리 시스템";
 const APP_VERSION = app.getVersion();
 
 // ─── Create the main BrowserWindow ───────────────────────────────────────────
@@ -64,143 +209,151 @@ function createWindow() {
     minHeight: 600,
     title: APP_NAME,
     // Use the app icon from resources
-    icon: path.join(__dirname, 'icons', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    icon: path.join(
+      __dirname,
+      "icons",
+      process.platform === "win32" ? "icon.ico" : "icon.png"
+    ),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload: path.join(__dirname, "preload.cjs"),
       // Security best practices
-      contextIsolation: true,       // Isolate renderer from main process
-      nodeIntegration: false,       // Disable Node.js in renderer
-      sandbox: false,               // Allow preload script
+      contextIsolation: true, // Isolate renderer from main process
+      nodeIntegration: false, // Disable Node.js in renderer
+      sandbox: false, // Allow preload script
       webSecurity: true,
     },
     // Window appearance
-    backgroundColor: '#F0EEE9',
-    show: false,                    // Don't show until ready-to-show
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    backgroundColor: "#F0EEE9",
+    show: false, // Don't show until ready-to-show
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
   });
 
   // ── Load URL ──────────────────────────────────────────────────────────────
-  const devServerUrl = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5181';
+  const devServerUrl =
+    process.env.ELECTRON_RENDERER_URL || "http://localhost:5181";
   const startUrl = isDev
     ? devServerUrl
-    : `file://${path.join(__dirname, '..', 'dist', 'public', 'index.html')}`;
+    : `file://${path.join(__dirname, "..", "dist", "public", "index.html")}`;
 
   mainWindow.loadURL(startUrl);
 
   // ── Show when ready (prevents white flash) ────────────────────────────────
-  mainWindow.once('ready-to-show', () => {
+  mainWindow.once("ready-to-show", () => {
     mainWindow.show();
     if (isDev) {
-      mainWindow.webContents.openDevTools({ mode: 'detach' });
+      mainWindow.webContents.openDevTools({ mode: "detach" });
     }
   });
 
   // ── Handle external links in default browser ──────────────────────────────
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http://') || url.startsWith('https://')) {
+    if (url.startsWith("http://") || url.startsWith("https://")) {
       shell.openExternal(url);
     }
-    return { action: 'deny' };
+    return { action: "deny" };
   });
 
   // ── Cleanup on close ──────────────────────────────────────────────────────
-  mainWindow.on('closed', () => {
+  mainWindow.on("closed", () => {
     mainWindow = null;
   });
 }
 
 // ─── Application Menu ─────────────────────────────────────────────────────────
 function buildMenu() {
-  const isMac = process.platform === 'darwin';
+  const isMac = process.platform === "darwin";
 
   const template = [
     // macOS App menu
-    ...(isMac ? [{
-      label: app.name,
-      submenu: [
-        { role: 'about' },
-        { type: 'separator' },
-        { role: 'services' },
-        { type: 'separator' },
-        { role: 'hide' },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
-        { type: 'separator' },
-        { role: 'quit' },
-      ],
-    }] : []),
+    ...(isMac
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: "about" },
+              { type: "separator" },
+              { role: "services" },
+              { type: "separator" },
+              { role: "hide" },
+              { role: "hideOthers" },
+              { role: "unhide" },
+              { type: "separator" },
+              { role: "quit" },
+            ],
+          },
+        ]
+      : []),
     // File menu
     {
-      label: '파일',
+      label: "파일",
       submenu: [
         {
-          label: '설정',
-          accelerator: 'CmdOrCtrl+,',
+          label: "설정",
+          accelerator: "CmdOrCtrl+,",
           click: () => {
             if (mainWindow) {
-              mainWindow.webContents.send('navigate', '/settings');
+              mainWindow.webContents.send("navigate", "/settings");
             }
           },
         },
-        { type: 'separator' },
-        isMac ? { role: 'close' } : { role: 'quit', label: '종료' },
+        { type: "separator" },
+        isMac ? { role: "close" } : { role: "quit", label: "종료" },
       ],
     },
     // Edit menu
     {
-      label: '편집',
+      label: "편집",
       submenu: [
-        { role: 'undo', label: '실행 취소' },
-        { role: 'redo', label: '다시 실행' },
-        { type: 'separator' },
-        { role: 'cut', label: '잘라내기' },
-        { role: 'copy', label: '복사' },
-        { role: 'paste', label: '붙여넣기' },
-        { role: 'selectAll', label: '전체 선택' },
+        { role: "undo", label: "실행 취소" },
+        { role: "redo", label: "다시 실행" },
+        { type: "separator" },
+        { role: "cut", label: "잘라내기" },
+        { role: "copy", label: "복사" },
+        { role: "paste", label: "붙여넣기" },
+        { role: "selectAll", label: "전체 선택" },
       ],
     },
     // View menu
     {
-      label: '보기',
+      label: "보기",
       submenu: [
-        { role: 'reload', label: '새로고침' },
-        { role: 'forceReload', label: '강제 새로고침' },
-        { type: 'separator' },
-        { role: 'resetZoom', label: '기본 크기' },
-        { role: 'zoomIn', label: '확대' },
-        { role: 'zoomOut', label: '축소' },
-        { type: 'separator' },
-        { role: 'togglefullscreen', label: '전체 화면' },
-        ...(isDev ? [
-          { type: 'separator' },
-          { role: 'toggleDevTools', label: '개발자 도구' },
-        ] : []),
+        { role: "reload", label: "새로고침" },
+        { role: "forceReload", label: "강제 새로고침" },
+        { type: "separator" },
+        { role: "resetZoom", label: "기본 크기" },
+        { role: "zoomIn", label: "확대" },
+        { role: "zoomOut", label: "축소" },
+        { type: "separator" },
+        { role: "togglefullscreen", label: "전체 화면" },
+        ...(isDev
+          ? [
+              { type: "separator" },
+              { role: "toggleDevTools", label: "개발자 도구" },
+            ]
+          : []),
       ],
     },
     // Window menu
     {
-      label: '창',
+      label: "창",
       submenu: [
-        { role: 'minimize', label: '최소화' },
-        { role: 'zoom', label: '최대화' },
-        ...(isMac ? [
-          { type: 'separator' },
-          { role: 'front' },
-        ] : []),
+        { role: "minimize", label: "최소화" },
+        { role: "zoom", label: "최대화" },
+        ...(isMac ? [{ type: "separator" }, { role: "front" }] : []),
       ],
     },
     // Help menu
     {
-      label: '도움말',
+      label: "도움말",
       submenu: [
         {
           label: `버전 ${APP_VERSION}`,
           enabled: false,
         },
-        { type: 'separator' },
+        { type: "separator" },
         {
-          label: '제니엘 홈페이지',
-          click: () => shell.openExternal('https://www.zeniel.com'),
+          label: "제니엘 홈페이지",
+          click: () => shell.openExternal("https://www.zeniel.com"),
         },
       ],
     },
@@ -213,16 +366,16 @@ function buildMenu() {
 // ─── IPC Handlers ─────────────────────────────────────────────────────────────
 
 // Get app version
-ipcMain.handle('app:version', () => APP_VERSION);
+ipcMain.handle("app:version", () => APP_VERSION);
 
 // Get app name
-ipcMain.handle('app:name', () => APP_NAME);
+ipcMain.handle("app:name", () => APP_NAME);
 
-ipcMain.handle('settings:getAll', () => readAppSettings());
+ipcMain.handle("settings:getAll", () => readAppSettings());
 
-ipcMain.handle('settings:set', (_, { key, value }) => {
+ipcMain.handle("settings:set", (_, { key, value }) => {
   const settings = readAppSettings();
-  if (typeof value === 'string' && value.length > 0) {
+  if (typeof value === "string" && value.length > 0) {
     settings[key] = value;
   } else {
     delete settings[key];
@@ -231,14 +384,14 @@ ipcMain.handle('settings:set', (_, { key, value }) => {
   return true;
 });
 
-ipcMain.handle('settings:remove', (_, key) => {
+ipcMain.handle("settings:remove", (_, key) => {
   const settings = readAppSettings();
   delete settings[key];
   writeAppSettings(settings);
   return true;
 });
 
-ipcMain.handle('settings:clear', (_, keys = []) => {
+ipcMain.handle("settings:clear", (_, keys = []) => {
   const settings = readAppSettings();
   for (const key of keys) {
     delete settings[key];
@@ -248,13 +401,13 @@ ipcMain.handle('settings:clear', (_, keys = []) => {
 });
 
 // Open file dialog (for future CSV import feature)
-ipcMain.handle('dialog:openFile', async (_, options) => {
+ipcMain.handle("dialog:openFile", async (_, options) => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile'],
+    properties: ["openFile"],
     filters: options?.filters || [
-      { name: 'Excel Files', extensions: ['xlsx', 'xls'] },
-      { name: 'CSV Files', extensions: ['csv'] },
-      { name: 'All Files', extensions: ['*'] },
+      { name: "Excel Files", extensions: ["xlsx", "xls"] },
+      { name: "CSV Files", extensions: ["csv"] },
+      { name: "All Files", extensions: ["*"] },
     ],
     ...options,
   });
@@ -262,77 +415,85 @@ ipcMain.handle('dialog:openFile', async (_, options) => {
 });
 
 // Save file dialog (for CSV export)
-ipcMain.handle('dialog:saveFile', async (_, options) => {
+ipcMain.handle("dialog:saveFile", async (_, options) => {
   const result = await dialog.showSaveDialog(mainWindow, {
-    filters: options?.filters || [
-      { name: 'CSV Files', extensions: ['csv'] },
-    ],
+    filters: options?.filters || [{ name: "CSV Files", extensions: ["csv"] }],
     ...options,
   });
   return result;
 });
 
 // Show message box
-ipcMain.handle('dialog:message', async (_, options) => {
+ipcMain.handle("dialog:message", async (_, options) => {
   const result = await dialog.showMessageBox(mainWindow, options);
   return result;
 });
 
 // Open external URL
-ipcMain.handle('shell:openExternal', (_, url) => {
+ipcMain.handle("shell:openExternal", (_, url) => {
   shell.openExternal(url);
 });
 
 // 관리자 권한으로 상담사 등록
-ipcMain.handle('admin-register-counselor', async (event, counselorData) => {
+ipcMain.handle("document:convertHwpToPdf", async (_, payload) => {
+  if (!payload?.fileName || !payload?.data) {
+    throw new Error("변환할 HWP 파일 데이터가 없습니다.");
+  }
+
+  return convertHwpToPdfBuffer(payload.fileName, payload.data);
+});
+
+ipcMain.handle("admin-register-counselor", async (event, counselorData) => {
   try {
     // 1. Auth: 이메일과 비밀번호로 계정 생성
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email: counselorData.email,
-      password: counselorData.password,
-      email_confirm: true // 생성 즉시 이메일 인증 통과 처리
-    });
+    const { data: authData, error: authError } =
+      await supabaseAdmin.auth.admin.createUser({
+        email: counselorData.email,
+        password: counselorData.password,
+        email_confirm: true, // 생성 즉시 이메일 인증 통과 처리
+      });
 
     if (authError) throw authError;
 
     // 2. DB: 생성된 uid를 사용하여 user 테이블에 정보 삽입
-    const { error: dbError } = await supabaseAdmin.from('user').insert([
+    const { error: dbError } = await supabaseAdmin.from("user").insert([
       {
         user_id: authData.user.id,
         role: 5,
-        user_name: counselorData.user_name,  
-        department: counselorData.department 
-      }
+        user_name: counselorData.user_name,
+        department: counselorData.department,
+      },
     ]);
 
     if (dbError) throw dbError;
 
     return { success: true }; // 불필요한 데이터 전송 생략
   } catch (error) {
-    console.error('상담사 등록 에러:', error); // 디버깅용 에러 로그는 유지
+    console.error("상담사 등록 에러:", error); // 디버깅용 에러 로그는 유지
     return { success: false, error: error.message };
   }
 });
 
 // 관리자 권한으로 상담사 완전 삭제
-ipcMain.handle('admin-delete-counselor', async (event, userId) => {
+ipcMain.handle("admin-delete-counselor", async (event, userId) => {
   try {
     // 1. public.user 테이블에서 프로필 정보 먼저 삭제 (외래키 충돌 방지)
     const { error: dbError } = await supabaseAdmin
-      .from('user')
+      .from("user")
       .delete()
-      .eq('user_id', userId);
+      .eq("user_id", userId);
 
     if (dbError) throw dbError;
 
     // 2. auth.users 테이블에서 로그인 계정 완전 삭제
-    const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+    const { error: authError } =
+      await supabaseAdmin.auth.admin.deleteUser(userId);
 
     if (authError) throw authError;
 
     return { success: true };
   } catch (error) {
-    console.error('상담사 삭제 에러:', error);
+    console.error("상담사 삭제 에러:", error);
     return { success: false, error: error.message };
   }
 });
@@ -343,7 +504,7 @@ app.whenReady().then(() => {
   createWindow();
 
   // macOS: re-create window when dock icon is clicked
-  app.on('activate', () => {
+  app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
@@ -351,20 +512,20 @@ app.whenReady().then(() => {
 });
 
 // Quit when all windows are closed (except macOS)
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
     app.quit();
   }
 });
 
 // Security: prevent new window creation
-app.on('web-contents-created', (_, contents) => {
-  contents.on('will-navigate', (event, navigationUrl) => {
+app.on("web-contents-created", (_, contents) => {
+  contents.on("will-navigate", (event, navigationUrl) => {
     const parsedUrl = new URL(navigationUrl);
     // Allow localhost in dev mode
-    if (isDev && parsedUrl.hostname === 'localhost') return;
+    if (isDev && parsedUrl.hostname === "localhost") return;
     // Allow file:// protocol in production
-    if (parsedUrl.protocol === 'file:') return;
+    if (parsedUrl.protocol === "file:") return;
     // Block all other navigation
     event.preventDefault();
   });
