@@ -27,6 +27,7 @@ import {
   getRecommendationSystemPrompt,
   getSummaryExtractionPromptPreview,
   type CompetencyScoring,
+  type LanguageScoreEntry,
   type RecommendationResult,
   type StructuredSummaryJson,
 } from "@/lib/summaryAnalysisPipeline";
@@ -133,7 +134,7 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
 
     if (nextFiles.length === 0) {
       toast.error(
-        "지원 형식(pdf, xls, xlsx, hwpx, txt, csv, png, jpg, webp) 파일을 선택해 주세요."
+        "지원 형식(pdf, xls, xlsx, hwp, hwpx, txt, csv, png, jpg, webp) 파일을 선택해 주세요."
       );
       return;
     }
@@ -239,23 +240,76 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
 
   const handleSave = async () => {
     if (!structuredJson || !competencyScoring || !recommendation) {
+      console.warn("[summaryAnalysis] handleSave:missing-data", {
+        clientId: client.id,
+        hasStructuredJson: Boolean(structuredJson),
+        hasCompetencyScoring: Boolean(competencyScoring),
+        hasRecommendation: Boolean(recommendation),
+      });
       toast.error("저장할 분석 데이터가 아직 준비되지 않았습니다.");
       return;
     }
 
+    console.log("[summaryAnalysis] handleSave:start", {
+      clientId: client.id,
+      itemCount: items.length,
+      completedAnalysisCount: completedAnalyses.length,
+    });
     setIsSaving(true);
     try {
       const completedFiles = items.filter(
         (item): item is UploadItem & { file: File } => item.status === "done"
       );
-      const uploadedFileRefs =
-        completedFiles.length > 0
-          ? await uploadSummaryAnalysisFiles({
-              clientId: client.id,
-              files: completedFiles.map(item => item.file),
-            })
-          : undefined;
+      console.log("[summaryAnalysis] handleSave:completed-files", {
+        clientId: client.id,
+        count: completedFiles.length,
+        files: completedFiles.map(item => ({
+          name: item.file.name,
+          size: item.file.size,
+          type: item.file.type,
+        })),
+      });
+      let uploadedFileRefs:
+        | Array<{
+            name: string;
+            path: string;
+            url: string;
+            uploaded_at: string;
+          }>
+        | undefined;
 
+      if (completedFiles.length > 0) {
+        try {
+          console.log("[summaryAnalysis] handleSave:file-upload:start", {
+            clientId: client.id,
+            fileCount: completedFiles.length,
+          });
+          uploadedFileRefs = await uploadSummaryAnalysisFiles({
+            clientId: client.id,
+            files: completedFiles.map(item => item.file),
+          });
+          console.log("[summaryAnalysis] handleSave:file-upload:success", {
+            clientId: client.id,
+            uploadedFileRefs,
+          });
+        } catch (error) {
+          console.error("summaryAnalysis file upload failed", error);
+          console.error("[summaryAnalysis] handleSave:file-upload:error", {
+            clientId: client.id,
+            error,
+          });
+          toast.error(
+            "파일 업로드는 완료되지 않았지만 분석 결과 저장은 계속 진행합니다."
+          );
+        }
+      }
+
+      console.log("[summaryAnalysis] handleSave:db-save:start", {
+        clientId: client.id,
+        hasFileRefs: Boolean(uploadedFileRefs?.length),
+        structuredJsonKeys: Object.keys(structuredJson),
+        recommendationJobCount: recommendation.recommendedJobs.length,
+      });
       await upsertClientSummaryAnalysis({
         clientId: client.id,
         structuredJson,
@@ -267,13 +321,24 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
         },
         fileRefs: uploadedFileRefs,
       });
+      console.log("[summaryAnalysis] handleSave:db-save:success", {
+        clientId: client.id,
+      });
 
       toast.success("요약 및 분석 데이터를 저장했습니다.");
     } catch (error) {
+      console.error("summaryAnalysis save failed", error);
+      console.error("[summaryAnalysis] handleSave:error", {
+        clientId: client.id,
+        error,
+      });
       const message =
         error instanceof Error ? error.message : "저장에 실패했습니다.";
       toast.error(message);
     } finally {
+      console.log("[summaryAnalysis] handleSave:finally", {
+        clientId: client.id,
+      });
       setIsSaving(false);
     }
   };
@@ -332,7 +397,7 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
               파일 선택
             </button>
             <span className="text-xs text-muted-foreground">
-              지원 형식: PDF, XLS, XLSX, HWPX, TXT, CSV, PNG, JPG, WEBP
+              지원 형식: PDF, XLS, XLSX, HWP, HWPX, TXT, CSV, PNG, JPG, WEBP
             </span>
           </div>
 
@@ -468,6 +533,11 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
             value={renderQualifications(structuredJson)}
           />
           <AnalysisCard
+            title="어학 점수"
+            icon={<Award size={16} style={{ color: PRIMARY }} />}
+            value={renderLanguageScores(structuredJson)}
+          />
+          <AnalysisCard
             title="부가 스펙"
             icon={<GraduationCap size={16} style={{ color: PRIMARY }} />}
             value={renderStructuredExtraSpecs(structuredJson)}
@@ -478,16 +548,8 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
 
       {competencyScoring && (
         <section className="grid gap-4 xl:grid-cols-2">
-          <ScoreCard
-            title="평가 점수"
-            value={`${competencyScoring.score}점`}
-            detail="기본 50점 + 최종 학력 1개 + 자격증/어학 가산"
-          />
-          <ScoreCard
-            title="최종 역량 등급"
-            value={competencyScoring.finalGrade}
-            detail={`평가 점수 ${competencyScoring.score}점 기준`}
-          />
+          <ScoreCard title="평가 점수" value={`${competencyScoring.score}점`} />
+          <ScoreCard title="최종 역량 등급" value={competencyScoring.grade} />
         </section>
       )}
 
@@ -543,13 +605,15 @@ function ScoreCard({
 }: {
   title: string;
   value: string;
-  detail: string;
+  detail?: string;
 }) {
   return (
     <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
       <div className="text-sm font-semibold text-foreground">{title}</div>
       <div className="mt-4 text-3xl font-bold text-foreground">{value}</div>
-      <div className="mt-2 text-sm text-muted-foreground">{detail}</div>
+      {detail ? (
+        <div className="mt-2 text-sm text-muted-foreground">{detail}</div>
+      ) : null}
     </section>
   );
 }
@@ -596,11 +660,17 @@ function renderQualifications(
 ): string {
   if (!structuredJson) return "정보 없음";
 
-  const values = [
-    ...structuredJson.qualifications,
-    ...structuredJson.languageScores,
-  ];
+  const values = [...structuredJson.qualifications];
 
+  return values.length > 0 ? values.join("\n") : "정보 없음";
+}
+
+function renderLanguageScores(
+  structuredJson: StructuredSummaryJson | null
+): string {
+  if (!structuredJson) return "정보 없음";
+
+  const values = structuredJson.languageScoreDetails.map(formatLanguageScore);
   return values.length > 0 ? values.join("\n") : "정보 없음";
 }
 
@@ -619,6 +689,10 @@ function renderStructuredExtraSpecs(
   ].filter(Boolean);
 
   return rows.length > 0 ? Array.from(new Set(rows)).join("\n") : "정보 없음";
+}
+
+function formatLanguageScore(entry: LanguageScoreEntry): string {
+  return `${entry.type}: ${entry.score}`;
 }
 
 function countCapturedFields(profile: {
