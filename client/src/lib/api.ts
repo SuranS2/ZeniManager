@@ -108,6 +108,23 @@ function decodeSessionPayload(
   }
 }
 
+function assertDashboardSupabaseConfigured(scopeLabel: string): void {
+  if (!isSupabaseConfigured()) {
+    throw new Error(`${scopeLabel} 기능을 사용하려면 Supabase 설정이 필요합니다.`);
+  }
+}
+
+function assertDashboardRuntimeContract(scopeLabel: string, authUserId: string | null | undefined): string {
+  assertDashboardSupabaseConfigured(scopeLabel);
+
+  const normalizedAuthUserId = authUserId?.trim();
+  if (!normalizedAuthUserId) {
+    throw new Error(`${scopeLabel} 기능을 호출하려면 로그인한 상담사 user_id가 필요합니다.`);
+  }
+
+  return normalizedAuthUserId;
+}
+
 // ─── Clients ─────────────────────────────────────────────────────────────────
 
 const CLIENT_SELECT_FIELDS = `
@@ -491,10 +508,9 @@ export interface DashboardStats {
 }
 
 export interface DashboardMonthlyStat {
-  month: string;   // 'YYYY-MM'
-  total: number;
-  employed: number;
-  rate: number;    // 0-100
+  month: string;
+  clients: number;
+  sessions: number;
 }
 
 export interface DashboardCalendarEntry {
@@ -507,81 +523,177 @@ export interface DashboardCalendarEntry {
   participationStage: string | null;
 }
 
-const SCORE_DIST_FALLBACK = [
-  { range: '0-59', count: 0 },
-  { range: '60-69', count: 0 },
-  { range: '70-79', count: 0 },
-  { range: '80-89', count: 0 },
-  { range: '90-100', count: 0 },
+const DASHBOARD_STAGE_ORDER = [
+  '초기상담',
+  '심층상담',
+  '취업지원',
+  '직업훈련',
+  '취업알선',
+  '취업완료',
+  '사후관리',
 ];
 
-export async function fetchDashboardStats(counselorId?: string): Promise<DashboardStats> {
-  if (!isSupabaseConfigured()) {
-    return {
-      totalClients: 0, inProgress: 0, employed: 0, followUpNeeded: 0,
-      stageBreakdown: [], averageScore: null, scoredClients: 0,
-      unscoredClients: 0, scoreDistribution: SCORE_DIST_FALLBACK,
-    };
+function compareDashboardStage(a: string, b: string): number {
+  const aIndex = DASHBOARD_STAGE_ORDER.indexOf(a);
+  const bIndex = DASHBOARD_STAGE_ORDER.indexOf(b);
+
+  if (aIndex >= 0 && bIndex >= 0) return aIndex - bIndex;
+  if (aIndex >= 0) return -1;
+  if (bIndex >= 0) return 1;
+  return a.localeCompare(b, 'ko');
+}
+
+const DASHBOARD_SCORE_RANGES = [
+  { label: '0-59', min: 0, max: 59 },
+  { label: '60-69', min: 60, max: 69 },
+  { label: '70-79', min: 70, max: 79 },
+  { label: '80-89', min: 80, max: 89 },
+  { label: '90-100', min: 90, max: 100 },
+];
+
+function parseDashboardNumber(value: number | string | null | undefined): number | null {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
   }
 
-  let q = sb().from('client').select('participation_stage, hire_type');
-  if (counselorId) q = q.eq('counselor_id', counselorId);
-  const { data, error } = await q;
+  const normalized = Number(value);
+  return Number.isFinite(normalized) ? normalized : null;
+}
+
+function buildDashboardScoreDistribution(scores: number[]): { range: string; count: number }[] {
+  return DASHBOARD_SCORE_RANGES.map(range => ({
+    range: range.label,
+    count: scores.filter(score => score >= range.min && score <= range.max).length,
+  }));
+}
+
+function formatDashboardMonthLabel(monthKey: string): string {
+  return `${Number(monthKey.slice(5, 7))}월`;
+}
+
+function buildRecentDashboardMonthKeys(monthCount: number): string[] {
+  const normalizedMonthCount = Math.max(1, Math.min(24, Math.trunc(monthCount)));
+  const cursor = new Date();
+  cursor.setDate(1);
+  cursor.setHours(0, 0, 0, 0);
+  cursor.setMonth(cursor.getMonth() - (normalizedMonthCount - 1));
+
+  return Array.from({ length: normalizedMonthCount }, (_, index) => {
+    const date = new Date(cursor.getFullYear(), cursor.getMonth() + index, 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  });
+}
+
+function createDashboardMonthlyBuckets(monthCount: number): DashboardMonthlyStat[] {
+  return buildRecentDashboardMonthKeys(monthCount).map(monthKey => ({
+    month: formatDashboardMonthLabel(monthKey),
+    clients: 0,
+    sessions: 0,
+  }));
+}
+
+export async function fetchDashboardStats(authUserId?: string): Promise<DashboardStats> {
+  assertDashboardSupabaseConfigured('대시보드 통계');
+  const scopedAuthUserId = authUserId?.trim() || null;
+
+  let query = sb()
+    .from('client')
+    .select('participation_stage, retest_stat, continue_serv_1_stat');
+
+  if (scopedAuthUserId) {
+    query = query.eq('counselor_id', scopedAuthUserId);
+  }
+
+  const { data, error } = await query;
   if (error) throw error;
 
-  const rows = data ?? [];
-  const stages = ['초기상담', '심층상담', '취업지원', '직업훈련', '취업알선', '취업완료', '사후관리'];
+  const rows = (data ?? []) as Array<{
+    participation_stage: string | null;
+    retest_stat: number | null;
+    continue_serv_1_stat: number | string | null;
+  }>;
+
+  const stageCounts = new Map<string, number>();
+  const scores = rows
+    .map(row => parseDashboardNumber(row.retest_stat))
+    .filter((score): score is number => score != null);
+
+  rows.forEach(row => {
+    const stage = row.participation_stage?.trim();
+    if (!stage) return;
+    stageCounts.set(stage, (stageCounts.get(stage) ?? 0) + 1);
+  });
+
+  const stageBreakdown = Array.from(stageCounts.entries())
+    .sort(([stageA], [stageB]) => compareDashboardStage(stageA, stageB))
+    .map(([stage, count]) => ({ stage, count }));
+
   return {
     totalClients: rows.length,
-    inProgress: rows.filter((r: any) => r.participation_stage !== '취업완료').length,
-    employed: rows.filter((r: any) => r.hire_type != null).length,
-    followUpNeeded: 0,
-    stageBreakdown: stages.map(s => ({
-      stage: s,
-      count: rows.filter((r: any) => r.participation_stage === s).length,
-    })),
-    averageScore: null,
-    scoredClients: 0,
-    unscoredClients: rows.length,
-    scoreDistribution: SCORE_DIST_FALLBACK,
+    inProgress: rows.filter(row => row.participation_stage !== '취업완료').length,
+    employed: rows.filter(row => row.participation_stage === '취업완료').length,
+    followUpNeeded: rows.filter(
+      row => (parseDashboardNumber(row.continue_serv_1_stat) ?? 0) > 0,
+    ).length,
+    stageBreakdown,
+    averageScore: scores.length > 0
+      ? Number((scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(1))
+      : null,
+    scoredClients: scores.length,
+    unscoredClients: rows.length - scores.length,
+    scoreDistribution: buildDashboardScoreDistribution(scores),
   };
 }
 
-export async function fetchDashboardMonthlyStats(counselorId: string): Promise<DashboardMonthlyStat[]> {
-  if (!isSupabaseConfigured()) return [];
+export async function fetchDashboardMonthlyStats(
+  authUserId: string,
+  monthCount = 12,
+): Promise<DashboardMonthlyStat[]> {
+  const scopedAuthUserId = assertDashboardRuntimeContract('대시보드 월간 통계', authUserId);
+  const monthKeys = buildRecentDashboardMonthKeys(monthCount);
+  const [firstMonthKey, lastMonthKey] = [monthKeys[0], monthKeys[monthKeys.length - 1]];
+  const rangeStart = `${firstMonthKey}-01`;
+  const rangeEndDate = new Date(
+    Number(lastMonthKey.slice(0, 4)),
+    Number(lastMonthKey.slice(5, 7)),
+    0,
+  );
+  const rangeEnd = `${rangeEndDate.getFullYear()}-${String(rangeEndDate.getMonth() + 1).padStart(2, '0')}-${String(rangeEndDate.getDate()).padStart(2, '0')}`;
 
-  const now = new Date();
-  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-  const startDate = `${sixMonthsAgo.getFullYear()}-${String(sixMonthsAgo.getMonth() + 1).padStart(2, '0')}-01`;
+  const { data: histories, error } = await sb()
+    .from('counsel_history')
+    .select('client_id, counsel_date')
+    .eq('user_id', scopedAuthUserId)
+    .gte('counsel_date', rangeStart)
+    .lte('counsel_date', rangeEnd);
 
-  const { data, error } = await sb()
-    .from('client')
-    .select('participation_stage, hire_type, created_at')
-    .eq('counselor_id', counselorId)
-    .gte('created_at', startDate);
+  if (error) throw error;
 
-  if (error) return [];
+  const sessionCountByMonth = new Map<string, number>();
+  const clientIdsByMonth = new Map<string, Set<number>>();
 
-  const monthMap: Record<string, { total: number; employed: number }> = {};
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    monthMap[key] = { total: 0, employed: 0 };
-  }
+  (histories ?? []).forEach(row => {
+    if (!row.counsel_date) return;
+    const monthKey = row.counsel_date.slice(0, 7);
+    if (!monthKeys.includes(monthKey)) return;
 
-  (data ?? []).forEach((row: any) => {
-    const key = (row.created_at as string)?.slice(0, 7);
-    if (!key || !monthMap[key]) return;
-    monthMap[key].total++;
-    if (row.hire_type != null) monthMap[key].employed++;
+    sessionCountByMonth.set(monthKey, (sessionCountByMonth.get(monthKey) ?? 0) + 1);
+    if (typeof row.client_id === 'number') {
+      const clientIds = clientIdsByMonth.get(monthKey) ?? new Set<number>();
+      clientIds.add(row.client_id);
+      clientIdsByMonth.set(monthKey, clientIds);
+    }
   });
 
-  return Object.entries(monthMap).map(([month, v]) => ({
-    month,
-    total: v.total,
-    employed: v.employed,
-    rate: v.total > 0 ? Math.round((v.employed / v.total) * 100) : 0,
-  }));
+  return createDashboardMonthlyBuckets(monthCount).map((bucket, index) => {
+    const monthKey = monthKeys[index];
+    return {
+      month: bucket.month,
+      clients: clientIdsByMonth.get(monthKey)?.size ?? 0,
+      sessions: sessionCountByMonth.get(monthKey) ?? 0,
+    };
+  });
 }
 
 export async function fetchDashboardCalendarMonthCounts(
