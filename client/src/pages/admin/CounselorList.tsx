@@ -217,7 +217,7 @@ function CounselorModal({
           password: '',
           department: counselor.department || '',
           memo: counselor.memo || '',
-          role: ROLE_COUNSELOR,
+          role: counselor.role || ROLE_COUNSELOR,
         }
       : { ...EMPTY_FORM, department: existingBranches.length > 0 ? '' : '' } 
   );
@@ -423,7 +423,7 @@ export default function CounselorList() {
     return Array.from(new Set(branches)).sort();
   }, [counselors]);
 
-  // 🚨 방어 코드 추가: role 값을 명시적으로 숫자로 변환하여 비교 (Role 0 표시 버그 해결)
+  // 🚨 오너(0) 등 다른 권한을 완벽히 제외하고, 오직 "상담사(5)" 권한만 목록에 표시하도록 수정
   const counselorOnlyList = counselors.filter(c => Number(c.role) === 5);
 
   const filtered = counselorOnlyList.filter(c =>
@@ -441,6 +441,7 @@ export default function CounselorList() {
         const newC: CounselorRow = {
           user_id: `demo_${Date.now()}`,
           ...form,
+          role: 5, // 🚨 신규 생성 시 상담사(5) 권한 부여
           client_count: 0,
           completed_count: 0,
         };
@@ -458,7 +459,7 @@ export default function CounselorList() {
           user_name: form.user_name,
           department: form.department,
           memo: form.memo,
-          role: 5 
+          role: editTarget.role // 🚨 기존 권한 유지
         } as any);
         
         setCounselors(prev => prev.map(c => c.user_id === updated.user_id ? { ...updated, client_count: c.client_count, completed_count: c.completed_count } : c));
@@ -527,7 +528,6 @@ export default function CounselorList() {
       const result = await adminDeleteCounselor({
         supabaseUrl,
         serviceRoleKey,
-        // 🚨 방어 코드 추가: 확실하게 문자열만 전송
         userId: String(c.user_id)
       });
 
@@ -595,7 +595,7 @@ export default function CounselorList() {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">이름</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">지점</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">담당 인원</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">상담 완료</th>
+                <th className="text-right px-4 py-3 font-medium text-muted-foreground">취업 완료</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">역할</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">상세/수정/삭제</th>
               </tr>

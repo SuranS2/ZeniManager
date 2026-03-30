@@ -45,6 +45,8 @@ type LiveClientRecord = {
   continue_serv_1_stat: string | null;
   memo: string | null;
   business_code?: { participate_type: string | null }[] | null;
+  job_place_support_end: string | null;
+  hire_date: string | null;
   created_at: string | null;
   update_at: string | null;
 };
@@ -134,6 +136,8 @@ const CLIENT_SELECT_FIELDS = `
   business_code (
     participate_type
   ),
+  job_place_support_end,
+  hire_date,
   created_at,
   update_at
 `;
@@ -336,6 +340,7 @@ export async function fetchCounselors(): Promise<CounselorRow[]> {
   const { data, error } = await sb()
     .from('user')
     .select('user_id, user_name, department, memo, role')
+    .eq('role', 5)
     .order('user_name');
 
   if (error) throw error;
@@ -543,9 +548,9 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
     training_allowance: null,
     intensive_start: null,
     intensive_end: null,
-    support_end_date: null,
+    support_end_date: row.job_place_support_end ?? null, 
     employment_type: row.hire_type ?? null,
-    employment_date: row.job_place_start ?? null,
+    employment_date: row.hire_date ?? null,
     employer: null,
     job_title: null,
     salary: null,
