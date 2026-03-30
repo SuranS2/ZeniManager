@@ -5,6 +5,14 @@
  * Falls back gracefully in web browser context.
  */
 
+// 상담사 등록 시 사용할 데이터 타입 정의 추가
+export interface CounselorRegisterData {
+  email: string;
+  password?: string;
+  user_name: string;
+  department: string;
+}
+
 // Extend Window interface for Electron API
 declare global {
   interface Window {
@@ -35,6 +43,10 @@ declare global {
       onNavigate: (callback: (path: string) => void) => () => void;
       platform: string;
       isElectron: boolean;
+      // 상담사 등록 API
+      adminRegisterCounselor: (data: CounselorRegisterData) => Promise<{ success: boolean; error?: string }>;
+      // 상담사 삭제 API
+      adminDeleteCounselor: (userId: string) => Promise<{ success: boolean; error?: string }>;
     };
   }
 }
@@ -97,5 +109,15 @@ export function useElectron() {
     onNavigate: isElectron
       ? api!.onNavigate
       : (_cb: (path: string) => void) => () => {},
+
+    /** Register a new counselor using Admin privileges (Electron Only) */
+    adminRegisterCounselor: isElectron
+      ? api!.adminRegisterCounselor
+      : async () => ({ success: false, error: '데스크톱 앱(관리자 모드)에서만 지원되는 기능입니다.' }),
+    
+    /** Delete a counselor using Admin privileges (Electron Only) */
+    adminDeleteCounselor: isElectron
+      ? api!.adminDeleteCounselor
+      : async () => ({ success: false, error: '데스크톱 앱(관리자 모드)에서만 지원되는 기능입니다.' }),
   };
 }

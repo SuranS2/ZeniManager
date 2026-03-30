@@ -24,6 +24,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Shell ─────────────────────────────────────────────────────────────────
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
 
+  // 상담사 등록 API
+  adminRegisterCounselor: (data) => ipcRenderer.invoke('admin-register-counselor', data),
+
+  // 상담사 삭제 API
+  adminDeleteCounselor: (userId) => ipcRenderer.invoke('admin-delete-counselor', userId),
+
   // ── Navigation from main process (e.g., menu items) ──────────────────────
   onNavigate: (callback) => {
     ipcRenderer.on('navigate', (_event, path) => callback(path));

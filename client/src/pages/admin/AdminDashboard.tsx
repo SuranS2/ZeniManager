@@ -23,23 +23,12 @@ const STAGE_COLORS = {
   '사후관리': '#38B2AC',
 };
 
-// 가로형 구조 정렬 및 링크 우측 상단 배치 적용된 StatCard
+// 가로형 구조 유지, 카드 높이 완벽 통일을 위해 하단 링크 영역의 최소 높이(min-h-[32px]) 확보
 function StatCard({ icon, label, value, subLabel, bgHex, colorHex, linkTo, linkText }: {
   icon: React.ReactNode; label: string; value: string | number; subLabel?: string; bgHex: string; colorHex: string; linkTo?: string; linkText?: string;
 }) {
   return (
-    <div className="bg-card rounded-md p-5 shadow-sm border border-border flex flex-col justify-between relative">
-      {/* 우측 상단 링크 배치 */}
-      {linkTo && linkText && (
-        <div className="absolute top-4 right-4">
-          <Link href={linkTo}>
-            <a className="inline-flex items-center gap-0.5 text-xs font-medium hover:underline transition-colors" style={{ color: PRIMARY_HEX }}>
-              {linkText} <ChevronRight size={13} />
-            </a>
-          </Link>
-        </div>
-      )}
-      
+    <div className="bg-card rounded-md p-5 shadow-sm border border-border flex flex-col h-full">
       <div className="flex items-start gap-4">
         <div className="w-12 h-12 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: bgHex, color: colorHex }}>
           {icon}
@@ -49,6 +38,19 @@ function StatCard({ icon, label, value, subLabel, bgHex, colorHex, linkTo, linkT
           <div className="text-2xl font-bold text-foreground mt-1">{value}</div>
           {subLabel && <div className="text-xs text-muted-foreground mt-1">{subLabel}</div>}
         </div>
+      </div>
+      
+      {/* 링크가 있든 없든 항상 동일한 공간(min-h-[32px])을 차지하도록 강제하여 카드 높이를 통일합니다. */}
+      <div className="mt-auto pt-4 flex justify-end items-end min-h-[32px]">
+        {linkTo && linkText && (
+          <Link 
+            href={linkTo} 
+            className="inline-flex items-center gap-0.5 text-xs font-medium hover:underline transition-colors" 
+            style={{ color: PRIMARY_HEX }}
+          >
+            {linkText} <ChevronRight size={13} />
+          </Link>
+        )}
       </div>
     </div>
   );
@@ -268,8 +270,8 @@ export default function AdminDashboard() {
         <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" size={32} /></div>
       ) : (
         <>
-          {/* ─── 1. KPI Cards (아이콘 우측 정렬, 노란색 아이콘 반영) ─── */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* ─── 1. KPI Cards ─── */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
             <StatCard 
               icon={<Users size={20} />} 
               label="관리 상담자" 
@@ -277,8 +279,8 @@ export default function AdminDashboard() {
               subLabel="필터 적용" 
               bgHex="#E8F5E9" // 옅은 초록
               colorHex={PRIMARY_HEX}
-              linkTo="/admin/clients"
-              linkText="상담자 목록 열기"
+              linkTo="/admin/counselors"
+              linkText="상담사 목록 관리"
             />
             <StatCard 
               icon={<TrendingUp size={20} />} 
@@ -306,10 +308,10 @@ export default function AdminDashboard() {
             />
           </div>
 
-          {/* ─── 2. Pipeline & Trend (높이 확장 및 여백 조절) ─── */}
+          {/* ─── 2. Pipeline & Trend ─── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             
-            {/* 프로세스 과정 수 (커스텀 프로그레스 바) */}
+            {/* 프로세스 과정 수 */}
             <div className="bg-card rounded-md p-6 shadow-sm border border-border flex flex-col min-h-[400px]">
               <div className="flex items-center justify-between mb-8">
                 <div>
@@ -341,7 +343,7 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* 월별 추이 (DB 연동 기반 진행 중 인원 대비) */}
+            {/* 월별 추이 */}
             <div className="bg-card rounded-md p-6 shadow-sm border border-border flex flex-col min-h-[400px]">
               <div className="mb-6">
                 <h3 className="text-sm font-semibold text-foreground mb-1">월별 성사율 추이</h3>
