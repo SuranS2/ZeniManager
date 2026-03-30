@@ -22,7 +22,13 @@ const CLIENT_SELECT_FIELDS = `
   participation_type,
   participation_stage,
   desired_job_1,
+  desired_job_2,
+  desired_job_3,
   hire_type,
+  hire_place,
+  hire_job_type,
+  hire_payment,
+  hire_date,
   job_place_start,
   job_place_end,
   iap_to,
@@ -50,7 +56,13 @@ type LiveClientRecord = {
   participation_type: string | null;
   participation_stage: string | null;
   desired_job_1: string | null;
+  desired_job_2: string | null;
+  desired_job_3: string | null;
   hire_type: string | null;
+  hire_place: string | null;
+  hire_job_type: string | null;
+  hire_payment: string | null;
+  hire_date: string | null;
   job_place_start: string | null;
   job_place_end: string | null;
   iap_to: string | null;
@@ -120,6 +132,7 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
   const updatedAt = row.update_at
     ? new Date(`${row.update_at}T00:00:00`).toISOString()
     : createdAt;
+  const employmentDate = normalizeEmploymentDate(row.job_place_start, row.hire_date);
 
   return {
     id: String(row.client_id),
@@ -162,10 +175,10 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
     intensive_end: null,
     support_end_date: null,
     employment_type: row.hire_type ?? null,
-    employment_date: row.job_place_start ?? null,
-    employer: null,
-    job_title: null,
-    salary: null,
+    employment_date: employmentDate,
+    employer: row.hire_place ?? null,
+    job_title: row.hire_job_type ?? null,
+    salary: row.hire_payment ?? null,
     employment_duration: null,
     resignation_date: null,
     retention_1m_date: null,
@@ -191,6 +204,29 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
     created_at: createdAt,
     update_at: updatedAt,
   };
+}
+
+function normalizeEmploymentDate(
+  jobPlaceStart: string | null | undefined,
+  hireDate: string | null | undefined,
+): string | null {
+  const preferred = normalizeDateOnly(jobPlaceStart);
+  if (preferred) return preferred;
+  return normalizeDateOnly(hireDate);
+}
+
+function normalizeDateOnly(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export interface DashboardStats {

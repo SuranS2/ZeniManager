@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { ChevronLeft, User, Phone, Mail, Calendar, Building2, Briefcase, BookOpen, Car, MapPin, Target, Home, FileText } from 'lucide-react';
 import { usePageGuard } from '@/hooks/usePageGuard';
 import { createClient } from '@/lib/api';
+import { updateClientEmploymentSnapshotAndSync } from '@/lib/employmentSuccessCase';
 import DaumPostcode from 'react-daum-postcode';
 
 export default function ClientRegister() {
@@ -52,11 +53,17 @@ export default function ClientRegister() {
     work_ex_end: '',
     work_ex_graduate: '',
     branch: '',
+    hire_place: '',
+    hire_type: '',
+    hire_job_type: '',
+    hire_payment: '',
+    employment_date: '',
     notes: '',
   });
 
   const [loading, setLoading] = useState(false);
   const [showPostcode, setShowPostcode] = useState(false);
+  const isEmploymentCompleted = form.processStage === '취업완료';
 
   const update = (field: string, value: any) => setForm(f => ({ ...f, [field]: value }));
 
@@ -152,10 +159,15 @@ export default function ClientRegister() {
       return;
     }
 
+    if (isEmploymentCompleted && !form.hire_place.trim()) {
+      toast.error('취업완료 상태로 등록하려면 취업처를 입력해주세요.');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await createClient({
+      const createdClient = await createClient({
         name: form.name,
         resident_id: form.resident_id,
         birth_date: form.birth_date || null,
@@ -193,7 +205,32 @@ export default function ClientRegister() {
         counselor_id: user?.counselorId || null,
       } as any);
 
-      toast.success(`${form.name}님이 등록되었습니다.`);
+      let syncFailed = false;
+      if (isEmploymentCompleted) {
+        try {
+          await updateClientEmploymentSnapshotAndSync(createdClient.id, {
+            participationStage: form.processStage || null,
+            desiredJob1: form.desired_job_1 || null,
+            desiredJob2: form.desired_job_2 || null,
+            desiredJob3: form.desired_job_3 || null,
+            employmentType: form.hire_type || null,
+            employmentCompany: form.hire_place || null,
+            employmentJobType: form.hire_job_type || null,
+            employmentSalary: form.hire_payment || null,
+            employmentDate: form.employment_date || null,
+            hireDate: form.employment_date || null,
+          });
+        } catch (syncError) {
+          console.error('Failed to sync employment success case after registration:', syncError);
+          syncFailed = true;
+        }
+      }
+
+      toast.success(
+        syncFailed
+          ? `${form.name}님이 등록되었습니다. 다만 성공사례 동기화는 실패했습니다.`
+          : `${form.name}님이 등록되었습니다.`,
+      );
       localStorage.removeItem(STORAGE_KEY); // Clear draft on success
       navigate('/clients/list');
     } catch (err: any) {
@@ -590,6 +627,69 @@ export default function ClientRegister() {
               className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
             />
           </div>
+
+          {isEmploymentCompleted && (
+            <div className="rounded-sm border border-emerald-200 bg-emerald-50/70 p-4 space-y-4">
+              <div>
+                <div className="text-sm font-semibold text-foreground">취업 완료 정보</div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  취업완료 상태로 등록되는 대상자는 저장 직후 성공사례 검색용 snapshot 동기화가 실행됩니다.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">취업처 <span className="text-destructive">*</span></label>
+                  <input
+                    type="text"
+                    value={form.hire_place}
+                    onChange={e => update('hire_place', e.target.value)}
+                    placeholder="OO기업"
+                    className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">취업 직무</label>
+                  <input
+                    type="text"
+                    value={form.hire_job_type}
+                    onChange={e => update('hire_job_type', e.target.value)}
+                    placeholder="사무행정"
+                    className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">취업 구분</label>
+                  <input
+                    type="text"
+                    value={form.hire_type}
+                    onChange={e => update('hire_type', e.target.value)}
+                    placeholder="정규직"
+                    className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">급여</label>
+                  <input
+                    type="text"
+                    value={form.hire_payment}
+                    onChange={e => update('hire_payment', e.target.value)}
+                    placeholder="월 250만원"
+                    className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">취업일</label>
+                  <input
+                    type="date"
+                    value={form.employment_date}
+                    onChange={e => update('employment_date', e.target.value)}
+                    className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Actions */}

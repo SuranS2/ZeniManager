@@ -17,6 +17,7 @@ import {
 import type { ClientRow, SessionRow, SurveyRow } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { ClientSummaryAnalysisTab } from './ClientSummaryAnalysisTab';
+import { EmploymentSuccessCaseCard } from './EmploymentSuccessCaseCard';
 
 const PRIMARY = '#009C64';
 
@@ -457,6 +458,8 @@ export default function ClientDetail() {
           })}
         </div>
       </div>
+
+      <EmploymentSuccessCaseCard clientId={client.id} />
 
       {/* Tabs */}
       <div className="flex border-b border-border bg-card rounded-t-md px-2 overflow-x-auto">
