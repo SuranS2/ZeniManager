@@ -5,13 +5,14 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation } from 'wouter';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ROLE_COUNSELOR } from '@shared/const';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePageGuard } from '@/hooks/usePageGuard';
 import {
    Search, Plus, X, ChevronRight, ChevronLeft, Phone, User,
    Edit3, ClipboardList, Loader2, Trash2, Save,
-   AlertTriangle, RefreshCw, ArrowUp, ArrowDown
+   AlertTriangle, RefreshCw, ArrowUp, ArrowDown, GripVertical
  } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchClients, fetchSessions, createSession, deleteSession, fetchSurveys, createSurvey, updateClient } from '@/lib/api';
@@ -646,6 +647,117 @@ export default function ClientList() {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const itemsPerPage = 20;
+
+  // --- Column Resize & Reorder States ---
+  const DEFAULT_COLS = [
+    { key: 'name', label: '이름', width: 120 },
+    { key: 'phone', label: '연락처', width: 140 },
+    { key: 'iap_to', label: 'IAP 수립일', width: 130 },
+    { key: 'participation_stage', label: '취업단계', width: 120 },
+    { key: 'participate_type', label: '사업유형', width: 120 },
+    { key: 'retest_stat', label: '점수', width: 80 },
+    { key: 'continue_serv_1_stat', label: '사후관리', width: 100 },
+    { key: 'memo', label: '메모', width: 250 },
+  ];
+
+  const [columnOrder, setColumnOrder] = useState<string[]>(() => {
+    const saved = localStorage.getItem('zeni_client_col_order');
+    return saved ? JSON.parse(saved) : DEFAULT_COLS.map(c => c.key);
+  });
+
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
+    const saved = localStorage.getItem('zeni_client_col_widths');
+    return saved ? JSON.parse(saved) : DEFAULT_COLS.reduce((acc, c) => ({ ...acc, [c.key]: c.width }), {});
+  });
+
+  const [resizing, setResizing] = useState<{ key: string; startWidth: number; startX: number } | null>(null);
+  const [draggingCol, setDraggingCol] = useState<string | null>(null);
+  const [dropTargetCol, setDropTargetCol] = useState<string | null>(null);
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  // Initialize CSS variables for column widths
+  useEffect(() => {
+    if (!tableContainerRef.current) return;
+    Object.entries(columnWidths).forEach(([key, width]) => {
+      tableContainerRef.current?.style.setProperty(`--col-width-${key}`, `${width}px`);
+    });
+  }, [columnWidths]);
+
+  useEffect(() => {
+    localStorage.setItem('zeni_client_col_order', JSON.stringify(columnOrder));
+  }, [columnOrder]);
+
+  useEffect(() => {
+    localStorage.setItem('zeni_client_col_widths', JSON.stringify(columnWidths));
+  }, [columnWidths]);
+
+  // --- High Performance Resize Handler ---
+  const handleResizeInit = (e: React.MouseEvent, key: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.pageX;
+    const startWidth = columnWidths[key];
+    
+    setResizing({ key, startWidth, startX });
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const delta = moveEvent.pageX - startX;
+      const newWidth = Math.max(50, startWidth + delta);
+      // Update CSS Variable directly for instant feedback (No React Lag)
+      tableContainerRef.current?.style.setProperty(`--col-width-${key}`, `${newWidth}px`);
+    };
+
+    const onUp = (upEvent: MouseEvent) => {
+      const delta = upEvent.pageX - startX;
+      const finalWidth = Math.max(50, startWidth + delta);
+      setColumnWidths(prev => ({ ...prev, [key]: finalWidth }));
+      setResizing(null);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  // --- Drag Handle ---
+  const onDragStart = (key: string) => setDraggingCol(key);
+  
+  const onDragOver = (e: React.DragEvent, targetKey: string) => {
+    e.preventDefault();
+    if (!draggingCol || draggingCol === targetKey) return;
+
+    // Get the bounding box of the target element
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const mouseX = e.clientX;
+
+    // Check if mouse has crossed the 50% threshold of the target column
+    const dragIdx = columnOrder.indexOf(draggingCol);
+    const targetIdx = columnOrder.indexOf(targetKey);
+
+    // If dragging to the right and mouse is past the center of target
+    // OR dragging to the left and mouse is before the center of target
+    const shouldSwap = (dragIdx < targetIdx && mouseX > centerX) || (dragIdx > targetIdx && mouseX < centerX);
+
+    if (shouldSwap) {
+      const newOrder = [...columnOrder];
+      newOrder.splice(dragIdx, 1);
+      newOrder.splice(targetIdx, 0, draggingCol);
+      
+      if (newOrder.join(',') !== columnOrder.join(',')) {
+        setColumnOrder(newOrder);
+      }
+    }
+  };
+
+  const onDragEnd = () => {
+    setDraggingCol(null);
+    setDropTargetCol(null);
+  };
+
+  const getColLabel = (key: string) => DEFAULT_COLS.find(c => c.key === key)?.label || key;
+
   const deepLinkHandledRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -740,7 +852,7 @@ export default function ClientList() {
   if (!canRender) return null;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" ref={tableContainerRef}>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-foreground">상담자 목록</h1>
@@ -787,119 +899,233 @@ export default function ClientList() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[1000px]">
-            <thead>
-              <tr className="border-b border-border bg-muted/30">
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-16">순번</th>
-                {[
-                  { key: 'name', label: '이름' },
-                  { key: 'phone', label: '연락처' },
-                  { key: 'iap_to', label: 'IAP 수립일' },
-                  { key: 'participation_stage', label: '취업단계' },
-                  { key: 'participate_type', label: '사업유형' },
-                  { key: 'retest_stat', label: '점수' },
-                  { key: 'continue_serv_1_stat', label: '사후관리' },
-                ].map(col => {
-                  const isActive = sortConfig?.key === col.key;
-                  const isAsc = isActive && sortConfig?.direction === 'asc';
-                  const isDesc = isActive && sortConfig?.direction === 'desc';
-                  
-                  return (
-                    <th 
-                      key={col.key}
-                      onClick={() => {
-                        let direction: 'asc' | 'desc' | null = 'asc';
-                        if (isActive) {
-                          if (sortConfig.direction === 'asc') direction = 'desc';
-                          else direction = null;
-                        }
-                        
-                        if (direction) {
-                          setSortConfig({ key: col.key, direction });
-                        } else {
-                          setSortConfig(null);
-                        }
-                      }}
-                      className="text-left px-4 py-3 font-medium text-muted-foreground cursor-pointer hover:text-foreground hover:bg-muted/50 transition-all select-none"
-                    >
-                      <div className="flex items-center gap-1">
-                        {col.label}
-                        <div className="flex flex-col -space-y-1">
-                          <ArrowUp 
-                            size={10} 
-                            className={`transition-colors ${isAsc ? 'text-primary' : 'opacity-20'}`}
-                            fill={isAsc ? 'currentColor' : 'none'}
-                          />
-                          <ArrowDown 
-                            size={10} 
-                            className={`transition-colors ${isDesc ? 'text-primary' : 'opacity-20'}`}
-                            fill={isDesc ? 'currentColor' : 'none'}
+            <thead className="sticky top-0 z-20 block">
+              <tr className="flex border-b border-border bg-muted/30">
+                <th 
+                  className="flex-shrink-0 text-left px-4 py-3 font-medium text-muted-foreground select-none flex items-center"
+                  style={{ width: 60 }}
+                >
+                  순번
+                </th>
+                <div className="flex flex-1">
+                  {columnOrder.map(key => {
+                    const isActive = sortConfig?.key === key;
+                    const isAsc = isActive && sortConfig?.direction === 'asc';
+                    const isDesc = isActive && sortConfig?.direction === 'desc';
+                    const label = getColLabel(key);
+                    
+                    return (
+                      <motion.th 
+                        key={key}
+                        layout
+                        transition={{ layout: { type: 'spring', damping: 30, stiffness: 500 } }}
+                        draggable
+                        onDragStart={(e: any) => {
+                          onDragStart(key);
+                          if (e.dataTransfer) {
+                            e.dataTransfer.effectAllowed = 'move';
+                          }
+                        }}
+                        onDragOver={(e) => onDragOver(e, key)}
+                        onDragEnd={onDragEnd}
+                        className={`flex-shrink-0 text-left px-4 py-3 font-medium text-muted-foreground select-none relative group
+                          ${draggingCol === key ? 'opacity-30 grayscale blur-[0.5px] z-30' : 'hover:bg-muted/40 z-10'}`}
+                        style={{ 
+                          width: `var(--col-width-${key})`,
+                          minWidth: `var(--col-width-${key})`,
+                          maxWidth: `var(--col-width-${key})`,
+                          cursor: draggingCol ? 'grabbing' : 'default'
+                        }}
+                      >
+                        <div className="flex items-center justify-between pointer-events-none w-full">
+                          <div 
+                            className="flex items-center gap-1 cursor-grab active:cursor-grabbing pointer-events-auto"
+                            onClick={() => {
+                              if (draggingCol) return;
+                              let direction: 'asc' | 'desc' | null = 'asc';
+                              if (isActive) {
+                                if (sortConfig?.direction === 'asc') direction = 'desc';
+                                else direction = null;
+                              }
+                              setSortConfig(direction ? { key, direction } : null);
+                            }}
+                          >
+                            <GripVertical size={12} className={`mr-1 transition-opacity ${draggingCol ? 'opacity-100' : 'opacity-20 group-hover:opacity-100'}`} />
+                            <span className="truncate font-semibold text-foreground/80 group-hover:text-foreground">{label}</span>
+                            <div className="flex flex-col -space-y-1 shrink-0 ml-1">
+                              <ArrowUp size={8} className={isAsc ? 'text-primary' : 'opacity-10'} fill={isAsc ? 'currentColor' : 'none'} />
+                              <ArrowDown size={8} className={isDesc ? 'text-primary' : 'opacity-10'} fill={isDesc ? 'currentColor' : 'none'} />
+                            </div>
+                          </div>
+                          
+                          {/* Resize Handle */}
+                          <div 
+                            onMouseDown={(e) => handleResizeInit(e, key)}
+                            className={`absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary transition-colors z-20 pointer-events-auto
+                              ${resizing?.key === key ? 'bg-primary shadow-[0_0_8px_rgba(0,156,100,0.5)]' : ''}`}
                           />
                         </div>
-                      </div>
-                    </th>
-                  );
-                })}
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">메모</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">액션</th>
+                      </motion.th>
+                    );
+                  })}
+                </div>
+                <th className="flex-shrink-0 text-right px-4 py-3 font-medium text-muted-foreground flex items-center justify-end" style={{ width: 80 }}>액션</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="block">
               {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                    검색 결과가 없습니다.
-                  </td>
-                </tr>
+                <div className="px-4 py-8 text-center text-sm text-muted-foreground border-b border-border">
+                  검색 결과가 없습니다.
+                </div>
               ) : (
                 paginatedClients.map((client, index) => (
                   <tr
                     key={client.id}
-                    className="border-b border-border last:border-0 hover:bg-muted/5 transition-colors"
+                    className="flex border-b border-border last:border-0 hover:bg-muted/5 transition-colors"
                   >
-                    <td className="px-4 py-3 text-muted-foreground">{(currentPage - 1) * itemsPerPage + index + 1}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-sm flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ background: PRIMARY }}>
-                          {client.name.charAt(0)}
-                        </div>
-                        <div 
-                          className="font-medium text-foreground whitespace-nowrap cursor-pointer hover:underline"
-                          onClick={() => navigate(`/clients/detail/${client.id}`)}
-                        >
-                          {client.name}
-                        </div>
-                      </div>
+                    <td className="flex-shrink-0 px-4 py-3 text-muted-foreground flex items-center" style={{ width: 60 }}>
+                      {(currentPage - 1) * itemsPerPage + index + 1}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{client.phone || '-'}</td>
-                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{client.iap_to || '-'}</td>
-                    <td className="px-4 py-3">
-                      <select
-                        value={client.participation_stage || ''}
-                        onChange={e => handleStageUpdate(client.id, e.target.value)}
-                        className={`text-xs px-2 py-1 rounded-sm border-none focus:ring-0 cursor-pointer appearance-none ${stageColors[client.participation_stage || ''] || 'badge-active'}`}
-                        style={{ width: 'fit-content' }}
-                      >
-                        <option value="" disabled>단계 선택</option>
-                        {Object.keys(stageColors).map(s => (
-                          <option key={s} value={s} className="bg-background text-foreground">{s}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{client.participate_type || '-'}</td>
-                    <td className="px-4 py-3">
-                      {client.retest_stat != null
-                        ? <span className="font-semibold" style={{ color: PRIMARY }}>{client.retest_stat}</span>
-                        : <span className="text-muted-foreground">-</span>
-                      }
-                    </td>
-                    <td className="px-4 py-3">
-                      {/* Show only positive follow-up states so 0/null do not look like pending work. */}
-                      <span className="text-xs">{formatFollowUpStat(client)}</span>
-                    </td>
-                    <td className="px-4 py-3 max-w-[200px] truncate text-muted-foreground text-xs">
-                      {client.memo || '-'}
-                    </td>
-                    <td className="px-4 py-3 text-right">
+                    <div className="flex flex-1 overflow-hidden">
+                      {columnOrder.map(key => {
+                        const val = (client as any)[key];
+                        
+                        // Common cell properties for sliding
+                        const cellClass = "flex-shrink-0 px-4 py-3 flex items-center overflow-hidden";
+                        
+                        if (key === 'name') {
+                          return (
+                            <motion.td 
+                              key={key}
+                              layout
+                              transition={{ layout: { type: 'spring', damping: 30, stiffness: 500 } }}
+                              className={cellClass} 
+                              style={{ 
+                                width: `var(--col-width-${key})`, 
+                                minWidth: `var(--col-width-${key})`, 
+                                maxWidth: `var(--col-width-${key})` 
+                              }}
+                            >
+                              <div className="flex items-center gap-2 overflow-hidden w-full">
+                                <div className="w-7 h-7 rounded-sm flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ background: PRIMARY }}>
+                                  {client.name.charAt(0)}
+                                </div>
+                                <div 
+                                  className="font-medium text-foreground whitespace-nowrap cursor-pointer hover:underline truncate"
+                                  onClick={() => navigate(`/clients/detail/${client.id}`)}
+                                >
+                                  {client.name}
+                                </div>
+                              </div>
+                            </motion.td>
+                          );
+                        }
+
+                        if (key === 'participation_stage') {
+                          return (
+                            <motion.td 
+                              key={key}
+                              layout
+                              transition={{ layout: { type: 'spring', damping: 30, stiffness: 500 } }}
+                              className={cellClass} 
+                              style={{ 
+                                width: `var(--col-width-${key})`, 
+                                minWidth: `var(--col-width-${key})`, 
+                                maxWidth: `var(--col-width-${key})` 
+                              }}
+                            >
+                              <select
+                                value={client.participation_stage || ''}
+                                onChange={e => handleStageUpdate(client.id, e.target.value)}
+                                className={`text-xs px-2 py-1 rounded-sm border-none focus:ring-0 cursor-pointer appearance-none ${stageColors[client.participation_stage || ''] || 'badge-active'}`}
+                                style={{ width: 'fit-content' }}
+                              >
+                                <option value="" disabled>단계 선택</option>
+                                {Object.keys(stageColors).map(s => (
+                                  <option key={s} value={s} className="bg-background text-foreground">{s}</option>
+                                ))}
+                              </select>
+                            </motion.td>
+                          );
+                        }
+
+                        if (key === 'retest_stat') {
+                          return (
+                            <motion.td 
+                              key={key}
+                              layout
+                              transition={{ layout: { type: 'spring', damping: 30, stiffness: 500 } }}
+                              className={cellClass} 
+                              style={{ 
+                                width: `var(--col-width-${key})`, 
+                                minWidth: `var(--col-width-${key})`, 
+                                maxWidth: `var(--col-width-${key})` 
+                              }}
+                            >
+                              <div className="w-full">
+                                {client.retest_stat != null
+                                  ? <span className="font-semibold" style={{ color: PRIMARY }}>{client.retest_stat}</span>
+                                  : <span className="text-muted-foreground">-</span>
+                                }
+                              </div>
+                            </motion.td>
+                          );
+                        }
+
+                        if (key === 'continue_serv_1_stat') {
+                          return (
+                            <motion.td 
+                              key={key}
+                              layout
+                              transition={{ layout: { type: 'spring', damping: 30, stiffness: 500 } }}
+                              className={cellClass} 
+                              style={{ 
+                                width: `var(--col-width-${key})`, 
+                                minWidth: `var(--col-width-${key})`, 
+                                maxWidth: `var(--col-width-${key})` 
+                              }}
+                            >
+                              <span className="text-xs truncate">{formatFollowUpStat(client)}</span>
+                            </motion.td>
+                          );
+                        }
+
+                        if (key === 'memo') {
+                          return (
+                            <motion.td 
+                              key={key}
+                              layout
+                              transition={{ layout: { type: 'spring', damping: 30, stiffness: 500 } }}
+                              className={`${cellClass} text-muted-foreground text-xs`} 
+                              style={{ 
+                                width: `var(--col-width-${key})`, 
+                                minWidth: `var(--col-width-${key})`, 
+                                maxWidth: `var(--col-width-${key})` 
+                              }}
+                            >
+                              <div className="truncate w-full">{client.memo || '-'}</div>
+                            </motion.td>
+                          );
+                        }
+
+                        return (
+                          <motion.td 
+                            key={key}
+                            layout
+                            transition={{ layout: { type: 'spring', damping: 30, stiffness: 500 } }}
+                            className={`${cellClass} text-muted-foreground whitespace-nowrap`} 
+                            style={{ 
+                              width: `var(--col-width-${key})`, 
+                              minWidth: `var(--col-width-${key})`, 
+                              maxWidth: `var(--col-width-${key})` 
+                            }}
+                          >
+                            <div className="truncate w-full">{val || '-'}</div>
+                          </motion.td>
+                        );
+                      })}
+                    </div>
+                    <td className="flex-shrink-0 px-4 py-3 text-right flex items-center justify-end" style={{ width: 80 }}>
                       <button
                         onClick={e => { e.stopPropagation(); navigate(`/clients/detail/${client.id}`); }}
                         className="p-1.5 rounded-sm hover:bg-muted transition-colors"
