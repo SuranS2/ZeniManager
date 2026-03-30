@@ -9,10 +9,10 @@ import { ROLE_COUNSELOR } from '@shared/const';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePageGuard } from '@/hooks/usePageGuard';
 import {
-  Search, Plus, X, ChevronRight, Phone, User,
-  Edit3, ClipboardList, Loader2, Trash2, Save,
-  AlertTriangle, RefreshCw
-} from 'lucide-react';
+   Search, Plus, X, ChevronRight, ChevronLeft, Phone, User,
+   Edit3, ClipboardList, Loader2, Trash2, Save,
+   AlertTriangle, RefreshCw, ArrowUp, ArrowDown
+ } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchClients, fetchSessions, createSession, deleteSession, fetchSurveys, createSurvey, updateClient } from '@/lib/api';
 import { syncEmploymentSuccessCase } from '@/lib/employmentSuccessCase';
@@ -644,6 +644,9 @@ export default function ClientList() {
   const [filter, setFilter] = useState<FilterType>('all');
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const itemsPerPage = 20;
   const deepLinkHandledRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -659,6 +662,10 @@ export default function ClientList() {
   }, [user]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filter]);
 
   const handleStageUpdate = async (clientId: string, newStage: string) => {
     try {
@@ -710,6 +717,26 @@ export default function ClientList() {
       filter === 'employed' ? isEmploymentCompleted(c) : true;
     return matchSearch && matchFilter;
   });
+
+  // Sorting logic
+  const sortedData = [...filtered].sort((a, b) => {
+    if (!sortConfig) return 0;
+    const { key, direction } = sortConfig;
+
+    let aValue: any = (a as any)[key];
+    let bValue: any = (b as any)[key];
+
+    // Special handling for null/empty values
+    if (aValue == null) aValue = '';
+    if (bValue == null) bValue = '';
+
+    if (aValue < bValue) return direction === 'asc' ? -1 : 1;
+    if (aValue > bValue) return direction === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
+  const paginatedClients = sortedData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   const counts = {
     all: clients.length,
@@ -775,14 +802,56 @@ export default function ClientList() {
             <table className="w-full text-sm min-w-[1000px]">
             <thead>
               <tr className="border-b border-border bg-muted/30">
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">순번</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">이름</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">연락처</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">IAP 수립일</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground shrink-0">취업단계</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">사업유형</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">점수</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">사후관리</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-16">순번</th>
+                {[
+                  { key: 'name', label: '이름' },
+                  { key: 'phone', label: '연락처' },
+                  { key: 'iap_to', label: 'IAP 수립일' },
+                  { key: 'participation_stage', label: '취업단계' },
+                  { key: 'participate_type', label: '사업유형' },
+                  { key: 'retest_stat', label: '점수' },
+                  { key: 'continue_serv_1_stat', label: '사후관리' },
+                ].map(col => {
+                  const isActive = sortConfig?.key === col.key;
+                  const isAsc = isActive && sortConfig?.direction === 'asc';
+                  const isDesc = isActive && sortConfig?.direction === 'desc';
+
+                  return (
+                    <th
+                      key={col.key}
+                      onClick={() => {
+                        let direction: 'asc' | 'desc' | null = 'asc';
+                        if (isActive) {
+                          if (sortConfig.direction === 'asc') direction = 'desc';
+                          else direction = null;
+                        }
+
+                        if (direction) {
+                          setSortConfig({ key: col.key, direction });
+                        } else {
+                          setSortConfig(null);
+                        }
+                      }}
+                      className="text-left px-4 py-3 font-medium text-muted-foreground cursor-pointer hover:text-foreground hover:bg-muted/50 transition-all select-none"
+                    >
+                      <div className="flex items-center gap-1">
+                        {col.label}
+                        <div className="flex flex-col -space-y-1">
+                          <ArrowUp
+                            size={10}
+                            className={`transition-colors ${isAsc ? 'text-primary' : 'opacity-20'}`}
+                            fill={isAsc ? 'currentColor' : 'none'}
+                          />
+                          <ArrowDown
+                            size={10}
+                            className={`transition-colors ${isDesc ? 'text-primary' : 'opacity-20'}`}
+                            fill={isDesc ? 'currentColor' : 'none'}
+                          />
+                        </div>
+                      </div>
+                    </th>
+                  );
+                })}
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">메모</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">액션</th>
               </tr>
@@ -795,18 +864,18 @@ export default function ClientList() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((client, index) => (
+                paginatedClients.map((client, index) => (
                   <tr
                     key={client.id}
                     className="border-b border-border last:border-0 hover:bg-muted/5 transition-colors"
                   >
-                    <td className="px-4 py-3 text-muted-foreground">{index + 1}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{(currentPage - 1) * itemsPerPage + index + 1}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-sm flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ background: PRIMARY }}>
                           {client.name.charAt(0)}
                         </div>
-                        <div 
+                        <div
                           className="font-medium text-foreground whitespace-nowrap cursor-pointer hover:underline"
                           onClick={event => {
                             event.stopPropagation();
@@ -863,6 +932,36 @@ export default function ClientList() {
         </div>
         )}
       </div>
+
+      {/* Pagination Fix Outside Table Container */}
+      {!loading && filtered.length > 0 && (
+        <div className="flex items-center justify-between px-4 py-3 bg-card border border-border rounded-md shadow-sm">
+          <div className="text-sm text-muted-foreground">
+            전체 <span className="font-medium text-foreground">{filtered.length}</span>명 중 {(currentPage - 1) * itemsPerPage + 1}-{(Math.min(currentPage * itemsPerPage, filtered.length))}명 표시
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="p-1.5 rounded-sm border border-border hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <div className="flex items-center px-2">
+              <span className="text-sm font-medium pr-1">{currentPage}</span>
+              <span className="text-sm text-muted-foreground">/ {totalPages}</span>
+            </div>
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="p-1.5 rounded-sm border border-border hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
