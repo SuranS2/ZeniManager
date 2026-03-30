@@ -2,9 +2,7 @@
  * electron/main.js
  * Electron Main Process for 상담 관리 시스템 (Zeniel)
  *
-
  * - Dev mode: loads Vite dev server from ELECTRON_RENDERER_URL (default: http://localhost:5181)
-
  * - Production: loads built index.html from dist/public
  */
 const {
@@ -756,22 +754,23 @@ ipcMain.handle("summary-analysis:save", async (_, payload) => {
   }
 });
 
-ipcMain.handle("admin-register-counselor", async (event, counselorData) => {
+ipcMain.handle("admin-register-counselor", async (event, payload) => {
   try {
-    const supabaseAdminClient = getSupabaseAdminClient();
-    if (!supabaseAdminClient) {
-      return {
-        success: false,
-        error:
-          "Supabase 관리자 설정이 없습니다. Settings에서 Supabase URL과 Service Role Key를 저장하세요.",
-      };
+    const { supabaseUrl, serviceRoleKey, email, password, user_name, department } = payload;
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      return { success: false, error: "Supabase URL 또는 Service Role Key가 없습니다." };
     }
+
+    const supabaseAdminClient = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
 
     // 1. Auth: 이메일과 비밀번호로 계정 생성
     const { data: authData, error: authError } =
       await supabaseAdminClient.auth.admin.createUser({
-        email: counselorData.email,
-        password: counselorData.password,
+        email,
+        password,
         email_confirm: true, // 생성 즉시 이메일 인증 통과 처리
       });
 
@@ -782,8 +781,8 @@ ipcMain.handle("admin-register-counselor", async (event, counselorData) => {
       {
         user_id: authData.user.id,
         role: 5,
-        user_name: counselorData.user_name,
-        department: counselorData.department,
+        user_name,
+        department,
       },
     ]);
 
@@ -797,28 +796,35 @@ ipcMain.handle("admin-register-counselor", async (event, counselorData) => {
 });
 
 // 관리자 권한으로 상담사 완전 삭제
-ipcMain.handle("admin-delete-counselor", async (event, userId) => {
+ipcMain.handle("admin-delete-counselor", async (event, payload) => {
   try {
-    const supabaseAdminClient = getSupabaseAdminClient();
-    if (!supabaseAdminClient) {
-      return {
-        success: false,
-        error:
-          "Supabase 관리자 설정이 없습니다. Settings에서 Supabase URL과 Service Role Key를 저장하세요.",
-      };
+    const { supabaseUrl, serviceRoleKey, userId } = payload;
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      return { success: false, error: "Supabase URL 또는 Service Role Key가 없습니다." };
     }
+
+    // 🚨 방어 코드: 프론트엔드나 IPC 브릿지에서 userId가 객체 형태로 잘못 넘어올 경우 강제로 문자열(UUID)만 추출
+    let targetId = userId;
+    if (typeof userId === 'object' && userId !== null) {
+      targetId = userId.userId || userId.user_id || userId.id || String(userId);
+    }
+    targetId = String(targetId);
+
+    const supabaseAdminClient = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
 
     // 1. public.user 테이블에서 프로필 정보 먼저 삭제 (외래키 충돌 방지)
     const { error: dbError } = await supabaseAdminClient
       .from("user")
       .delete()
-      .eq("user_id", userId);
+      .eq("user_id", targetId);
 
     if (dbError) throw dbError;
 
     // 2. auth.users 테이블에서 로그인 계정 완전 삭제
-    const { error: authError } =
-      await supabaseAdminClient.auth.admin.deleteUser(userId);
+    const { error: authError } = await supabaseAdminClient.auth.admin.deleteUser(targetId);
 
     if (authError) throw authError;
 

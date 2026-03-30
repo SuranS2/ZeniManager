@@ -3,7 +3,7 @@
  * All functions require Supabase to be configured.
  * Mock data has been removed.
  */
-import { normalizeAppRole } from '@shared/const';
+import { ROLE_COUNSELOR, normalizeAppRole } from '@shared/const';
 import { getSupabaseClient, isSupabaseConfigured } from './supabase';
 import type {
   ClientRow, ClientInsert,
@@ -12,6 +12,10 @@ import type {
   SurveyRow, SurveyInsert,
   MemoCardRow, MemoCardInsert,
 } from './supabase';
+import {
+  MOCK_CLIENTS, MOCK_COUNSELORS, INITIAL_KANBAN,
+  type Client, type Counselor, type Session,
+} from './mockData';
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
@@ -211,6 +215,7 @@ export async function createClient(input: any): Promise<ClientRow> {
     participation_type: input.participation_type,
     participation_stage: input.participation_stage,
     memo: input.memo,
+    email: input.email, // 이메일 필드 추가
   };
 
   const { data, error } = await sb()
@@ -220,7 +225,6 @@ export async function createClient(input: any): Promise<ClientRow> {
     .single();
 
   if (error) throw error;
-  return liveClientToRow(data as LiveClientRecord);
   return liveClientToRow(data as LiveClientRecord);
 }
 
@@ -295,6 +299,7 @@ export async function createSession(input: SessionInsert): Promise<SessionRow> {
     memo: input.memo || null,
   };
 
+  // 1. 상담 기록 저장
   const { data, error } = await sb()
     .from('counsel_history')
     .insert(payload)
@@ -302,7 +307,63 @@ export async function createSession(input: SessionInsert): Promise<SessionRow> {
     .single();
 
   if (error) throw error;
+
+  // 2. 상담 유형에 따른 내담자 참여 단계 자동 업데이트
+  const autoStages: Record<string, string> = {
+    '초기상담': '초기상담',
+    '심층상담': '심층상담',
+    '취업지원': '취업지원',
+    '취업완료': '취업완료',
+    '사후관리': '사후관리',
+  };
+
+  const nextStage = autoStages[payload.counsel_type];
+  if (nextStage) {
+    await sb()
+      .from('client')
+      .update({ participation_stage: nextStage })
+      .eq('client_id', numericClientId);
+  }
+
   return liveCounselHistoryToSessionRow(data as LiveCounselHistoryRecord);
+}
+
+/**
+ * 참여수당 이력 저장 (allowance_log)
+ */
+export async function createAllowanceLog(input: {
+  client_id: string;
+  round: number;
+  start_date: string;
+  end_date: string;
+  apply_date: string;
+  has_income: boolean;
+  family_allowance_count: number;
+  expected_payment_date: string;
+  is_paid: boolean;
+}) {
+  if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
+
+  const payload = {
+    client_id: Number(input.client_id),
+    round: input.round,
+    start_date: input.start_date,
+    end_date: input.end_date,
+    apply_date: input.apply_date,
+    has_income: input.has_income,
+    family_allowance_count: input.family_allowance_count,
+    expected_payment_date: input.expected_payment_date,
+    is_paid: input.is_paid,
+  };
+
+  const { data, error } = await sb()
+    .from('allowance_log')
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
 }
 
 export async function updateSession(id: string, input: Partial<SessionInsert>): Promise<void> {
@@ -618,3 +679,105 @@ function liveCounselHistoryToSessionRow(row: LiveCounselHistoryRecord): SessionR
 
 // encodeSessionPayload 외부 노출 (ClientDetail 등에서 사용 가능)
 export { encodeSessionPayload };
+
+// ─── Mock → Row converters ────────────────────────────────────────────────────
+
+function mockClientToRow(c: Client): ClientRow {
+  return {
+    id: c.id,
+    seq_no: null,
+    year: new Date(c.registeredAt).getFullYear(),
+    assignment_type: null,
+    name: c.name,
+    resident_id_masked: null,
+    phone: c.phone,
+    last_counsel_date: c.sessions.at(-1)?.date ?? null,
+    age: c.age,
+    gender: c.gender,
+    business_type: null,
+    participation_type: null,
+    participation_stage: c.processStage,
+    competency_grade: null,
+    recognition_date: null,
+    desired_job: null,
+    counsel_notes: c.notes ?? null,
+    address: null,
+    school: null,
+    major: null,
+    education_level: null,
+    initial_counsel_date: c.registeredAt,
+    iap_date: null,
+    iap_duration: null,
+    allowance_apply_date: null,
+    rediagnosis_date: null,
+    rediagnosis_yn: null,
+    work_exp_type: null,
+    work_exp_intent: null,
+    work_exp_company: null,
+    work_exp_period: null,
+    work_exp_completed: null,
+    training_name: null,
+    training_start: null,
+    training_end: null,
+    training_allowance: null,
+    intensive_start: null,
+    intensive_end: null,
+    support_end_date: null,
+    employment_type: c.employmentStatus === '취업완료' ? '본인' : null,
+    employment_date: null,
+    employer: null,
+    job_title: null,
+    salary: null,
+    employment_duration: null,
+    resignation_date: null,
+    retention_1m_date: null,
+    retention_1m_yn: null,
+    retention_6m_date: null,
+    retention_6m_yn: null,
+    retention_12m_date: null,
+    retention_12m_yn: null,
+    retention_18m_date: null,
+    retention_18m_yn: null,
+    counselor_name: c.counselorName,
+    counselor_id: c.counselorId,
+    branch: c.branch,
+    follow_up: c.followUp,
+    score: c.score ?? null,
+    iap_to: null,
+    retest_stat: null,
+    continue_serv_1_stat: null,
+    driving_yn: null,
+    own_car_yn: null,
+    memo: null,
+    participate_type: null,
+    created_at: c.registeredAt,
+    update_at: c.registeredAt,
+  };
+}
+
+function mockSessionToRow(s: Session, clientId: string): SessionRow {
+  return {
+    id: s.id,
+    client_id: clientId,
+    date: s.date,
+    type: s.type,
+    content: s.content,
+    counselor_name: s.counselorName,
+    counselor_id: null,
+    next_action: s.nextAction ?? null,
+    session_number: null,
+    created_at: s.date,
+  };
+}
+
+function mockCounselorToRow(c: Counselor): CounselorRow {
+  return {
+    user_id: c.user_id,
+    user_name: c.user_name,
+    department: c.department,
+    memo: c.memo || null,
+    role: normalizeAppRole(c.role),
+    client_count: c.clientCount,
+    completed_count: c.completedCount,
+  };
+}

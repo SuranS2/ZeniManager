@@ -3,11 +3,11 @@
  * Design: 모던 웰니스 미니멀리즘
  * Data: Supabase API with mock fallback
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { usePageGuard } from '@/hooks/usePageGuard';
-import { fetchClients, fetchCounselors } from '@/lib/api'; // ✅ fetchCounselors 추가
-import type { ClientRow } from '@/lib/supabase';
-import { Search, Download, Filter, RefreshCw } from 'lucide-react';
+import { fetchClients, fetchCounselors, createClient } from '@/lib/api'; // ✅ createClient 추가
+import type { ClientRow, CounselorRow } from '@/lib/supabase';
+import { Search, Download, Upload, Filter, RefreshCw, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const PRIMARY_HEX = '#009C64';
@@ -23,27 +23,28 @@ const stageColors: Record<string, string> = {
 export default function AdminClientList() {
   const { canRender } = usePageGuard('admin');
   const [clients, setClients] = useState<ClientRow[]>([]);
+  const [counselors, setCounselors] = useState<CounselorRow[]>([]); // ✅ 매핑용 상담사 목록 상태 추가
   const [loading, setLoading] = useState(true);
+  const [importing, setImporting] = useState(false); // ✅ CSV 업로드 로딩 상태
   const [search, setSearch] = useState('');
   const [branchFilter, setBranchFilter] = useState('all');
   const [stageFilter, setStageFilter] = useState('all');
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const loadClients = () => {
     setLoading(true);
-    // ✅ fetchClients와 fetchCounselors를 동시에 호출
     Promise.all([fetchClients(), fetchCounselors()])
       .then(([clientsData, counselorsData]) => {
-        // 상담사 정보를 찾기 쉽게 Map 객체로 변환 (키: user_id, 값: 상담사 데이터)
+        setCounselors(counselorsData); // 상담사 목록 저장
+
         const counselorMap = new Map(counselorsData.map(c => [c.user_id, c]));
 
-        // client 데이터에 상담사 이름(user_name)과 지점(department) 매핑
         const enrichedClients = clientsData.map(client => {
           const counselor = client.counselor_id ? counselorMap.get(client.counselor_id) : undefined;
           return {
             ...client,
-            // 매칭되는 상담사가 있으면 user_name, 없으면 null (화면에서 '-'로 표시됨)
             counselor_name: counselor ? counselor.user_name : null,
-            // 지점 필터링도 정상 작동하도록 department 값 매핑
             branch: counselor && counselor.department ? counselor.department : null
           };
         });
@@ -72,8 +73,8 @@ export default function AdminClientList() {
     return matchSearch && matchBranch && matchStage;
   });
 
+  // ─── CSV 내보내기 ───
   const handleExport = () => {
-    // Build CSV from filtered data
     const headers = ['이름', '성별', '나이', '연락처', '담당상담사', '지점', '참여단계', '사업유형', '취업구분', '취업일자'];
     const rows = filtered.map(c => [
       c.name,
@@ -98,23 +99,127 @@ export default function AdminClientList() {
     toast.success('CSV 파일이 다운로드되었습니다.');
   };
 
+  // ─── CSV 가져오기 (추가하기) ───
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    const reader = new FileReader();
+
+    // 한국어 윈도우 엑셀의 기본 인코딩(EUC-KR)을 우선 적용하여 한글 깨짐 방지
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const rows = text.split('\n').filter(r => r.trim());
+        if (rows.length < 2) throw new Error("데이터가 없거나 부족합니다.");
+
+        // CSV 정규식 파서: 쌍따옴표 안의 쉼표는 무시하고 분리
+        const parseRow = (rowStr: string) => 
+          rowStr.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(s => s.replace(/^"|"$/g, '').trim());
+
+        const headers = parseRow(rows[0]);
+        const nameIdx = headers.indexOf('이름');
+        const phoneIdx = headers.indexOf('연락처');
+
+        if (nameIdx === -1 || phoneIdx === -1) {
+          throw new Error("'이름'과 '연락처' 열이 필수적으로 포함되어 있어야 합니다.");
+        }
+
+        let successCount = 0;
+        let failCount = 0;
+
+        toast.info(`총 ${rows.length - 1}개의 데이터 처리를 시작합니다...`);
+
+        // DB 부하 방지를 위해 순차적(await)으로 API 호출
+        for (let i = 1; i < rows.length; i++) {
+          const cols = parseRow(rows[i]);
+          if (cols.length < 2 || !cols[nameIdx]) continue; // 빈 줄 무시
+
+          const name = cols[nameIdx];
+          const phone = cols[phoneIdx];
+          const genderRaw = headers.indexOf('성별') !== -1 ? cols[headers.indexOf('성별')] : '';
+          const ageRaw = headers.indexOf('나이') !== -1 ? cols[headers.indexOf('나이')] : '';
+          const counselorName = headers.indexOf('담당상담사') !== -1 ? cols[headers.indexOf('담당상담사')] : '';
+          const stageRaw = headers.indexOf('참여단계') !== -1 ? cols[headers.indexOf('참여단계')] : '';
+          const bizTypeRaw = headers.indexOf('사업유형') !== -1 ? cols[headers.indexOf('사업유형')] : '';
+          const empTypeRaw = headers.indexOf('취업구분') !== -1 ? cols[headers.indexOf('취업구분')] : '';
+          
+          // 담당상담사 이름으로 user_id 찾기
+          const matchedCounselor = counselors.find(c => c.user_name === counselorName);
+
+          try {
+            await createClient({
+              name,
+              phone,
+              gender: genderRaw === '남' ? '남' : (genderRaw === '여' ? '여' : null),
+              age: parseInt(ageRaw) || null,
+              counselor_id: matchedCounselor ? matchedCounselor.user_id : undefined,
+              participation_stage: stageRaw || undefined,
+              business_type: bizTypeRaw || undefined,
+              employment_type: empTypeRaw || undefined,
+            });
+            successCount++;
+          } catch (err) {
+            console.error(`Failed to import client [${name}]:`, err);
+            failCount++;
+          }
+        }
+
+        if (failCount === 0) {
+          toast.success(`${successCount}명의 상담자 데이터가 성공적으로 추가되었습니다.`);
+        } else {
+          toast.warning(`${successCount}명 성공, ${failCount}명 실패했습니다.`);
+        }
+        
+        loadClients(); // 전체 목록 새로고침
+      } catch (err: any) {
+        toast.error('CSV 처리 중 오류: ' + err.message);
+      } finally {
+        setImporting(false);
+        if (fileInputRef.current) fileInputRef.current.value = ''; // input 초기화
+      }
+    };
+
+    reader.readAsText(file, 'euc-kr');
+  };
+
   if (!canRender) return null;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-foreground">상담자 목록</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             전체 {clients.length}명 · 검색 결과 {filtered.length}명
           </p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={loadClients} className="btn-cancel flex items-center gap-1.5" disabled={loading}>
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={loadClients} className="btn-cancel flex items-center gap-1.5" disabled={loading || importing}>
+            <RefreshCw size={14} className={loading && !importing ? 'animate-spin' : ''} />
             새로고침
           </button>
-          <button onClick={handleExport} className="btn-cancel flex items-center gap-1.5">
+          
+          {/* 숨겨진 파일 인풋 */}
+          <input 
+            type="file" 
+            accept=".csv" 
+            ref={fileInputRef} 
+            onChange={handleFileUpload} 
+            style={{ display: 'none' }} 
+          />
+          
+          <button onClick={handleImportClick} className="btn-primary flex items-center gap-1.5" disabled={importing || loading}>
+            {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+            CSV 추가하기
+          </button>
+
+          <button onClick={handleExport} className="btn-cancel flex items-center gap-1.5" disabled={loading || importing}>
             <Download size={14} />
             CSV 내보내기
           </button>
@@ -161,7 +266,7 @@ export default function AdminClientList() {
       </div>
 
       <div className="bg-card rounded-md shadow-sm border border-border overflow-hidden">
-        {loading ? (
+        {loading && !importing ? (
           <div className="flex items-center justify-center py-16 text-muted-foreground text-sm gap-2">
             <RefreshCw size={16} className="animate-spin" />
             데이터 로딩 중...
