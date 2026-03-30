@@ -2,9 +2,9 @@
  * Admin Counselor List Page (상담사 목록)
  * Data: Supabase API (mock fallback when not configured) & Electron IPC for Registration/Deletion
  */
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ROLE_ADMIN, ROLE_COUNSELOR, isAdminRole, type AppRole } from '@shared/const';
-import { Search, Plus, Edit3, Trash2, X, Loader2, RefreshCw, AlertTriangle, Eye, Target, Users, TrendingUp } from 'lucide-react';
+import { Search, Plus, Edit3, Trash2, X, Loader2, RefreshCw, AlertTriangle, Eye, Target, Users, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePageGuard } from '@/hooks/usePageGuard';
 import { fetchCounselors, updateCounselor, fetchClients } from '@/lib/api';
@@ -13,6 +13,8 @@ import { isSupabaseConfigured, getSupabaseUrl, getSupabaseServiceRoleKey } from 
 import { useElectron } from '@/hooks/useElectron';
 
 const PRIMARY_HEX = '#009C64';
+const ITEMS_PER_PAGE = 20;
+
 const STAGE_COLORS = {
   '초기상담': '#4299E1',
   '심층상담': '#9F7AEA',
@@ -382,6 +384,16 @@ export default function CounselorList() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // 🚨 스크롤 타겟용 Ref 추가
+  const topRef = useRef<HTMLDivElement>(null);
+
+  // 🚨 페이지가 변경될 때마다 topRef 위치로 스크롤
+  useEffect(() => {
+    topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [currentPage]);
+
   const [showModal, setShowModal] = useState(false);
   const [editTarget, setEditTarget] = useState<CounselorRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CounselorRow | null>(null);
@@ -423,13 +435,22 @@ export default function CounselorList() {
     return Array.from(new Set(branches)).sort();
   }, [counselors]);
 
-  // 🚨 오너(0) 등 다른 권한을 완벽히 제외하고, 오직 "상담사(5)" 권한만 목록에 표시하도록 수정
   const counselorOnlyList = counselors.filter(c => Number(c.role) === 5);
 
   const filtered = counselorOnlyList.filter(c =>
     !search ||
     c.user_name.toLowerCase().includes(search.toLowerCase()) ||
     (c.department || '').includes(search)
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search]);
+
+  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
+  const paginatedData = filtered.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
   );
 
   const handleSave = async (form: CounselorForm) => {
@@ -441,7 +462,7 @@ export default function CounselorList() {
         const newC: CounselorRow = {
           user_id: `demo_${Date.now()}`,
           ...form,
-          role: 5, // 🚨 신규 생성 시 상담사(5) 권한 부여
+          role: 5,
           client_count: 0,
           completed_count: 0,
         };
@@ -459,7 +480,7 @@ export default function CounselorList() {
           user_name: form.user_name,
           department: form.department,
           memo: form.memo,
-          role: editTarget.role // 🚨 기존 권한 유지
+          role: editTarget.role
         } as any);
         
         setCounselors(prev => prev.map(c => c.user_id === updated.user_id ? { ...updated, client_count: c.client_count, completed_count: c.completed_count } : c));
@@ -546,7 +567,7 @@ export default function CounselorList() {
   if (!canRender) return null;
 
   return (
-    <div className="space-y-4">
+    <div ref={topRef} className="space-y-4"> {/* 🚨 최상단 div에 ref를 부착합니다 */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-foreground">상담사 목록</h1>
@@ -582,82 +603,114 @@ export default function CounselorList() {
         </div>
       </div>
 
-      <div className="bg-card rounded-md shadow-sm border border-border overflow-hidden">
+      <div className="bg-card rounded-md shadow-sm border border-border flex flex-col overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 size={20} className="animate-spin text-muted-foreground mr-2" />
             <span className="text-sm text-muted-foreground">데이터 로드 중...</span>
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/30">
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">이름</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">지점</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">담당 인원</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">취업 완료</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">역할</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">상세/수정/삭제</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                    {search ? '검색 결과가 없습니다.' : '등록된 상담사가 없습니다.'}
-                  </td>
-                </tr>
-              ) : (
-                filtered.map(c => (
-                  <tr key={c.user_id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2 cursor-pointer" onClick={() => setDetailTarget(c)}>
-                        <div className="w-8 h-8 rounded-sm flex items-center justify-center text-white text-sm font-bold flex-shrink-0" style={{ background: PRIMARY_HEX }}>
-                          {c.user_name.charAt(0)}
-                        </div>
-                        <div className="font-medium text-foreground hover:underline">{c.user_name}</div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{c.department || '-'}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-foreground">{c.client_count ?? 0}</td>
-                    <td className="px-4 py-3 text-right">
-                      <span style={{ color: PRIMARY_HEX }} className="font-semibold">{c.completed_count ?? 0}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={isAdminRole(c.role) ? 'badge-pending' : 'badge-active'}>
-                        {isAdminRole(c.role) ? '관리자' : '상담사'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => setDetailTarget(c)}
-                          className="p-1.5 rounded-sm hover:bg-muted transition-colors inline-flex items-center text-muted-foreground"
-                          title="상세보기"
-                        >
-                          <Eye size={14} />
-                        </button>
-                        <button
-                          onClick={() => { setEditTarget(c); setShowModal(true); }}
-                          className="p-1.5 rounded-sm hover:bg-muted transition-colors inline-flex items-center text-muted-foreground"
-                          title="수정"
-                        >
-                          <Edit3 size={14} />
-                        </button>
-                        <button
-                          onClick={() => setDeleteTarget(c)}
-                          className="p-1.5 rounded-sm hover:bg-destructive/10 transition-colors text-destructive inline-flex items-center"
-                          title="삭제"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </td>
+          <>
+            <div className="overflow-x-auto flex-1">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">이름</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">지점</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">담당 인원</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">상담 완료</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">역할</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">상세/수정/삭제</th>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                </thead>
+                <tbody>
+                  {paginatedData.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        {search ? '검색 결과가 없습니다.' : '등록된 상담사가 없습니다.'}
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedData.map(c => (
+                      <tr key={c.user_id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2 cursor-pointer" onClick={() => setDetailTarget(c)}>
+                            <div className="w-8 h-8 rounded-sm flex items-center justify-center text-white text-sm font-bold flex-shrink-0" style={{ background: PRIMARY_HEX }}>
+                              {c.user_name.charAt(0)}
+                            </div>
+                            <div className="font-medium text-foreground hover:underline">{c.user_name}</div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">{c.department || '-'}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-foreground">{c.client_count ?? 0}</td>
+                        <td className="px-4 py-3 text-right">
+                          <span style={{ color: PRIMARY_HEX }} className="font-semibold">{c.completed_count ?? 0}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={isAdminRole(c.role) ? 'badge-pending' : 'badge-active'}>
+                            {isAdminRole(c.role) ? '관리자' : '상담사'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => setDetailTarget(c)}
+                              className="p-1.5 rounded-sm hover:bg-muted transition-colors inline-flex items-center text-muted-foreground"
+                              title="상세보기"
+                            >
+                              <Eye size={14} />
+                            </button>
+                            <button
+                              onClick={() => { setEditTarget(c); setShowModal(true); }}
+                              className="p-1.5 rounded-sm hover:bg-muted transition-colors inline-flex items-center text-muted-foreground"
+                              title="수정"
+                            >
+                              <Edit3 size={14} />
+                            </button>
+                            <button
+                              onClick={() => setDeleteTarget(c)}
+                              className="p-1.5 rounded-sm hover:bg-destructive/10 transition-colors text-destructive inline-flex items-center"
+                              title="삭제"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/10">
+                <div className="text-sm text-muted-foreground">
+                  총 <span className="font-medium text-foreground">{filtered.length}</span>건 중 {(currentPage - 1) * ITEMS_PER_PAGE + 1}-
+                  {Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)} 표시
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                    className="p-1.5 rounded-sm border border-border bg-background hover:bg-muted disabled:opacity-50 transition-colors"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span className="text-sm font-medium px-2 text-foreground">
+                    {currentPage} <span className="text-muted-foreground font-normal">/ {totalPages}</span>
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                    className="p-1.5 rounded-sm border border-border bg-background hover:bg-muted disabled:opacity-50 transition-colors"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
