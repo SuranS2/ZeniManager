@@ -414,6 +414,50 @@ export default function ClientDetail() {
         </div>
       </div>
 
+      {/* Progress Board */}
+      <div className="bg-card border border-border rounded-md p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+            <ClipboardList size={14} className="text-primary" />
+            참여 진행도
+          </h3>
+          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+            현재 단계: {client.participation_stage || '미정'}
+          </span>
+        </div>
+        
+        <div className="relative flex items-center justify-between px-2">
+          {/* Background Line */}
+          <div className="absolute left-0 right-0 h-0.5 bg-muted top-1/2 -translate-y-1/2 z-0 mx-8"></div>
+          
+          {['초기상담', '심층상담', '취업지원', '취업완료', '사후관리'].map((stage, idx, arr) => {
+            const currentIdx = ['초기상담', '심층상담', '취업지원', '취업완료', '사후관리'].indexOf(client.participation_stage || '초기상담');
+            const isActive = idx <= currentIdx;
+            const isCurrent = idx === currentIdx;
+            
+            return (
+              <div key={stage} className="relative z-10 flex flex-col items-center gap-2 flex-1">
+                <div 
+                  className={`w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
+                    isActive ? 'bg-primary border-primary text-white' : 'bg-background border-muted text-muted-foreground'
+                  } ${isCurrent ? 'ring-4 ring-primary/20 scale-110' : ''}`}
+                >
+                  {isActive && idx < currentIdx ? <Check size={12} strokeWidth={3} /> : <span className="text-[10px] font-bold">{idx + 1}</span>}
+                </div>
+                <span className={`text-[11px] font-bold transition-all ${isActive ? 'text-primary' : 'text-muted-foreground'}`}>
+                  {stage}
+                </span>
+                
+                {/* Active Progress Line */}
+                {idx < arr.length - 1 && idx < currentIdx && (
+                  <div className="absolute left-1/2 w-full h-0.5 bg-primary top-3 -translate-y-1/2 -z-10 translate-x-3"></div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Tabs */}
       <div className="flex border-b border-border bg-card rounded-t-md px-2 overflow-x-auto">
         {[
