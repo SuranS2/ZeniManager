@@ -33,26 +33,39 @@ declare global {
         title?: string;
       }) => Promise<{ canceled: boolean; filePath?: string }>;
       showMessage: (options: {
-        type?: 'none' | 'info' | 'error' | 'question' | 'warning';
+        type?: "none" | "info" | "error" | "question" | "warning";
         title?: string;
         message: string;
         detail?: string;
         buttons?: string[];
       }) => Promise<{ response: number }>;
       openExternal: (url: string) => Promise<void>;
+      convertHwpToPdf: (payload: {
+        fileName: string;
+        data: Uint8Array;
+      }) => Promise<{
+        fileName: string;
+        method: string;
+        data: Uint8Array;
+      }>;
       onNavigate: (callback: (path: string) => void) => () => void;
       platform: string;
       isElectron: boolean;
       // 상담사 등록 API
-      adminRegisterCounselor: (data: CounselorRegisterData) => Promise<{ success: boolean; error?: string }>;
+      adminRegisterCounselor: (
+        data: CounselorRegisterData
+      ) => Promise<{ success: boolean; error?: string }>;
       // 상담사 삭제 API
-      adminDeleteCounselor: (userId: string) => Promise<{ success: boolean; error?: string }>;
+      adminDeleteCounselor: (
+        userId: string
+      ) => Promise<{ success: boolean; error?: string }>;
     };
   }
 }
 
 export function useElectron() {
-  const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
+  const isElectron =
+    typeof window !== "undefined" && !!window.electronAPI?.isElectron;
   const api = window.electronAPI;
 
   return {
@@ -60,7 +73,7 @@ export function useElectron() {
     isElectron,
 
     /** Current platform: 'win32' | 'darwin' | 'linux' | 'web' */
-    platform: isElectron ? (api?.platform ?? 'web') : 'web',
+    platform: isElectron ? (api?.platform ?? "web") : "web",
 
     /** Open a native file picker dialog */
     openFileDialog: isElectron
@@ -68,24 +81,16 @@ export function useElectron() {
       : async () => ({ canceled: true, filePaths: [] }),
 
     /** Read app settings shared across Electron dev/prod origins */
-    getAppSettings: isElectron
-      ? api!.getAppSettings
-      : async () => ({}),
+    getAppSettings: isElectron ? api!.getAppSettings : async () => ({}),
 
     /** Persist an app setting outside origin-scoped localStorage */
-    setAppSetting: isElectron
-      ? api!.setAppSetting
-      : async () => {},
+    setAppSetting: isElectron ? api!.setAppSetting : async () => {},
 
     /** Remove one persisted app setting */
-    removeAppSetting: isElectron
-      ? api!.removeAppSetting
-      : async () => {},
+    removeAppSetting: isElectron ? api!.removeAppSetting : async () => {},
 
     /** Clear persisted app settings */
-    clearAppSettings: isElectron
-      ? api!.clearAppSettings
-      : async () => {},
+    clearAppSettings: isElectron ? api!.clearAppSettings : async () => {},
 
     /** Open a native save dialog */
     saveFileDialog: isElectron
@@ -103,7 +108,18 @@ export function useElectron() {
     /** Open URL in default browser */
     openExternal: isElectron
       ? api!.openExternal
-      : async (url: string) => { window.open(url, '_blank'); },
+      : async (url: string) => {
+          window.open(url, "_blank");
+        },
+
+    /** Convert HWP to PDF through the Electron main process */
+    convertHwpToPdf: isElectron
+      ? api!.convertHwpToPdf
+      : async () => {
+          throw new Error(
+            "HWP 자동 변환은 데스크톱 앱에서만 사용할 수 있습니다."
+          );
+        },
 
     /** Listen for navigation events from the main process menu */
     onNavigate: isElectron
@@ -113,11 +129,17 @@ export function useElectron() {
     /** Register a new counselor using Admin privileges (Electron Only) */
     adminRegisterCounselor: isElectron
       ? api!.adminRegisterCounselor
-      : async () => ({ success: false, error: '데스크톱 앱(관리자 모드)에서만 지원되는 기능입니다.' }),
-    
+      : async () => ({
+          success: false,
+          error: "데스크톱 앱(관리자 모드)에서만 지원되는 기능입니다.",
+        }),
+
     /** Delete a counselor using Admin privileges (Electron Only) */
     adminDeleteCounselor: isElectron
       ? api!.adminDeleteCounselor
-      : async () => ({ success: false, error: '데스크톱 앱(관리자 모드)에서만 지원되는 기능입니다.' }),
+      : async () => ({
+          success: false,
+          error: "데스크톱 앱(관리자 모드)에서만 지원되는 기능입니다.",
+        }),
   };
 }
