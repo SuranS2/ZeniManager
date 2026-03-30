@@ -4,15 +4,22 @@
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ROLE_ADMIN, ROLE_COUNSELOR, isAdminRole, type AppRole } from '@shared/const';
-import { Search, Plus, Edit3, Trash2, X, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Search, Plus, Edit3, Trash2, X, Loader2, RefreshCw, AlertTriangle, Eye, Target, Users, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePageGuard } from '@/hooks/usePageGuard';
-import { fetchCounselors, updateCounselor } from '@/lib/api';
-import type { CounselorRow } from '@/lib/supabase';
-import { isSupabaseConfigured } from '@/lib/supabase';
+import { fetchCounselors, updateCounselor, fetchClients } from '@/lib/api';
+import type { CounselorRow, ClientRow } from '@/lib/supabase';
+import { isSupabaseConfigured, getSupabaseUrl, getSupabaseServiceRoleKey } from '@/lib/supabase';
 import { useElectron } from '@/hooks/useElectron';
 
 const PRIMARY_HEX = '#009C64';
+const STAGE_COLORS = {
+  '초기상담': '#4299E1',
+  '심층상담': '#9F7AEA',
+  '취업지원': '#F6AD55',
+  '취업완료': '#009C64',
+  '사후관리': '#38B2AC',
+};
 
 interface CounselorForm {
   user_name: string;
@@ -27,6 +34,170 @@ const EMPTY_FORM: CounselorForm = {
   user_name: '', email: '', password: '', department: '', memo: '', role: ROLE_COUNSELOR,
 };
 
+// ─── 1. 상담사 상세 정보(통계) 모달 ───
+function CounselorDetailModal({
+  counselor,
+  onClose,
+  onMemoUpdate
+}: {
+  counselor: CounselorRow;
+  onClose: () => void;
+  onMemoUpdate: (newMemo: string) => void;
+}) {
+  const [clients, setClients] = useState<ClientRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  
+  // 메모 수정용 상태
+  const [memo, setMemo] = useState(counselor.memo || '');
+  const [savingMemo, setSavingMemo] = useState(false);
+
+  useEffect(() => {
+    fetchClients(counselor.user_id)
+      .then(data => {
+        setClients(data);
+        setLoading(false);
+      })
+      .catch(() => {
+        toast.error('내담자 데이터를 불러오는데 실패했습니다.');
+        setLoading(false);
+      });
+  }, [counselor.user_id]);
+
+  // 통계 계산
+  const totalClients = clients.length; // 담당 인원 수
+  const completedClients = clients.filter(c => !!c.employment_type || c.participation_stage === '취업완료').length; // 취업 완료 수
+  const successRate = totalClients > 0 ? Math.round((completedClients / totalClients) * 100) : 0;
+
+  // 프로세스 과정 계산
+  const stageData = useMemo(() => {
+    const order = ['초기상담', '심층상담', '취업지원', '취업완료', '사후관리'];
+    const map: Record<string, number> = { '초기상담': 0, '심층상담': 0, '취업지원': 0, '취업완료': 0, '사후관리': 0 };
+    clients.forEach(c => {
+      if (c.participation_stage && map[c.participation_stage] !== undefined) {
+        map[c.participation_stage]++;
+      }
+    });
+    return order.map(name => ({ name, value: map[name] }));
+  }, [clients]);
+
+  const maxStageValue = Math.max(...stageData.map(s => s.value), 1);
+
+  // 메모 저장 핸들러
+  const handleSaveMemo = async () => {
+    setSavingMemo(true);
+    try {
+      if (!isSupabaseConfigured()) {
+        toast.success('메모가 저장되었습니다. (데모 모드)');
+        onMemoUpdate(memo);
+      } else {
+        await updateCounselor(counselor.user_id, { memo } as any);
+        toast.success('관리자 메모가 저장되었습니다.');
+        onMemoUpdate(memo);
+      }
+    } catch (e: any) {
+      toast.error('메모 저장 실패: ' + e.message);
+    } finally {
+      setSavingMemo(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.4)' }}>
+      <div className="bg-card rounded-md shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style={{ background: PRIMARY_HEX }}>
+              {counselor.user_name.charAt(0)}
+            </div>
+            <div>
+              <h2 className="font-bold text-lg text-foreground">{counselor.user_name} 상담사</h2>
+              <p className="text-sm text-muted-foreground">{counselor.department || '소속 지점 없음'}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-sm hover:bg-muted text-muted-foreground"><X size={20} /></button>
+        </div>
+
+        <div className="p-6 overflow-y-auto space-y-6 bg-muted/10">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <Loader2 size={28} className="animate-spin text-primary mb-2" />
+              <p className="text-sm text-muted-foreground">성과 데이터를 분석 중입니다...</p>
+            </div>
+          ) : (
+            <>
+              {/* 핵심 KPI */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-card border border-border rounded-md p-4 text-center shadow-sm">
+                  <Users size={20} className="mx-auto text-blue-500 mb-2" />
+                  <div className="text-xs text-muted-foreground font-medium mb-1">담당 인원</div>
+                  <div className="text-2xl font-bold text-foreground">{totalClients}명</div>
+                </div>
+                <div className="bg-card border border-border rounded-md p-4 text-center shadow-sm">
+                  <Target size={20} className="mx-auto mb-2" style={{ color: PRIMARY_HEX }} />
+                  <div className="text-xs text-muted-foreground font-medium mb-1">취업 완료</div>
+                  <div className="text-2xl font-bold text-foreground">{completedClients}명</div>
+                </div>
+                <div className="bg-card border border-border rounded-md p-4 text-center shadow-sm">
+                  <TrendingUp size={20} className="mx-auto text-amber-500 mb-2" />
+                  <div className="text-xs text-muted-foreground font-medium mb-1">취업 성취율</div>
+                  <div className="text-2xl font-bold text-foreground">{successRate}%</div>
+                </div>
+              </div>
+
+              {/* 프로세스 과정 분포 */}
+              <div className="bg-card border border-border rounded-md p-5 shadow-sm">
+                <h3 className="text-sm font-semibold text-foreground mb-5">상담자 프로세스 과정 분포</h3>
+                <div className="space-y-4">
+                  {stageData.map((stage) => {
+                    const widthPct = maxStageValue > 0 ? (stage.value / maxStageValue) * 100 : 0;
+                    const barColor = STAGE_COLORS[stage.name as keyof typeof STAGE_COLORS] || '#CBD5E0';
+                    return (
+                      <div key={stage.name}>
+                        <div className="flex justify-between text-xs mb-1.5">
+                          <span className="font-medium text-muted-foreground">{stage.name}</span>
+                          <span className="font-semibold text-foreground">{stage.value}명</span>
+                        </div>
+                        <div className="h-2 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-700"
+                            style={{ width: `${widthPct}%`, backgroundColor: barColor }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 관리자 메모 (수정 가능) */}
+              <div className="bg-amber-50 border border-amber-200 rounded-md p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-amber-900">관리자 메모</h3>
+                  <button
+                    onClick={handleSaveMemo}
+                    disabled={savingMemo || memo === (counselor.memo || '')}
+                    className="px-3 py-1.5 bg-amber-600 text-white text-xs font-medium rounded-sm hover:bg-amber-700 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+                  >
+                    {savingMemo && <Loader2 size={12} className="animate-spin" />}
+                    저장
+                  </button>
+                </div>
+                <textarea
+                  value={memo}
+                  onChange={(e) => setMemo(e.target.value)}
+                  placeholder="상담사에 대한 관리자 전용 메모를 입력하세요 (상담사 본인에게는 보이지 않습니다)..."
+                  className="w-full h-24 p-3 text-sm bg-white border border-amber-200 rounded-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50 resize-none text-amber-950 placeholder:text-amber-300/80"
+                />
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 2. 상담사 등록/수정 모달 ───
 function CounselorModal({
   counselor,
   existingBranches,
@@ -48,12 +219,10 @@ function CounselorModal({
           memo: counselor.memo || '',
           role: ROLE_COUNSELOR,
         }
-      : { ...EMPTY_FORM, department: existingBranches.length > 0 ? '' : '' } // 초기값 세팅
+      : { ...EMPTY_FORM, department: existingBranches.length > 0 ? '' : '' } 
   );
 
-  // 현재 입력 방식이 '직접 입력'인지 확인하는 상태
   const [isCustomBranch, setIsCustomBranch] = useState(() => {
-    // 지점 목록이 아예 없거나, 수정 중인 상담사의 지점이 기존 목록에 없으면 직접 입력 모드 켬
     if (existingBranches.length === 0) return true;
     if (counselor?.department && !existingBranches.includes(counselor.department)) return true;
     return false;
@@ -131,7 +300,6 @@ function CounselorModal({
             </>
           )}
 
-          {/* 지점 선택/입력 영역 */}
           {isCustomBranch ? (
             <div>
               <div className="flex justify-between items-center mb-1.5">
@@ -205,6 +373,7 @@ function CounselorModal({
   );
 }
 
+// ─── 3. 메인 페이지 컴포넌트 ───
 export default function CounselorList() {
   const { canRender } = usePageGuard('admin');
   const { isElectron, adminRegisterCounselor, adminDeleteCounselor } = useElectron(); 
@@ -212,15 +381,32 @@ export default function CounselorList() {
   const [counselors, setCounselors] = useState<CounselorRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  
   const [showModal, setShowModal] = useState(false);
   const [editTarget, setEditTarget] = useState<CounselorRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CounselorRow | null>(null);
+  const [detailTarget, setDetailTarget] = useState<CounselorRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchCounselors();
-      setCounselors(data);
+      const [counselorsData, allClientsData] = await Promise.all([
+        fetchCounselors(),
+        fetchClients()
+      ]);
+
+      const enhancedCounselors = counselorsData.map(c => {
+        const myClients = allClientsData.filter(client => client.counselor_id === c.user_id);
+        const completedCount = myClients.filter(client => !!client.employment_type || client.participation_stage === '취업완료').length;
+        
+        return {
+          ...c,
+          client_count: myClients.length,
+          completed_count: completedCount
+        };
+      });
+
+      setCounselors(enhancedCounselors);
     } catch (e: any) {
       toast.error('데이터 로드 실패: ' + e.message);
     } finally {
@@ -230,16 +416,15 @@ export default function CounselorList() {
 
   useEffect(() => { load(); }, [load]);
 
-  // 존재하는 지점 목록 추출 (오름차순 정렬)
   const existingBranches = useMemo(() => {
-    // (b): b is string 을 추가하여 TypeScript에게 null이 제거되었음을 확실히 알려줍니다.
     const branches = counselors
       .map(c => c.department)
       .filter((b): b is string => Boolean(b)); 
     return Array.from(new Set(branches)).sort();
   }, [counselors]);
 
-  const counselorOnlyList = counselors.filter(c => c.role === 5);
+  // 🚨 방어 코드 추가: role 값을 명시적으로 숫자로 변환하여 비교 (Role 0 표시 버그 해결)
+  const counselorOnlyList = counselors.filter(c => Number(c.role) === 5);
 
   const filtered = counselorOnlyList.filter(c =>
     !search ||
@@ -275,6 +460,7 @@ export default function CounselorList() {
           memo: form.memo,
           role: 5 
         } as any);
+        
         setCounselors(prev => prev.map(c => c.user_id === updated.user_id ? { ...updated, client_count: c.client_count, completed_count: c.completed_count } : c));
         toast.success('상담사 정보가 수정되었습니다.');
         setShowModal(false);
@@ -285,7 +471,17 @@ export default function CounselorList() {
           return;
         }
 
+        const supabaseUrl = getSupabaseUrl();
+        const serviceRoleKey = getSupabaseServiceRoleKey();
+
+        if (!supabaseUrl || !serviceRoleKey) {
+          toast.error("설정 메뉴에서 Supabase URL과 Service Role Key를 등록해주세요.");
+          return;
+        }
+
         const result = await adminRegisterCounselor({
+          supabaseUrl,
+          serviceRoleKey,
           email: form.email,
           password: form.password,
           user_name: form.user_name,
@@ -320,7 +516,20 @@ export default function CounselorList() {
         return;
       }
 
-      const result = await adminDeleteCounselor(c.user_id);
+      const supabaseUrl = getSupabaseUrl();
+      const serviceRoleKey = getSupabaseServiceRoleKey();
+
+      if (!supabaseUrl || !serviceRoleKey) {
+        toast.error("설정 메뉴에서 Supabase URL과 Service Role Key를 등록해주세요.");
+        return;
+      }
+
+      const result = await adminDeleteCounselor({
+        supabaseUrl,
+        serviceRoleKey,
+        // 🚨 방어 코드 추가: 확실하게 문자열만 전송
+        userId: String(c.user_id)
+      });
 
       if (result.success) {
         setCounselors(prev => prev.filter(x => x.user_id !== c.user_id));
@@ -342,7 +551,7 @@ export default function CounselorList() {
         <div>
           <h1 className="text-xl font-bold text-foreground">상담사 목록</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            전체 {counselors.length}명
+            전체 {counselorOnlyList.length}명
             {!isSupabaseConfigured() && <span className="ml-2 text-amber-600">(데모 데이터)</span>}
           </p>
         </div>
@@ -385,17 +594,16 @@ export default function CounselorList() {
               <tr className="border-b border-border bg-muted/30">
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">이름</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">지점</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">담당자 수</th>
+                <th className="text-right px-4 py-3 font-medium text-muted-foreground">담당 인원</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">상담 완료</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">역할</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">수정</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">삭제</th>
+                <th className="text-right px-4 py-3 font-medium text-muted-foreground">상세/수정/삭제</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     {search ? '검색 결과가 없습니다.' : '등록된 상담사가 없습니다.'}
                   </td>
                 </tr>
@@ -403,11 +611,11 @@ export default function CounselorList() {
                 filtered.map(c => (
                   <tr key={c.user_id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 cursor-pointer" onClick={() => setDetailTarget(c)}>
                         <div className="w-8 h-8 rounded-sm flex items-center justify-center text-white text-sm font-bold flex-shrink-0" style={{ background: PRIMARY_HEX }}>
                           {c.user_name.charAt(0)}
                         </div>
-                        <div className="font-medium text-foreground">{c.user_name}</div>
+                        <div className="font-medium text-foreground hover:underline">{c.user_name}</div>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{c.department || '-'}</td>
@@ -420,21 +628,30 @@ export default function CounselorList() {
                         {isAdminRole(c.role) ? '관리자' : '상담사'}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right w-[40px]">
-                      <button
-                        onClick={() => { setEditTarget(c); setShowModal(true); }}
-                        className="p-1.5 rounded-sm hover:bg-muted transition-colors inline-flex items-center"
-                      >
-                        <Edit3 size={14} />
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 text-left w-[40px]">
-                      <button
-                        onClick={() => setDeleteTarget(c)}
-                        className="p-1.5 rounded-sm hover:bg-destructive/10 transition-colors text-destructive inline-flex items-center"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => setDetailTarget(c)}
+                          className="p-1.5 rounded-sm hover:bg-muted transition-colors inline-flex items-center text-muted-foreground"
+                          title="상세보기"
+                        >
+                          <Eye size={14} />
+                        </button>
+                        <button
+                          onClick={() => { setEditTarget(c); setShowModal(true); }}
+                          className="p-1.5 rounded-sm hover:bg-muted transition-colors inline-flex items-center text-muted-foreground"
+                          title="수정"
+                        >
+                          <Edit3 size={14} />
+                        </button>
+                        <button
+                          onClick={() => setDeleteTarget(c)}
+                          className="p-1.5 rounded-sm hover:bg-destructive/10 transition-colors text-destructive inline-flex items-center"
+                          title="삭제"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -450,6 +667,17 @@ export default function CounselorList() {
           existingBranches={existingBranches}
           onSave={handleSave}
           onClose={() => { setShowModal(false); setEditTarget(null); }}
+        />
+      )}
+
+      {detailTarget && (
+        <CounselorDetailModal 
+          counselor={detailTarget} 
+          onClose={() => setDetailTarget(null)}
+          onMemoUpdate={(newMemo) => {
+            setCounselors(prev => prev.map(c => c.user_id === detailTarget.user_id ? { ...c, memo: newMemo } : c));
+            setDetailTarget(prev => prev ? { ...prev, memo: newMemo } : null);
+          }}
         />
       )}
 
