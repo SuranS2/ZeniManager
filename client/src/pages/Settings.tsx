@@ -18,6 +18,8 @@ import {
 import { toast } from 'sonner';
 import {
   STORAGE_KEYS,
+  executeSupabaseRequest,
+  getSupabaseClient,
   getSupabaseUrl, getSupabaseAnonKey,
   isSupabaseConfigured, removeStoredAppSetting, resetSupabaseClient, setStoredAppSetting,
 } from '@/lib/supabase';
@@ -157,6 +159,12 @@ function ConnectionStatus() {
   const [errorMsg, setErrorMsg] = useState('');
 
   const toFriendlyErrorMessage = (error: { code?: string; message?: string; details?: string }) => {
+    if (error.message?.includes('세션이 만료되었거나 연결이 끊어졌습니다')) {
+      return error.message;
+    }
+    if (error.message?.includes('초 안에 끝나지 않았습니다')) {
+      return error.message;
+    }
     if (error.code === '42P01') {
       return 'public.user 테이블을 찾을 수 없습니다. (실 DB 스키마가 public.user 기반인지 확인하세요)';
     }
@@ -177,10 +185,13 @@ function ConnectionStatus() {
       return;
     }
     try {
-      const { getSupabaseClient } = await import('@/lib/supabase');
       const sb = getSupabaseClient();
       if (!sb) { setStatus('unconfigured'); return; }
-      const { error } = await sb.from('user').select('user_id').limit(1);
+      const { error } = await executeSupabaseRequest(
+        'Supabase 연결 상태 확인',
+        sb.from('user').select('user_id').limit(1),
+        { timeoutMs: 5000 },
+      );
       if (error) {
         setStatus('error');
         setErrorMsg(toFriendlyErrorMessage(error));

@@ -961,7 +961,6 @@ export default function ClientList() {
           </div>
         </div>
       )}
-
     </div>
   );
 }

@@ -11,6 +11,7 @@ const supabaseState: {
 };
 
 vi.mock('./supabase', () => ({
+  executeSupabaseRequest: async (_operationLabel: string, request: PromiseLike<unknown>) => await request,
   getSupabaseClient: () => supabaseState.client,
   getSupabaseUrl: () => supabaseState.url,
   isSupabaseConfigured: () => supabaseState.isConfigured,

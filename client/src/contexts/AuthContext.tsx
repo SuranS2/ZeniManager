@@ -7,16 +7,29 @@
  *
  * SECURITY: No API keys are hardcoded. All credentials come from localStorage.
  */
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from 'react';
 import { normalizeAppRole, ROLE_ADMIN, ROLE_COUNSELOR, type AppRole } from '@shared/const';
 import {
+  clearStoredAuthState,
+  clearStoredSupabaseSession,
+  createSupabaseSessionExpiredError,
+  getCachedSupabaseClient,
   getSupabaseClient,
+  hasStoredSupabaseSession,
   isSupabaseConfigured,
-  SUPABASE_SESSION_STORAGE_KEY,
+  subscribeSupabaseAuthFailure,
 } from '@/lib/supabase';
 import {
   COUNSEL_ACCOUNT_NOT_FOUND_MESSAGE,
   COUNSEL_SERVER_UNAVAILABLE_MESSAGE,
+  COUNSEL_SESSION_EXPIRED_MESSAGE,
   persistAuthNotice,
 } from '@/lib/authAccess';
 import {
@@ -76,6 +89,7 @@ const DEMO_USERS: Record<string, User & { password: string }> = {
 };
 
 const USER_STORAGE_KEY = 'counsel_user';
+const SESSION_REVALIDATION_INTERVAL_MS = 20_000;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
@@ -92,30 +106,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
-  const isLoading = isSubmitting || isInitialLoading;
+  const [isInitializing, setIsInitializing] = useState(() => {
+    return isSupabaseConfigured() && hasStoredSupabaseSession() && !user;
+  });
+  const authRevisionRef = useRef(0);
+  const isLoading = isSubmitting || isInitializing;
+
+  const bumpAuthRevision = useCallback(() => {
+    authRevisionRef.current += 1;
+    return authRevisionRef.current;
+  }, []);
+
+  const isCurrentAuthRevision = useCallback((revision: number) => {
+    return authRevisionRef.current === revision;
+  }, []);
+
+  const persistResolvedUser = useCallback((resolvedUser: User) => {
+    setUser(resolvedUser);
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
+  }, []);
 
   const clearLocalAuthState = useCallback(() => {
+    authRevisionRef.current += 1;
     setUser(null);
-    localStorage.removeItem(USER_STORAGE_KEY);
-    localStorage.removeItem(SUPABASE_SESSION_STORAGE_KEY);
+    clearStoredAuthState();
   }, []);
 
   const clearSupabaseSession = useCallback(async () => {
-    const sb = getSupabaseClient();
-    if (!sb) return;
+    const sb = getCachedSupabaseClient();
 
     try {
-      await Promise.race([
-        sb.auth.signOut({ scope: 'local' }),
-        new Promise(resolve => setTimeout(resolve, 1500)),
-      ]);
+      if (sb) {
+        await Promise.race([
+          sb.auth.signOut({ scope: 'local' }),
+          new Promise(resolve => setTimeout(resolve, 1500)),
+        ]);
+      }
     } catch {
       // Ignore sign-out failures and continue clearing the local auth state.
+    } finally {
+      clearStoredSupabaseSession();
     }
   }, []);
 
-  const resolveSupabaseUser = useCallback(async (authUserId: string, email: string): Promise<LoginResult> => {
+  const resolveSupabaseUser = useCallback(async (
+    authUserId: string,
+    email: string,
+    accessToken?: string | null,
+  ): Promise<LoginResult> => {
     const normalizedEmail = normalizeLoginEmail(email);
 
     const sb = getSupabaseClient();
@@ -127,9 +165,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: ROLE_COUNSELOR,
       };
 
-      setUser(fallbackUser);
-      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(fallbackUser));
-
       return {
         success: true,
         user: fallbackUser,
@@ -139,9 +174,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { profile, hadLookupError } = await Promise.race([
       resolveCounselorProfile(
         { authUserId, email: normalizedEmail },
-        createCounselorProfileLookups(sb),
+        createCounselorProfileLookups(sb, accessToken),
       ),
-      new Promise<{ profile: any; hadLookupError: boolean }>(resolve => 
+      new Promise<{ profile: Awaited<ReturnType<typeof resolveCounselorProfile>>['profile']; hadLookupError: boolean }>(resolve =>
         setTimeout(() => resolve({ profile: null, hadLookupError: false }), 3000)
       )
     ]);
@@ -151,9 +186,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         { authUserId, email: normalizedEmail },
         profile,
       );
-
-      setUser(resolvedUser);
-      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
 
       return {
         success: true,
@@ -175,9 +207,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       role: ROLE_COUNSELOR,
     };
 
-    setUser(resolvedUser);
-    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
-
     return {
       success: true,
       user: resolvedUser,
@@ -186,55 +215,157 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Listen for Supabase session changes when configured
   useEffect(() => {
-    let mounted = true;
-
     if (!isSupabaseConfigured()) {
-      setIsInitialLoading(false);
+      setIsInitializing(false);
       return;
     }
 
     const sb = getSupabaseClient();
     if (!sb) {
-      setIsInitialLoading(false);
+      setIsInitializing(false);
       return;
     }
 
-    const syncResolvedUser = async (authUserId: string, email: string) => {
-      const result = await resolveSupabaseUser(authUserId, email);
+    let isDisposed = false;
+    let isSessionCheckInFlight = false;
 
-      if (mounted && !result.success) {
-        persistAuthNotice(result.error || COUNSEL_SERVER_UNAVAILABLE_MESSAGE);
-        clearLocalAuthState();
-        void clearSupabaseSession();
+    const syncResolvedUser = async (
+      authUserId: string,
+      email: string,
+      accessToken?: string | null,
+      options: { persistFailureNotice?: boolean } = {},
+    ) => {
+      const revision = bumpAuthRevision();
+      const result = await resolveSupabaseUser(authUserId, email, accessToken);
+      if (isDisposed || !isCurrentAuthRevision(revision)) {
+        return;
       }
-      if (mounted) setIsInitialLoading(false);
+
+      if (result.success && result.user) {
+        persistResolvedUser(result.user);
+        return;
+      }
+
+      if (options.persistFailureNotice !== false) {
+        persistAuthNotice(result.error || COUNSEL_SERVER_UNAVAILABLE_MESSAGE);
+      }
+
+      clearLocalAuthState();
+      await clearSupabaseSession();
     };
 
-    // Initial session check
-    sb.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        syncResolvedUser(session.user.id, session.user.email || '');
-      } else {
-        if (mounted) setIsInitialLoading(false);
+    const forceLogoutWithNotice = async (message: string) => {
+      if (isDisposed) return;
+      persistAuthNotice(message);
+      clearLocalAuthState();
+      await clearSupabaseSession();
+      if (!isDisposed) {
+        setIsInitializing(false);
       }
-    }).catch(() => {
-      if (mounted) setIsInitialLoading(false);
-    });
+    };
+
+    const revalidateSession = async () => {
+      if (isDisposed || isSessionCheckInFlight) {
+        return;
+      }
+
+      const hasPersistedUser = Boolean(localStorage.getItem(USER_STORAGE_KEY));
+      if (!hasStoredSupabaseSession() && !hasPersistedUser) {
+        return;
+      }
+
+      isSessionCheckInFlight = true;
+      try {
+        const { data: { session }, error } = await sb.auth.getSession();
+        if (isDisposed) {
+          return;
+        }
+
+        if (error || !session?.user) {
+          await forceLogoutWithNotice(COUNSEL_SESSION_EXPIRED_MESSAGE);
+        }
+      } catch {
+        await forceLogoutWithNotice(COUNSEL_SESSION_EXPIRED_MESSAGE);
+      } finally {
+        isSessionCheckInFlight = false;
+      }
+    };
+
+    void sb.auth.getSession()
+      .then(async ({ data: { session }, error }) => {
+        if (error) {
+          await forceLogoutWithNotice(COUNSEL_SERVER_UNAVAILABLE_MESSAGE);
+          return;
+        }
+
+        if (session?.user) {
+          await syncResolvedUser(session.user.id, session.user.email || '', session.access_token, {
+            persistFailureNotice: false,
+          });
+          return;
+        }
+
+        clearLocalAuthState();
+      })
+      .catch(async () => {
+        await forceLogoutWithNotice(COUNSEL_SERVER_UNAVAILABLE_MESSAGE);
+      })
+      .finally(() => {
+        if (!isDisposed) {
+          setIsInitializing(false);
+        }
+      });
 
     const { data: { subscription } } = sb.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
-        await syncResolvedUser(session.user.id, session.user.email || '');
+        await syncResolvedUser(session.user.id, session.user.email || '', session.access_token);
       } else {
         clearLocalAuthState();
-        if (mounted) setIsInitialLoading(false);
       }
     });
 
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
+    const unsubscribeAuthFailure = subscribeSupabaseAuthFailure((error) => {
+      void forceLogoutWithNotice(
+        error.message || createSupabaseSessionExpiredError().message,
+      );
+    });
+
+    const handleWindowFocus = () => {
+      void revalidateSession();
     };
-  }, [clearLocalAuthState, clearSupabaseSession, resolveSupabaseUser]);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void revalidateSession();
+      }
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+      void revalidateSession();
+    }, SESSION_REVALIDATION_INTERVAL_MS);
+
+    return () => {
+      isDisposed = true;
+      subscription.unsubscribe();
+      unsubscribeAuthFailure();
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [
+    bumpAuthRevision,
+    clearLocalAuthState,
+    clearSupabaseSession,
+    isCurrentAuthRevision,
+    persistResolvedUser,
+    resolveSupabaseUser,
+  ]);
 
   const login = useCallback(async (
     email: string,
@@ -255,14 +386,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (error) return { success: false, error: error.message };
 
         if (data.user) {
+          const revision = bumpAuthRevision();
           const resolvedResult = await resolveSupabaseUser(
             data.user.id,
             data.user.email || normalizedEmail,
+            data.session?.access_token,
           );
 
           if (!resolvedResult.success) {
             clearLocalAuthState();
             void clearSupabaseSession();
+          } else if (resolvedResult.user && isCurrentAuthRevision(revision)) {
+            persistResolvedUser(resolvedResult.user);
           }
 
           return resolvedResult;
@@ -276,8 +411,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const demo = DEMO_USERS[normalizedEmail];
       if (demo && demo.password === password) {
         const { password: _, ...resolvedUser } = demo;
-        setUser(resolvedUser);
-        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
+        persistResolvedUser(resolvedUser);
         return { success: true, user: resolvedUser };
       }
 
@@ -289,15 +423,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role: ROLE_COUNSELOR,
         branch: '서울지점',
       };
-      setUser(fallbackUser);
-      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(fallbackUser));
+      persistResolvedUser(fallbackUser);
       return { success: true, user: fallbackUser };
     } catch (e: any) {
       return { success: false, error: e.message || '로그인 중 오류 발생' };
     } finally {
       setIsSubmitting(false);
     }
-  }, [clearLocalAuthState, clearSupabaseSession, resolveSupabaseUser]);
+  }, [
+    bumpAuthRevision,
+    clearLocalAuthState,
+    clearSupabaseSession,
+    isCurrentAuthRevision,
+    persistResolvedUser,
+    resolveSupabaseUser,
+  ]);
 
   const logout = useCallback(async () => {
     clearLocalAuthState();

@@ -7,6 +7,7 @@
  */
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type { AppRole } from '@shared/const';
+import { COUNSEL_SESSION_EXPIRED_MESSAGE } from './authAccess';
 
 export const STORAGE_KEYS = {
   SUPABASE_URL: 'counsel_supabase_url',
@@ -17,6 +18,7 @@ export const STORAGE_KEYS = {
 } as const;
 
 export const SUPABASE_SESSION_STORAGE_KEY = 'counsel_sb_session';
+export const SUPABASE_REQUEST_TIMEOUT_MS = 8000;
 const APP_SETTING_KEYS = [
   STORAGE_KEYS.SUPABASE_URL,
   STORAGE_KEYS.SUPABASE_ANON_KEY,
@@ -24,9 +26,160 @@ const APP_SETTING_KEYS = [
   STORAGE_KEYS.OPENAI_API_KEY,
 ] as const;
 
+type SupabaseRequestResult<T> = {
+  data: T | null;
+  error: unknown;
+  status?: number | null;
+  statusText?: string;
+  count?: number | null;
+};
+
+type SupabaseAuthFailureListener = (error: Error) => void;
+
+const supabaseAuthFailureListeners = new Set<SupabaseAuthFailureListener>();
+let lastSupabaseAuthFailureAt = 0;
+
+function getWindowIfAvailable() {
+  return typeof window === 'undefined' ? null : window;
+}
+
+function getLocalStorage() {
+  if (typeof localStorage !== 'undefined') {
+    return localStorage;
+  }
+
+  return getWindowIfAvailable()?.localStorage;
+}
+
+function getSessionStorage() {
+  if (typeof sessionStorage !== 'undefined') {
+    return sessionStorage;
+  }
+
+  return getWindowIfAvailable()?.sessionStorage;
+}
+
+function removeStorageItem(storage: Storage | null | undefined, key: string): void {
+  try {
+    storage?.removeItem(key);
+  } catch {
+    // Ignore storage cleanup failures and continue clearing the remaining state.
+  }
+}
+
 function getElectronApi() {
-  if (typeof window === 'undefined') return undefined;
-  return window.electronAPI;
+  return getWindowIfAvailable()?.electronAPI;
+}
+
+function isUnauthorizedStatus(status: number | null | undefined): boolean {
+  return status === 401;
+}
+
+function isUnauthorizedError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+
+  const maybeError = error as {
+    status?: number;
+    code?: string;
+    message?: string;
+  };
+
+  if (isUnauthorizedStatus(maybeError.status)) {
+    return true;
+  }
+
+  if (maybeError.code === 'PGRST301') {
+    return true;
+  }
+
+  const message = maybeError.message?.toLowerCase() ?? '';
+  return message.includes('jwt') || message.includes('unauthorized');
+}
+
+function createSupabaseTimeoutError(operationLabel: string, timeoutMs: number): Error {
+  const timeoutSeconds = Math.max(1, Math.ceil(timeoutMs / 1000));
+  const error = new Error(
+    `${operationLabel} 요청이 ${timeoutSeconds}초 안에 끝나지 않았습니다. 네트워크 상태를 확인한 뒤 다시 시도해주세요.`,
+  );
+  error.name = 'SupabaseRequestTimeoutError';
+  return error;
+}
+
+export function createSupabaseSessionExpiredError(
+  message = COUNSEL_SESSION_EXPIRED_MESSAGE,
+): Error {
+  const error = new Error(message);
+  error.name = 'SupabaseSessionExpiredError';
+  return error;
+}
+
+export function isSupabaseSessionExpiredError(error: unknown): error is Error {
+  return error instanceof Error && error.name === 'SupabaseSessionExpiredError';
+}
+
+export function subscribeSupabaseAuthFailure(listener: SupabaseAuthFailureListener): () => void {
+  supabaseAuthFailureListeners.add(listener);
+  return () => {
+    supabaseAuthFailureListeners.delete(listener);
+  };
+}
+
+export function notifySupabaseAuthFailure(error: Error): void {
+  const now = Date.now();
+  if (now - lastSupabaseAuthFailureAt < 1000) {
+    return;
+  }
+
+  lastSupabaseAuthFailureAt = now;
+  supabaseAuthFailureListeners.forEach(listener => {
+    try {
+      listener(error);
+    } catch {
+      // Ignore listener failures so one bad consumer does not block auth recovery.
+    }
+  });
+}
+
+export async function executeSupabaseRequest<T>(
+  operationLabel: string,
+  request: PromiseLike<SupabaseRequestResult<T>>,
+  options?: {
+    timeoutMs?: number;
+    authFailureMessage?: string;
+    requireStoredSession?: boolean;
+  },
+): Promise<SupabaseRequestResult<T>> {
+  const timeoutMs = options?.timeoutMs ?? SUPABASE_REQUEST_TIMEOUT_MS;
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    if (options?.requireStoredSession && !hasStoredSupabaseSession()) {
+      const authError = createSupabaseSessionExpiredError(options.authFailureMessage);
+      notifySupabaseAuthFailure(authError);
+      throw authError;
+    }
+
+    const result = await Promise.race([
+      Promise.resolve(request),
+      new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(createSupabaseTimeoutError(operationLabel, timeoutMs));
+        }, timeoutMs);
+      }),
+    ]);
+
+    if (isUnauthorizedStatus(result.status) || isUnauthorizedError(result.error)) {
+      const authError = createSupabaseSessionExpiredError(options?.authFailureMessage);
+      notifySupabaseAuthFailure(authError);
+      throw authError;
+    }
+
+    return result;
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
 }
 
 /** Returns the Supabase URL stored by the user in Settings, or null if not set. */
@@ -68,8 +221,9 @@ let _clientKey: string | null = null;
 export function getSupabaseClient(): SupabaseClient | null {
   const url = getSupabaseUrl();
   const key = getSupabaseAnonKey();
+  const storage = getLocalStorage() ?? getSessionStorage();
 
-  if (!url || !key) return null;
+  if (!url || !key || !storage) return null;
 
   // Re-create client if credentials changed
   if (_client && _clientUrl === url && _clientKey === key) {
@@ -81,8 +235,9 @@ export function getSupabaseClient(): SupabaseClient | null {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
+        detectSessionInUrl: false,
         storageKey: SUPABASE_SESSION_STORAGE_KEY,
-        storage: window.localStorage,
+        storage,
       },
     });
     _clientUrl = url;
@@ -93,11 +248,32 @@ export function getSupabaseClient(): SupabaseClient | null {
   }
 }
 
+export function getCachedSupabaseClient(): SupabaseClient | null {
+  return _client;
+}
+
 /** Clears the cached Supabase client (call after credentials change). */
 export function resetSupabaseClient(): void {
   _client = null;
   _clientUrl = null;
   _clientKey = null;
+}
+
+export function clearStoredSupabaseSession(): void {
+  removeStorageItem(getSessionStorage(), SUPABASE_SESSION_STORAGE_KEY);
+  removeStorageItem(getLocalStorage(), SUPABASE_SESSION_STORAGE_KEY);
+}
+
+export function hasStoredSupabaseSession(): boolean {
+  return Boolean(
+    getSessionStorage()?.getItem(SUPABASE_SESSION_STORAGE_KEY)
+    || getLocalStorage()?.getItem(SUPABASE_SESSION_STORAGE_KEY),
+  );
+}
+
+export function clearStoredAuthState(): void {
+  removeStorageItem(getLocalStorage(), STORAGE_KEYS.USER);
+  clearStoredSupabaseSession();
 }
 
 export async function bootstrapStoredAppSettings(): Promise<void> {
@@ -112,6 +288,7 @@ export async function bootstrapStoredAppSettings(): Promise<void> {
         localStorage.setItem(key, value);
       }
     }
+    resetSupabaseClient();
   } catch {
     // Ignore native storage bootstrap failures and fall back to localStorage only.
   }
@@ -126,11 +303,7 @@ export function resetTransientSessionOnLaunch(): void {
   const electronAPI = getElectronApi();
   if (!electronAPI?.isElectron) return;
 
-  [
-    STORAGE_KEYS.USER,
-    SUPABASE_SESSION_STORAGE_KEY,
-  ].forEach(key => localStorage.removeItem(key));
-
+  clearStoredAuthState();
   resetSupabaseClient();
 }
 
@@ -167,9 +340,9 @@ export async function resetStoredAppSettings(): Promise<void> {
     STORAGE_KEYS.SUPABASE_ANON_KEY,
     STORAGE_KEYS.SUPABASE_SERVICE_ROLE_KEY,
     STORAGE_KEYS.OPENAI_API_KEY,
-    STORAGE_KEYS.USER,
-    SUPABASE_SESSION_STORAGE_KEY,
-  ].forEach(key => localStorage.removeItem(key));
+  ].forEach(key => removeStorageItem(getLocalStorage(), key));
+
+  clearStoredAuthState();
 
   const electronAPI = getElectronApi();
   if (electronAPI?.clearAppSettings) {
