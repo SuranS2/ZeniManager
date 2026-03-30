@@ -145,6 +145,9 @@ importers:
       react:
         specifier: ^19.2.1
         version: 19.2.1
+      react-daum-postcode:
+        specifier: ^4.0.0
+        version: 4.0.0(react@19.2.1)
       react-day-picker:
         specifier: ^9.11.1
         version: 9.11.1(react@19.2.1)
@@ -3977,6 +3980,11 @@ packages:
   quick-lru@5.1.1:
     resolution: {integrity: sha512-WuyALRjWPDGtt/wzJiadO5AXY+8hZ80hVpe6MyivgraREW751X3SbhRvG3eLKOYN+8VEvqLcf3wdnt44Z4S4SA==}
     engines: {node: '>=10'}
+
+  react-daum-postcode@4.0.0:
+    resolution: {integrity: sha512-2CGR8Aa/5637IKaplJXv5m9S/qQWWYBr30FhQ9mK9nXiisVbTvrpU9D4U1mgr8YYCKw2RgcK8daN+F+PJhW+ig==}
+    peerDependencies:
+      react: '>=16.8.0'
 
   react-day-picker@9.11.1:
     resolution: {integrity: sha512-l3ub6o8NlchqIjPKrRFUCkTUEq6KwemQlfv3XZzzwpUeGwmDJ+0u0Upmt38hJyd7D/vn2dQoOoLV/qAp0o3uUw==}
@@ -8924,6 +8932,10 @@ snapshots:
   quansync@0.2.11: {}
 
   quick-lru@5.1.1: {}
+
+  react-daum-postcode@4.0.0(react@19.2.1):
+    dependencies:
+      react: 19.2.1
 
   react-day-picker@9.11.1(react@19.2.1):
     dependencies:
