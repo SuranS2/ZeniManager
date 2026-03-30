@@ -15,6 +15,7 @@ import {
  } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchClients, fetchSessions, createSession, deleteSession, fetchSurveys, createSurvey, updateClient } from '@/lib/api';
+import { syncEmploymentSuccessCase } from '@/lib/employmentSuccessCase';
 import type { ClientRow, SessionRow, SurveyRow } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/lib/supabase';
 
@@ -670,7 +671,19 @@ export default function ClientList() {
     try {
       await updateClient(clientId, { participation_stage: newStage });
       setClients(prev => prev.map(c => c.id === clientId ? { ...c, participation_stage: newStage } : c));
-      toast.success('취업단계가 업데이트되었습니다.');
+      let syncFailed = false;
+      try {
+        await syncEmploymentSuccessCase(clientId);
+      } catch (syncError) {
+        console.error('Failed to sync employment success case after stage update:', syncError);
+        syncFailed = true;
+      }
+
+      toast.success(
+        syncFailed
+          ? '취업단계는 업데이트되었지만 성공사례 동기화는 실패했습니다.'
+          : '취업단계가 업데이트되었습니다.',
+      );
     } catch (e: any) {
       toast.error('업데이트 실패: ' + e.message);
     }
@@ -709,7 +722,7 @@ export default function ClientList() {
   const sortedData = [...filtered].sort((a, b) => {
     if (!sortConfig) return 0;
     const { key, direction } = sortConfig;
-    
+
     let aValue: any = (a as any)[key];
     let bValue: any = (b as any)[key];
 
@@ -802,9 +815,9 @@ export default function ClientList() {
                   const isActive = sortConfig?.key === col.key;
                   const isAsc = isActive && sortConfig?.direction === 'asc';
                   const isDesc = isActive && sortConfig?.direction === 'desc';
-                  
+
                   return (
-                    <th 
+                    <th
                       key={col.key}
                       onClick={() => {
                         let direction: 'asc' | 'desc' | null = 'asc';
@@ -812,7 +825,7 @@ export default function ClientList() {
                           if (sortConfig.direction === 'asc') direction = 'desc';
                           else direction = null;
                         }
-                        
+
                         if (direction) {
                           setSortConfig({ key: col.key, direction });
                         } else {
@@ -824,13 +837,13 @@ export default function ClientList() {
                       <div className="flex items-center gap-1">
                         {col.label}
                         <div className="flex flex-col -space-y-1">
-                          <ArrowUp 
-                            size={10} 
+                          <ArrowUp
+                            size={10}
                             className={`transition-colors ${isAsc ? 'text-primary' : 'opacity-20'}`}
                             fill={isAsc ? 'currentColor' : 'none'}
                           />
-                          <ArrowDown 
-                            size={10} 
+                          <ArrowDown
+                            size={10}
                             className={`transition-colors ${isDesc ? 'text-primary' : 'opacity-20'}`}
                             fill={isDesc ? 'currentColor' : 'none'}
                           />
@@ -862,9 +875,12 @@ export default function ClientList() {
                         <div className="w-7 h-7 rounded-sm flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ background: PRIMARY }}>
                           {client.name.charAt(0)}
                         </div>
-                        <div 
+                        <div
                           className="font-medium text-foreground whitespace-nowrap cursor-pointer hover:underline"
-                          onClick={() => navigate(`/clients/detail/${client.id}`)}
+                          onClick={event => {
+                            event.stopPropagation();
+                            navigate(`/clients/detail/${client.id}`);
+                          }}
                         >
                           {client.name}
                         </div>
@@ -876,6 +892,7 @@ export default function ClientList() {
                       <select
                         value={client.participation_stage || ''}
                         onChange={e => handleStageUpdate(client.id, e.target.value)}
+                        onClick={e => e.stopPropagation()}
                         className={`text-xs px-2 py-1 rounded-sm border-none focus:ring-0 cursor-pointer appearance-none ${stageColors[client.participation_stage || ''] || 'badge-active'}`}
                         style={{ width: 'fit-content' }}
                       >
@@ -901,7 +918,7 @@ export default function ClientList() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
-                        onClick={e => { e.stopPropagation(); navigate(`/clients/detail/${client.id}`); }}
+                        onClick={() => navigate(`/clients/detail/${client.id}`)}
                         className="p-1.5 rounded-sm hover:bg-muted transition-colors"
                       >
                         <Edit3 size={14} />

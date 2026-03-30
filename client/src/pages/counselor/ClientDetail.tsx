@@ -17,6 +17,7 @@ import {
 import type { ClientRow, SessionRow, SurveyRow } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { ClientSummaryAnalysisTab } from './ClientSummaryAnalysisTab';
+import { EmploymentSuccessCaseCard } from './EmploymentSuccessCaseCard';
 import './ClientDetail.css';
 
 const PRIMARY = '#009C64';
@@ -499,6 +500,8 @@ export default function ClientDetail() {
           })}
         </div>
       </div>
+
+      <EmploymentSuccessCaseCard clientId={client.id} />
 
       {/* Tabs */}
       <div className="counsel_tab_wrapper">
