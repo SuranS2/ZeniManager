@@ -23,7 +23,6 @@ const STAGE_COLORS = {
   '사후관리': '#38B2AC',
 };
 
-// 가로형 구조 유지, 카드 높이 완벽 통일을 위해 하단 링크 영역의 최소 높이(min-h-[32px]) 확보
 function StatCard({ icon, label, value, subLabel, bgHex, colorHex, linkTo, linkText }: {
   icon: React.ReactNode; label: string; value: string | number; subLabel?: string; bgHex: string; colorHex: string; linkTo?: string; linkText?: string;
 }) {
@@ -40,7 +39,6 @@ function StatCard({ icon, label, value, subLabel, bgHex, colorHex, linkTo, linkT
         </div>
       </div>
       
-      {/* 링크가 있든 없든 항상 동일한 공간(min-h-[32px])을 차지하도록 강제하여 카드 높이를 통일합니다. */}
       <div className="mt-auto pt-4 flex justify-end items-end min-h-[32px]">
         {linkTo && linkText && (
           <Link 
@@ -76,11 +74,11 @@ export default function AdminDashboard() {
       .catch(() => setLoading(false));
   }, []);
 
-  // ─── 1. 드롭다운 옵션 추출 ───
+  // 1. 드롭다운 옵션 추출
   const branchOptions = useMemo(() => ['all', ...Array.from(new Set(counselors.map(c => c.department).filter(Boolean)))], [counselors]);
   const businessOptions = useMemo(() => ['all', ...Array.from(new Set(clients.map(c => c.business_type).filter(Boolean)))], [clients]);
 
-  // ─── 2. 필터링된 데이터 계산 ───
+  // 2. 필터링된 데이터 계산
   const filteredClients = useMemo(() => {
     return clients.filter(c => {
       const counselor = counselors.find(con => con.user_id === c.counselor_id);
@@ -92,13 +90,13 @@ export default function AdminDashboard() {
     });
   }, [clients, counselors, selectedBranch, selectedBusiness]);
 
-  // ─── 3. KPI 수치 계산 ───
+  // 3. KPI 수치 계산
   const totalCount = filteredClients.length;
   const completedCount = filteredClients.filter(c => !!c.employment_type || c.participation_stage === '취업완료').length;
   const inProgress = totalCount - completedCount;
   const avgRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
-  // ─── 4. 프로세스 과정 수 ───
+  // 4. 프로세스 과정 수
   const stageData = useMemo(() => {
     const order = ['초기상담', '심층상담', '취업지원', '취업완료', '사후관리'];
     const map: Record<string, number> = { '초기상담': 0, '심층상담': 0, '취업지원': 0, '취업완료': 0, '사후관리': 0 };
@@ -110,12 +108,12 @@ export default function AdminDashboard() {
     return order.map(name => ({ name, value: map[name] }));
   }, [filteredClients]);
 
-  // ─── 5. 월별 성사율 추이 (진행 중인 인원 대비 취업 비율) ───
+  // ─── 5. 월별 성사율 추이 (요청하신 공식 반영) ───
   const trendData = useMemo(() => {
     const months: string[] = [];
     const now = new Date();
     
-    // 최근 6개월 문자열 생성
+    // 최근 6개월 데이터 생성
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
@@ -129,42 +127,25 @@ export default function AdminDashboard() {
       const startOfMonth = new Date(year, month - 1, 1);
       const endOfMonth = new Date(year, month, 0, 23, 59, 59);
 
-      let activeCount = 0;
+      // 분모: 기본적으로 필터링된 전체 내담자 수로 시작
+      let activeCount = filteredClients.length;
       let employedCount = 0;
 
       filteredClients.forEach(c => {
-        // 내담자 등록일 확인
-        const createdDateStr = c.created_at || c.initial_counsel_date;
-        if (!createdDateStr) return;
-        const createdDate = new Date(createdDateStr);
-        if (isNaN(createdDate.getTime())) return;
-
-        // 해당 월이 끝나기 전에 등록하지 않았다면 활성 대상 아님
-        if (createdDate > endOfMonth) return;
-
-        let isEmployedThisMonth = false;
-        let isEmployedBeforeThisMonth = false;
-
-        // 취업일자 기준 상태 계산
-        if (c.employment_date) {
-          const empDate = new Date(c.employment_date);
-          if (!isNaN(empDate.getTime())) {
-            if (empDate < startOfMonth) {
-              isEmployedBeforeThisMonth = true;
-            } else if (empDate >= startOfMonth && empDate <= endOfMonth) {
-              isEmployedThisMonth = true;
-            }
+        // [분모 계산] 취업지원종료일(job_place_support_end)이 해당 월 시작일보다 앞(과거)이면 분모에서 제외
+        if (c.support_end_date) {
+          const supportEndDate = new Date(c.support_end_date);
+          if (!isNaN(supportEndDate.getTime()) && supportEndDate < startOfMonth) {
+            activeCount--;
           }
         }
 
-        // 해당 월이 시작하기 전에 이미 취업했다면, 해당 월에는 '진행 중'이 아님
-        if (isEmployedBeforeThisMonth) return;
-
-        // 조건을 통과했다면 해당 월에 '상담 진행 중'이었거나 '해당 월에 취업'한 활성 인원임
-        activeCount++;
-
-        if (isEmployedThisMonth) {
-          employedCount++;
+        // [분자 계산] 취업일자(hire_date)가 해당 월 내에 속하면 분자로 카운트
+        if (c.employment_date) {
+          const hireDate = new Date(c.employment_date);
+          if (!isNaN(hireDate.getTime()) && hireDate >= startOfMonth && hireDate <= endOfMonth) {
+            employedCount++;
+          }
         }
       });
 
@@ -175,7 +156,7 @@ export default function AdminDashboard() {
     });
   }, [filteredClients]);
 
-  // ─── 6. 파이 차트 데이터 ───
+  // 6. 파이 차트 데이터
   const pieData = useMemo(() => {
     const map: Record<string, number> = {};
     let total = 0;
@@ -191,7 +172,7 @@ export default function AdminDashboard() {
     })).sort((a, b) => b.value - a.value);
   }, [filteredClients]);
 
-  // ─── 7. 테이블 데이터 ───
+  // 7. 테이블 데이터
   const tableData = useMemo(() => {
     if (selectedBranch === 'all') {
       const map: Record<string, { total: number; done: number; counselorCount: number }> = {};
@@ -240,7 +221,7 @@ export default function AdminDashboard() {
         <p className="text-sm text-muted-foreground mt-1">지점 및 사업유형별 성과를 분석합니다.</p>
       </div>
 
-      {/* ─── 분리된 필터 컨트롤 ─── */}
+      {/* ─── 필터 컨트롤 ─── */}
       <div className="flex flex-wrap items-center gap-4 bg-card p-4 rounded-md border border-border shadow-sm">
         <div className="flex items-center gap-2">
           <Filter size={16} className="text-muted-foreground" />
@@ -277,9 +258,9 @@ export default function AdminDashboard() {
               label="관리 상담자" 
               value={`${totalCount}명`} 
               subLabel="필터 적용" 
-              bgHex="#E8F5E9" // 옅은 초록
+              bgHex="#E8F5E9"
               colorHex={PRIMARY_HEX}
-              linkTo="/admin/counselors"
+              linkTo="/admin/clients"
               linkText="상담자 목록 보기"
             />
             <StatCard 
@@ -287,7 +268,7 @@ export default function AdminDashboard() {
               label="진행 중" 
               value={`${inProgress}명`} 
               subLabel="취업 전 단계" 
-              bgHex="#EBF8FF" // 옅은 파랑
+              bgHex="#EBF8FF"
               colorHex="#4299E1"
             />
             <StatCard 
@@ -295,7 +276,7 @@ export default function AdminDashboard() {
               label="취업 성공" 
               value={`${completedCount}명`} 
               subLabel="누적 완료" 
-              bgHex="#E8F5E9" // 옅은 초록
+              bgHex="#E8F5E9"
               colorHex={PRIMARY_HEX}
             />
             <StatCard 
@@ -303,8 +284,8 @@ export default function AdminDashboard() {
               label="취업 성사율" 
               value={`${avgRate}%`} 
               subLabel="평균" 
-              bgHex="#FEF3C7" // 노란색(Amber) 계열
-              colorHex="#D97706" // 짙은 노란색
+              bgHex="#FEF3C7"
+              colorHex="#D97706"
             />
           </div>
 
@@ -316,7 +297,7 @@ export default function AdminDashboard() {
               <div className="flex items-center justify-between mb-8">
                 <div>
                   <h3 className="text-sm font-semibold text-foreground mb-1">프로세스 과정 수</h3>
-                  <p className="text-xs text-muted-foreground">현재 선택된 조건의 내담자 분포입니다.</p>
+                  <p className="text-xs text-muted-foreground">현재 선택된 조건의 상담자 분포입니다.</p>
                 </div>
               </div>
               
@@ -347,7 +328,7 @@ export default function AdminDashboard() {
             <div className="bg-card rounded-md p-6 shadow-sm border border-border flex flex-col min-h-[400px]">
               <div className="mb-6">
                 <h3 className="text-sm font-semibold text-foreground mb-1">월별 성사율 추이</h3>
-                <p className="text-xs text-muted-foreground">상담 진행 중인 사람 중 해당 월에 취업한 비율입니다.</p>
+                <p className="text-xs text-muted-foreground">해당 월의 전체 활성 인원 대비 당월 취업자 비율입니다.</p>
               </div>
               <div className="flex-1 relative min-h-[260px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -371,11 +352,10 @@ export default function AdminDashboard() {
 
           {/* ─── 3. Drill-down Analysis (Pie & Table) ─── */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* 동적 파이 차트 */}
             {selectedBusiness === 'all' && (
               <div className="bg-card rounded-md p-5 shadow-sm border border-border lg:col-span-1">
                 <h3 className="text-sm font-semibold text-foreground mb-1">사업 유형별 비율</h3>
-                <p className="text-xs text-muted-foreground mb-4">현재 조건에 해당하는 내담자의 사업 비중입니다.</p>
+                <p className="text-xs text-muted-foreground mb-4">현재 조건에 해당하는 상담자의 사업 비중입니다.</p>
                 <ResponsiveContainer width="100%" height={220}>
                   <PieChart>
                     <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={85} paddingAngle={4} dataKey="value" nameKey="name">
@@ -391,7 +371,6 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {/* 동적 실적 테이블 */}
             <div className={`bg-card rounded-md p-0 shadow-sm border border-border flex flex-col ${selectedBusiness === 'all' ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
               <div className="p-5 border-b border-border">
                 <h3 className="text-sm font-semibold text-foreground mb-1">
