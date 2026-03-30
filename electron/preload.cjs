@@ -34,6 +34,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("admin-delete-counselor", userId),
   convertHwpToPdf: payload =>
     ipcRenderer.invoke("document:convertHwpToPdf", payload),
+  extractHwpText: payload =>
+    ipcRenderer.invoke("document:extractHwpText", payload),
+  saveSummaryAnalysis: payload =>
+    ipcRenderer.invoke("summary-analysis:save", payload),
+  uploadSummaryAnalysisFiles: payload =>
+    ipcRenderer.invoke("summary-analysis:upload-files", payload),
 
   // ── Navigation from main process (e.g., menu items) ──────────────────────
   onNavigate: callback => {
