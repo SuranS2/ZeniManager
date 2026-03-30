@@ -283,7 +283,7 @@ ipcMain.handle('shell:openExternal', (_, url) => {
   shell.openExternal(url);
 });
 
-// IPC 핸들러 추가: 관리자 권한으로 상담사 등록
+// 관리자 권한으로 상담사 등록
 ipcMain.handle('admin-register-counselor', async (event, counselorData) => {
   try {
     // 1. Auth: 이메일과 비밀번호로 계정 생성
@@ -310,6 +310,29 @@ ipcMain.handle('admin-register-counselor', async (event, counselorData) => {
     return { success: true }; // 불필요한 데이터 전송 생략
   } catch (error) {
     console.error('상담사 등록 에러:', error); // 디버깅용 에러 로그는 유지
+    return { success: false, error: error.message };
+  }
+});
+
+// 관리자 권한으로 상담사 완전 삭제
+ipcMain.handle('admin-delete-counselor', async (event, userId) => {
+  try {
+    // 1. public.user 테이블에서 프로필 정보 먼저 삭제 (외래키 충돌 방지)
+    const { error: dbError } = await supabaseAdmin
+      .from('user')
+      .delete()
+      .eq('user_id', userId);
+
+    if (dbError) throw dbError;
+
+    // 2. auth.users 테이블에서 로그인 계정 완전 삭제
+    const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+
+    if (authError) throw authError;
+
+    return { success: true };
+  } catch (error) {
+    console.error('상담사 삭제 에러:', error);
     return { success: false, error: error.message };
   }
 });
