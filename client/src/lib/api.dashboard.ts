@@ -26,8 +26,16 @@ const CLIENT_SELECT_FIELDS = `
   job_place_start,
   job_place_end,
   iap_to,
-  retest_stat,
+  retest_date,
+  continue_serv_1_date,
   continue_serv_1_stat,
+  continue_serv_6_date,
+  continue_serv_6_stat,
+  continue_serv_12_date,
+  continue_serv_12_stat,
+  continue_serv_18_date,
+  continue_serv_18_stat,
+  future_card_stat,
   memo,
   business_code (
     participate_type
@@ -54,8 +62,17 @@ type LiveClientRecord = {
   job_place_start: string | null;
   job_place_end: string | null;
   iap_to: string | null;
+  retest_date: string | null;
   retest_stat: number | null;
-  continue_serv_1_stat: string | null;
+  continue_serv_1_date: string | null;
+  continue_serv_1_stat: number | null;
+  continue_serv_6_date: string | null;
+  continue_serv_6_stat: number | null;
+  continue_serv_12_date: string | null;
+  continue_serv_12_stat: number | null;
+  continue_serv_18_date: string | null;
+  continue_serv_18_stat: number | null;
+  future_card_stat: number | null;
   memo: string | null;
   business_code?: { participate_type: string | null }[] | null;
   created_at: string | null;
@@ -136,23 +153,40 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
     last_counsel_date: null,
     age: row.age ?? null,
     gender: row.gender_code === 'M' ? '남' : row.gender_code === 'F' ? '여' : null,
+    birth_date: null,
+    email: null,
+    MBTI: null,
+    certifications: null,
+    future_card_stat: row.future_card_stat ?? 0,
     business_type: row.business_type_code != null ? String(row.business_type_code) : null,
     participation_type: row.participation_type ?? null,
     participation_stage: row.participation_stage ?? null,
-    competency_grade: null,
+    capa: null,
     recognition_date: null,
     desired_job: row.desired_job_1 ?? null,
+    desired_job_1: row.desired_job_1 ?? null,
+    desired_job_2: null,
+    desired_job_3: null,
+    desired_area_1: null,
+    desired_area_2: null,
+    desired_area_3: null,
+    desired_payment: null,
+    has_car: false,
+    is_working_parttime: false,
+    can_drive: null,
     counsel_notes: null,
     address: null,
-    school: row.school_name ?? null,
+    address_1: null,
+    address_2: null,
+    school_name: row.school_name ?? null,
     major: row.major ?? null,
     education_level: row.education_level ?? null,
     initial_counsel_date: createdAt ? createdAt.split('T')[0] : null,
     iap_date: null,
     iap_duration: null,
     allowance_apply_date: null,
-    rediagnosis_date: null,
-    rediagnosis_yn: null,
+    rediagnosis_date: row.retest_date ?? null,
+    rediagnosis_yn: row.retest_stat != null ? String(row.retest_stat) : null,
     work_exp_type: null,
     work_exp_intent: null,
     work_exp_company: null,
@@ -165,21 +199,19 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
     intensive_start: null,
     intensive_end: null,
     support_end_date: null,
-    employment_type: row.hire_type ?? null,
-    employment_date: row.job_place_start ?? null,
-    employer: null,
-    job_title: null,
-    salary: null,
+    hire_place: null,
+    hire_job_type: null,
+    hire_date: null,
+    hire_payment: null,
     employment_duration: null,
-    resignation_date: null,
-    retention_1m_date: null,
-    retention_1m_yn: null,
-    retention_6m_date: null,
-    retention_6m_yn: null,
-    retention_12m_date: null,
-    retention_12m_yn: null,
-    retention_18m_date: null,
-    retention_18m_yn: null,
+    continue_serv_1_date: row.continue_serv_1_date ?? null,
+    continue_serv_1_stat: row.continue_serv_1_stat ?? null,
+    continue_serv_6_date: row.continue_serv_6_date ?? null,
+    continue_serv_6_stat: row.continue_serv_6_stat ?? null,
+    continue_serv_12_date: row.continue_serv_12_date ?? null,
+    continue_serv_12_stat: row.continue_serv_12_stat ?? null,
+    continue_serv_18_date: row.continue_serv_18_date ?? null,
+    continue_serv_18_stat: row.continue_serv_18_stat ?? null,
     counselor_name: null,
     counselor_id: row.counselor_id ?? null,
     branch: null,
@@ -187,9 +219,6 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
     score: null,
     iap_to: row.iap_to ?? null,
     retest_stat: row.retest_stat ?? null,
-    continue_serv_1_stat: row.continue_serv_1_stat ?? null,
-    driving_yn: null,
-    own_car_yn: null,
     memo: row.memo ?? null,
     participate_type: Array.isArray(row.business_code) ? row.business_code[0]?.participate_type ?? null : null,
     created_at: createdAt,

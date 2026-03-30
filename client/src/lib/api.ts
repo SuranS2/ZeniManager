@@ -40,14 +40,44 @@ type LiveClientRecord = {
   business_type_code: number | null;
   participation_type: string | null;
   participation_stage: string | null;
+  assignment_type: string | null;
+  capa: string | null;
   desired_job_1: string | null;
+  desired_job_2: string | null;
+  desired_job_3: string | null;
+  desired_area_1: string | null;
+  desired_area_2: string | null;
+  desired_area_3: string | null;
+  desired_payment: number | null;
   hire_type: string | null;
   job_place_start: string | null;
   job_place_end: string | null;
   iap_to: string | null;
   retest_stat: number | null;
-  continue_serv_1_stat: string | null;
+  retest_date: string | null;
+  continue_serv_1_date: string | null;
+  continue_serv_1_stat: number | null;
+  continue_serv_6_date: string | null;
+  continue_serv_6_stat: number | null;
+  continue_serv_12_date: string | null;
+  continue_serv_12_stat: number | null;
+  continue_serv_18_date: string | null;
+  continue_serv_18_stat: number | null;
   memo: string | null;
+  hire_place: string | null;
+  hire_job_type: string | null;
+  hire_date: string | null;
+  hire_payment: number | null;
+  address_1: string | null;
+  address_2: string | null;
+  has_car: boolean | string | null;
+  is_working_parttime: boolean | string | null;
+  can_drive: boolean | string | null;
+  future_card_stat: number | null;
+  MBTI: string | null;
+  email: string | null;
+  birth_date: string | null;
+  client_certificates?: { certificate_name: string; acquisition_date: string | null }[] | null;
   business_code?: { participate_type: string | null }[] | null;
   created_at: string | null;
   update_at: string | null;
@@ -128,18 +158,50 @@ const CLIENT_SELECT_FIELDS = `
   participation_type,
   participation_stage,
   desired_job_1,
+  desired_job_2,
+  desired_job_3,
+  capa,
+  desired_area_1,
+  desired_area_2,
+  desired_area_3,
+  desired_payment,
   hire_type,
   job_place_start,
   job_place_end,
   iap_to,
   retest_stat,
+  retest_date,
+  continue_serv_1_date,
   continue_serv_1_stat,
+  continue_serv_6_date,
+  continue_serv_6_stat,
+  continue_serv_12_date,
+  continue_serv_12_stat,
+  continue_serv_18_date,
+  continue_serv_18_stat,
   memo,
+  hire_place,
+  hire_job_type,
+  hire_date,
+  hire_payment,
+  address_1,
+  address_2,
+  has_car,
+  is_working_parttime,
+  can_drive,
+  future_card_stat,
+  MBTI,
+  email,
+  birth_date,
+  created_at,
+  update_at,
   business_code (
     participate_type
   ),
-  created_at,
-  update_at
+  allowance_log (
+    round,
+    apply_date
+  )
 `;
 
 export async function fetchClients(counselorId?: string): Promise<ClientRow[]> {
@@ -154,7 +216,8 @@ export async function fetchClients(counselorId?: string): Promise<ClientRow[]> {
 
   const { data, error } = await q;
   if (error) throw error;
-  return ((data ?? []) as LiveClientRecord[]).map(row => liveClientToRow(row));
+  if (!data) return [];
+  return ((data as any) as unknown as LiveClientRecord[]).map(row => liveClientToRow(row));
 }
 
 export async function fetchClientById(id: string): Promise<ClientRow | null> {
@@ -173,7 +236,19 @@ export async function fetchClientById(id: string): Promise<ClientRow | null> {
     if (error.code === 'PGRST116') return null; // not found
     throw error;
   }
-  return liveClientToRow(data as LiveClientRecord);
+
+  const clientRow = liveClientToRow((data as any) as unknown as LiveClientRecord);
+
+  // Separately fetch certificates
+  try {
+    const certs = await fetchCertificates(id);
+    clientRow.certificates = certs;
+    clientRow.certifications = certs.map(c => `${c.certificates_name}${c.acquisition_date ? ` (${c.acquisition_date})` : ''}`).join(', ');
+  } catch (e) {
+    console.error('Failed to fetch certificates', e);
+  }
+
+  return clientRow;
 }
 
 export async function createClient(input: any): Promise<ClientRow> {
@@ -194,7 +269,6 @@ export async function createClient(input: any): Promise<ClientRow> {
     MBTI: input.MBTI,
     is_working_parttime: input.is_working_parttime,
     future_card_stat: input.future_card_stat ? 1 : 0,
-    capa: input.capa,
     desired_job_1: input.desired_job_1,
     desired_job_2: input.desired_job_2,
     desired_job_3: input.desired_job_3,
@@ -202,12 +276,6 @@ export async function createClient(input: any): Promise<ClientRow> {
     desired_area_2: input.desired_area_2,
     desired_area_3: input.desired_area_3,
     desired_payment: input.desired_payment,
-    work_ex_desire: input.work_ex_desire ? Number(input.work_ex_desire) : null,
-    work_ex_type: input.work_ex_type ? Number(input.work_ex_type) : null,
-    work_ex_company: input.work_ex_company,
-    work_ex_start: input.work_ex_start,
-    work_ex_end: input.work_ex_end,
-    work_ex_graduate: input.work_ex_graduate ? Number(input.work_ex_graduate) : null,
     education_level: input.education_level,
     school_name: input.school,
     major: input.major,
@@ -215,7 +283,7 @@ export async function createClient(input: any): Promise<ClientRow> {
     participation_type: input.participation_type,
     participation_stage: input.participation_stage,
     memo: input.memo,
-    email: input.email, // 이메일 필드 추가
+    email: input.email,
   };
 
   const { data, error } = await sb()
@@ -225,25 +293,49 @@ export async function createClient(input: any): Promise<ClientRow> {
     .single();
 
   if (error) throw error;
-  return liveClientToRow(data as LiveClientRecord);
+  return liveClientToRow((data as any) as unknown as LiveClientRecord);
 }
 
-export async function updateClient(id: string, input: Partial<ClientInsert>): Promise<ClientRow> {
-  if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { data, error } = await sb()
-    .from('client')
-    .update({ ...input, update_at: new Date().toISOString().split('T')[0] })
-    .eq('client_id', Number(id))
-    .select(CLIENT_SELECT_FIELDS)
-    .single();
-  if (error) throw error;
-  return liveClientToRow(data as LiveClientRecord);
+export async function updateClient(id: string, updates: Partial<LiveClientRecord>): Promise<ClientRow> {
+  try {
+    if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
+    const { data, error } = await sb()
+      .from('client')
+      .update(updates)
+      .eq('client_id', Number(id))
+      .select(CLIENT_SELECT_FIELDS)
+      .single();
+
+    if (error) throw error;
+    return liveClientToRow((data as any) as unknown as LiveClientRecord);
+  } catch (error) {
+    console.error('Error in updateClient:', error);
+    throw error;
+  }
 }
 
 export async function deleteClient(id: string): Promise<void> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
   const { error } = await sb().from('client').delete().eq('client_id', Number(id));
   if (error) throw error;
+}
+
+/**
+ * 사업 유형 코드 목록 조회 (business_code)
+ */
+export async function fetchBusinessCodes(): Promise<{ value: string; label: string }[]> {
+  if (!isSupabaseConfigured()) return [];
+
+  const { data, error } = await sb()
+    .from('business_code')
+    .select('business_type, participate_type')
+    .order('business_type');
+
+  if (error) throw error;
+  return (data || []).map((b: any) => ({
+    value: String(b.business_type),
+    label: b.participate_type || `유형 ${b.business_type}`
+  }));
 }
 
 // ─── Sessions ─────────────────────────────────────────────────────────────────
@@ -279,15 +371,16 @@ export async function createSession(input: SessionInsert): Promise<SessionRow> {
     client_id: numericClientId,
     user_id: input.counselor_id,
     counsel_date: input.date,
-    create_at: input.date,
-    counselor_opinion: input.content || '',
-    counsel_type: input.type || '상담기록',
+    session_number: input.session_number ?? null,
     start_time: input.start_time || null,
     end_time: input.end_time || null,
-    document_link: input.document_link || null,
+    counselor_opinion: input.content || input.memo || '',
+    counsel_type: input.type || '상담기록',
+    memo: input.memo || null,
     economic_situation: input.economic_situation ?? null,
     social_situation_family: input.social_situation_family ?? null,
     social_situation_society: input.social_situation_society ?? null,
+    document_link: input.document_link || null,
     self_esteem: input.self_esteem ?? null,
     self_efficacy: input.self_efficacy ?? null,
     holland_code: input.holland_code || null,
@@ -296,7 +389,7 @@ export async function createSession(input: SessionInsert): Promise<SessionRow> {
     personality_test_result: input.personality_test_result || null,
     life_history_result: input.life_history_result || null,
     profiling_grade: input.profiling_grade || null,
-    memo: input.memo || null,
+    create_at: input.date, // keep for compatibility
   };
 
   // 1. 상담 기록 저장
@@ -329,8 +422,31 @@ export async function createSession(input: SessionInsert): Promise<SessionRow> {
 }
 
 /**
- * 참여수당 이력 저장 (allowance_log)
+ * 참여수당 이력 (allowance_log)
  */
+export async function fetchAllowanceLogs(clientId: string) {
+  if (!isSupabaseConfigured()) return [];
+  const { data, error } = await sb()
+    .from('allowance_log')
+    .select('*')
+    .eq('client_id', Number(clientId))
+    .order('round', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function updateAllowanceLog(id: number, input: any) {
+  if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
+  const { data, error } = await sb()
+    .from('allowance_log')
+    .update(input)
+    .eq('allowance_id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 export async function createAllowanceLog(input: {
   client_id: string;
   round: number;
@@ -341,6 +457,7 @@ export async function createAllowanceLog(input: {
   family_allowance_count: number;
   expected_payment_date: string;
   is_paid: boolean;
+  activity_content?: string;
 }) {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
 
@@ -354,6 +471,7 @@ export async function createAllowanceLog(input: {
     family_allowance_count: input.family_allowance_count,
     expected_payment_date: input.expected_payment_date,
     is_paid: input.is_paid,
+    activity_content: input.activity_content || null,
   };
 
   const { data, error } = await sb()
@@ -366,16 +484,56 @@ export async function createAllowanceLog(input: {
   return data;
 }
 
-export async function updateSession(id: string, input: Partial<SessionInsert>): Promise<void> {
+export async function addCertificate(clientId: string, name: string, date: string | null) {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
+  const { data, error } = await sb()
+    .from('client_certificates')
+    .insert({
+      client_id: Number(clientId),
+      certificate_name: name,
+      acquisition_date: date
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchCertificates(clientId: string): Promise<{ certificate_name: string; acquisition_date: string | null }[]> {
+  if (!isSupabaseConfigured()) return [];
+  const { data, error } = await sb()
+    .from('client_certificates')
+    .select('certificate_name, acquisition_date')
+    .eq('client_id', Number(clientId));
+  if (error) throw error;
+  return data || [];
+}
+
+export async function deleteCertificate(clientId: string, name: string) {
+  if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
+  const { error } = await sb()
+    .from('client_certificates')
+    .delete()
+    .eq('client_id', Number(clientId))
+    .eq('certificate_name', name);
+  if (error) throw error;
+}
+
+export async function updateSession(id: string, input: Partial<any>): Promise<void> {
+  if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
+
+  const payload: any = {};
+  if (input.content !== undefined || input.counselor_opinion !== undefined) payload.counselor_opinion = input.content ?? input.counselor_opinion;
+  if (input.type !== undefined || input.counsel_type !== undefined) payload.counsel_type = input.type ?? input.counsel_type;
+  if (input.date !== undefined || input.counsel_date !== undefined) payload.counsel_date = input.date ?? input.counsel_date;
+  if (input.memo !== undefined) payload.memo = input.memo;
+  if (input.economic_situation !== undefined) payload.economic_situation = input.economic_situation;
+  if (input.social_situation_family !== undefined) payload.social_situation_family = input.social_situation_family;
+  if (input.social_situation_society !== undefined) payload.social_situation_society = input.social_situation_society;
 
   const { error } = await sb()
     .from('counsel_history')
-    .update({
-      counselor_opinion: input.content || '',
-      counsel_type: input.type || '상담기록',
-      counsel_date: input.date,
-    })
+    .update(payload)
     .eq('counsel_id', Number(id));
 
   if (error) throw error;
@@ -472,7 +630,7 @@ export async function deleteCounselor(userId: string): Promise<void> {
 export async function fetchSurveys(clientId: string): Promise<SurveyRow[]> {
   if (!isSupabaseConfigured()) return [];
   const { data, error } = await sb()
-    .from('survey_responses')
+    .from('job_search_survey')
     .select('*')
     .eq('client_id', clientId)
     .order('survey_date', { ascending: false });
@@ -480,17 +638,17 @@ export async function fetchSurveys(clientId: string): Promise<SurveyRow[]> {
   return data ?? [];
 }
 
-export async function createSurvey(input: SurveyInsert): Promise<SurveyRow> {
+export async function createSurvey(input: any): Promise<SurveyRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { data, error } = await sb().from('survey_responses').insert(input).select().single();
+  const { data, error } = await sb().from('job_search_survey').insert(input).select().single();
   if (error) throw error;
   return data;
 }
 
-export async function updateSurvey(id: string, input: Partial<SurveyInsert>): Promise<SurveyRow> {
+export async function updateSurvey(id: string, input: any): Promise<SurveyRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
   const { data, error } = await sb()
-    .from('survey_responses')
+    .from('job_search_survey')
     .update(input)
     .eq('id', id)
     .select()
@@ -576,28 +734,51 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
     last_counsel_date: null,
     age: row.age ?? null,
     gender: row.gender_code === 'M' ? '남' : row.gender_code === 'F' ? '여' : null,
+    birth_date: row.birth_date ?? null,
+    email: row.email ?? null,
+    MBTI: row.MBTI ?? null,
+    certifications: row.client_certificates ? row.client_certificates.map(c => `${c.certificate_name}${c.acquisition_date ? ` (${c.acquisition_date})` : ''}`).join(', ') : null,
+    certificates: row.client_certificates || [],
+    future_card_stat: row.future_card_stat ?? null,
     business_type: row.business_type_code != null ? String(row.business_type_code) : null,
     participation_type: row.participation_type ?? null,
     participation_stage: row.participation_stage ?? null,
-    competency_grade: null,
+    capa: row.capa ?? null,
     recognition_date: null,
     desired_job: row.desired_job_1 ?? null,
+    desired_job_1: row.desired_job_1 ?? null,
+    desired_job_2: row.desired_job_2 ?? null,
+    desired_job_3: row.desired_job_3 ?? null,
+    desired_area_1: row.desired_area_1 ?? null,
+    desired_area_2: row.desired_area_2 ?? null,
+    desired_area_3: row.desired_area_3 ?? null,
+    desired_payment: row.desired_payment ?? null,
     counsel_notes: null,
     address: null,
-    school: row.school_name ?? null,
+    address_1: row.address_1 ?? null,
+    address_2: row.address_2 ?? null,
+    has_car: (row.has_car === true || row.has_car === 'Y') ? true : (row.has_car === false || row.has_car === 'N' ? false : null),
+    is_working_parttime: (row.is_working_parttime === true || row.is_working_parttime === 'Y') ? true : (row.is_working_parttime === false || row.is_working_parttime === 'N' ? false : null),
+    can_drive: (row.can_drive === true || row.can_drive === 'Y') ? true : (row.can_drive === false || row.can_drive === 'N' ? false : null),
+    school_name: row.school_name ?? null,
     major: row.major ?? null,
     education_level: row.education_level ?? null,
     initial_counsel_date: createdAt ? createdAt.split('T')[0] : null,
     iap_date: null,
     iap_duration: null,
     allowance_apply_date: null,
-    rediagnosis_date: null,
-    rediagnosis_yn: null,
+    rediagnosis_date: row.retest_date ?? null,
+    rediagnosis_yn: row.retest_stat != null ? String(row.retest_stat) : null,
     work_exp_type: null,
     work_exp_intent: null,
     work_exp_company: null,
     work_exp_period: null,
     work_exp_completed: null,
+    hire_place: row.hire_place ?? null,
+    hire_job_type: row.hire_job_type ?? null,
+    hire_date: row.hire_date ?? null,
+    hire_payment: row.hire_payment ?? null,
+    employment_duration: null,
     training_name: null,
     training_start: null,
     training_end: row.job_place_end ?? null,
@@ -605,21 +786,14 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
     intensive_start: null,
     intensive_end: null,
     support_end_date: null,
-    employment_type: row.hire_type ?? null,
-    employment_date: row.job_place_start ?? null,
-    employer: null,
-    job_title: null,
-    salary: null,
-    employment_duration: null,
-    resignation_date: null,
-    retention_1m_date: null,
-    retention_1m_yn: null,
-    retention_6m_date: null,
-    retention_6m_yn: null,
-    retention_12m_date: null,
-    retention_12m_yn: null,
-    retention_18m_date: null,
-    retention_18m_yn: null,
+    continue_serv_1_date: row.continue_serv_1_date ?? null,
+    continue_serv_1_stat: row.continue_serv_1_stat ?? null,
+    continue_serv_6_date: row.continue_serv_6_date ?? null,
+    continue_serv_6_stat: row.continue_serv_6_stat ?? null,
+    continue_serv_12_date: row.continue_serv_12_date ?? null,
+    continue_serv_12_stat: row.continue_serv_12_stat ?? null,
+    continue_serv_18_date: row.continue_serv_18_date ?? null,
+    continue_serv_18_stat: row.continue_serv_18_stat ?? null,
     counselor_name: null,
     counselor_id: row.counselor_id ?? null,
     branch: null,
@@ -627,9 +801,6 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
     score: null,
     iap_to: row.iap_to ?? null,
     retest_stat: row.retest_stat ?? null,
-    continue_serv_1_stat: row.continue_serv_1_stat ?? null,
-    driving_yn: null,
-    own_car_yn: null,
     memo: row.memo ?? null,
     participate_type: Array.isArray(row.business_code)
       ? row.business_code[0]?.participate_type ?? null
@@ -693,16 +864,32 @@ function mockClientToRow(c: Client): ClientRow {
     phone: c.phone,
     last_counsel_date: c.sessions.at(-1)?.date ?? null,
     age: c.age,
-    gender: c.gender,
+    gender: c.gender === '남' ? '남' : (c.gender === '여' ? '여' : null),
+    birth_date: null,
+    email: null,
+    MBTI: null,
+    certifications: null,
+    future_card_stat: 0,
     business_type: null,
     participation_type: null,
     participation_stage: c.processStage,
-    competency_grade: null,
+    capa: null,
     recognition_date: null,
     desired_job: null,
+    desired_job_1: null,
+    desired_job_2: null,
+    desired_job_3: null,
+    desired_area_1: null,
+    desired_area_2: null,
+    desired_area_3: null,
+    desired_payment: null,
+    has_car: false,
+    is_working_parttime: false,
     counsel_notes: c.notes ?? null,
     address: null,
-    school: null,
+    address_1: null,
+    address_2: null,
+    school_name: null,
     major: null,
     education_level: null,
     initial_counsel_date: c.registeredAt,

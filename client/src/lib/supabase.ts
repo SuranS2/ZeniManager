@@ -204,15 +204,33 @@ export interface ClientRow {
   last_counsel_date: string | null;
   age: number | null;
   gender: '남' | '여' | null;
+  birth_date: string | null;
+  email: string | null;
+  MBTI: string | null;
+  certifications: string | null; // 자격증 목록
+  certificates?: { certificate_name: string; acquisition_date: string | null }[];
+  future_card_stat: number | null; // 내일배움카드 상태 (0: 없음, 1: 있음)
   business_type: string | null; // 사업유형: Ⅰ/Ⅱ
   participation_type: string | null; // 참여유형
   participation_stage: string | null; // 참여단계
-  competency_grade: string | null; // 역량등급: A/B/C/D
+  capa: string | null; // 역량등급: A/B/C/D
   recognition_date: string | null; // 인정통지일
   desired_job: string | null; // 희망직종
+  desired_job_1: string | null;
+  desired_job_2: string | null;
+  desired_job_3: string | null;
+  desired_area_1: string | null;
+  desired_area_2: string | null;
+  desired_area_3: string | null;
+  desired_payment: number | null;
+  has_car: boolean | null;
+  is_working_parttime: boolean | null;
+  can_drive: boolean | null; // 운전가능여부
   counsel_notes: string | null; // 상담내역
   address: string | null;
-  school: string | null;
+  address_1: string | null;
+  address_2: string | null;
+  school_name: string | null;
   major: string | null;
   education_level: string | null; // 최종학력
   initial_counsel_date: string | null; // 초기상담(1차)
@@ -233,21 +251,19 @@ export interface ClientRow {
   intensive_start: string | null; // 집중취업알선시작일
   intensive_end: string | null; // 집중취업알선종료일
   support_end_date: string | null; // 취업지원종료일
-  employment_type: string | null; // 취업구분
-  employment_date: string | null; // 취업일자
-  employer: string | null; // 취업처
-  job_title: string | null; // 취업직무
-  salary: string | null; // 급여
+  hire_place: string | null; // 취업처
+  hire_job_type: string | null; // 취업직무
+  hire_date: string | null; // 취업일자
+  hire_payment: number | null; // 급여
   employment_duration: string | null; // 취업소요기간
-  resignation_date: string | null; // 퇴사일
-  retention_1m_date: string | null;
-  retention_1m_yn: string | null;
-  retention_6m_date: string | null;
-  retention_6m_yn: string | null;
-  retention_12m_date: string | null;
-  retention_12m_yn: string | null;
-  retention_18m_date: string | null;
-  retention_18m_yn: string | null;
+  continue_serv_1_date: string | null;
+  continue_serv_1_stat: number | null;
+  continue_serv_6_date: string | null;
+  continue_serv_6_stat: number | null;
+  continue_serv_12_date: string | null;
+  continue_serv_12_stat: number | null;
+  continue_serv_18_date: string | null;
+  continue_serv_18_stat: number | null;
   counselor_name: string | null; // 담당자
   counselor_id: string | null;
   branch: string | null;
@@ -255,14 +271,12 @@ export interface ClientRow {
   score: number | null;
   iap_to: string | null;
   retest_stat: number | null;
-  continue_serv_1_stat: string | null;
-  driving_yn: string | null;
-  own_car_yn: string | null;
   memo: string | null;
   participate_type: string | null;
   created_at: string;
   update_at: string;
 }
+
 
 export type ClientInsert = Omit<ClientRow, 'id' | 'created_at' | 'update_at'> & {
   id?: string;
@@ -317,21 +331,22 @@ export type CounselorInsert = Omit<CounselorRow, 'client_count' | 'completed_cou
 export interface SurveyRow {
   id: string;
   client_id: string;
+  counselor_id: string | null;
   survey_date: string;
-  q1_job_goal: number | null; // 구직목표수립
-  q2_employment_will: number | null; // 구직의지
-  q3_employment_plan: number | null; // 희망직종 계획
-  q4_job_skill_need: number | null; // 구직기술 필요도
-  q5_job_info_need: number | null; // 구직정보 필요도
-  q6_competency_up: number | null; // 취업역량 향상도
-  q7_barrier: number | null; // 취업장애요인
-  q7_barrier_detail: string | null; // 장애요인 내용
-  q8_health: number | null; // 건강상태
+  survey_1: number | null;
+  survey_2: number | null;
+  survey_3: number | null;
+  survey_4: number | null;
+  survey_5: number | null;
+  survey_6: number | null;
+  survey_7: number | null;
+  survey_8: number | null;
+  survey_7_memo: string | null;
   total_score: number | null;
   created_at: string;
 }
 
-export type SurveyInsert = Omit<SurveyRow, 'id' | 'created_at'> & { id?: string };
+export type SurveyInsert = Partial<SurveyRow> & { client_id: string; survey_date: string };
 
 export interface MemoCardRow {
   id: string;
