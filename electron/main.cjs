@@ -7,7 +7,6 @@
 
  * - Production: loads built index.html from dist/public
  */
-require('dotenv').config();
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require('electron');
 const fs = require('fs');
 const path = require('path');
@@ -16,15 +15,47 @@ const isDev = !app.isPackaged;
 // electron/main.cjs 최상단 부근에 Supabase 클라이언트 세팅 추가
 const { createClient } = require('@supabase/supabase-js');
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_SETTING_KEYS = {
+  URL: 'counsel_supabase_url',
+  SERVICE_ROLE_KEY: 'counsel_supabase_service_role_key',
+};
 
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false
+let supabaseAdmin = null;
+let supabaseAdminUrl = null;
+let supabaseAdminKey = null;
+
+function getSupabaseAdminClient() {
+  const persistedSettings = readAppSettings();
+  const supabaseUrl = String(persistedSettings[SUPABASE_SETTING_KEYS.URL] || '').trim();
+  const supabaseServiceRoleKey = String(persistedSettings[SUPABASE_SETTING_KEYS.SERVICE_ROLE_KEY] || '').trim();
+
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    return null;
   }
-});
+
+  if (supabaseAdmin && supabaseAdminUrl === supabaseUrl && supabaseAdminKey === supabaseServiceRoleKey) {
+    return supabaseAdmin;
+  }
+
+  try {
+    supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+    supabaseAdminUrl = supabaseUrl;
+    supabaseAdminKey = supabaseServiceRoleKey;
+  } catch (error) {
+    console.error('Supabase 관리자 클라이언트 초기화 실패:', error);
+    supabaseAdmin = null;
+    supabaseAdminUrl = null;
+    supabaseAdminKey = null;
+    return null;
+  }
+
+  return supabaseAdmin;
+}
 
 // ─── Keep a global reference to prevent garbage collection ───────────────────
 let mainWindow = null;
@@ -286,8 +317,16 @@ ipcMain.handle('shell:openExternal', (_, url) => {
 // 관리자 권한으로 상담사 등록
 ipcMain.handle('admin-register-counselor', async (event, counselorData) => {
   try {
+    const supabaseAdminClient = getSupabaseAdminClient();
+    if (!supabaseAdminClient) {
+      return {
+        success: false,
+        error: 'Supabase 관리자 설정이 없습니다. Settings에서 Supabase URL과 Service Role Key를 저장하세요.',
+      };
+    }
+
     // 1. Auth: 이메일과 비밀번호로 계정 생성
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+    const { data: authData, error: authError } = await supabaseAdminClient.auth.admin.createUser({
       email: counselorData.email,
       password: counselorData.password,
       email_confirm: true // 생성 즉시 이메일 인증 통과 처리
@@ -296,7 +335,7 @@ ipcMain.handle('admin-register-counselor', async (event, counselorData) => {
     if (authError) throw authError;
 
     // 2. DB: 생성된 uid를 사용하여 user 테이블에 정보 삽입
-    const { error: dbError } = await supabaseAdmin.from('user').insert([
+    const { error: dbError } = await supabaseAdminClient.from('user').insert([
       {
         user_id: authData.user.id,
         role: 5,
@@ -317,8 +356,16 @@ ipcMain.handle('admin-register-counselor', async (event, counselorData) => {
 // 관리자 권한으로 상담사 완전 삭제
 ipcMain.handle('admin-delete-counselor', async (event, userId) => {
   try {
+    const supabaseAdminClient = getSupabaseAdminClient();
+    if (!supabaseAdminClient) {
+      return {
+        success: false,
+        error: 'Supabase 관리자 설정이 없습니다. Settings에서 Supabase URL과 Service Role Key를 저장하세요.',
+      };
+    }
+
     // 1. public.user 테이블에서 프로필 정보 먼저 삭제 (외래키 충돌 방지)
-    const { error: dbError } = await supabaseAdmin
+    const { error: dbError } = await supabaseAdminClient
       .from('user')
       .delete()
       .eq('user_id', userId);
@@ -326,7 +373,7 @@ ipcMain.handle('admin-delete-counselor', async (event, userId) => {
     if (dbError) throw dbError;
 
     // 2. auth.users 테이블에서 로그인 계정 완전 삭제
-    const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+    const { error: authError } = await supabaseAdminClient.auth.admin.deleteUser(userId);
 
     if (authError) throw authError;
 

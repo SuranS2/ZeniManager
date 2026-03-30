@@ -11,6 +11,7 @@ import type { AppRole } from '@shared/const';
 export const STORAGE_KEYS = {
   SUPABASE_URL: 'counsel_supabase_url',
   SUPABASE_ANON_KEY: 'counsel_supabase_anon_key',
+  SUPABASE_SERVICE_ROLE_KEY: 'counsel_supabase_service_role_key',
   OPENAI_API_KEY: 'counsel_openai_api_key',
   USER: 'counsel_user',
 } as const;
@@ -19,6 +20,7 @@ export const SUPABASE_SESSION_STORAGE_KEY = 'counsel_sb_session';
 const APP_SETTING_KEYS = [
   STORAGE_KEYS.SUPABASE_URL,
   STORAGE_KEYS.SUPABASE_ANON_KEY,
+  STORAGE_KEYS.SUPABASE_SERVICE_ROLE_KEY,
   STORAGE_KEYS.OPENAI_API_KEY,
 ] as const;
 
@@ -29,12 +31,17 @@ function getElectronApi() {
 
 /** Returns the Supabase URL stored by the user in Settings, or null if not set. */
 export function getSupabaseUrl(): string | null {
-  return localStorage.getItem(STORAGE_KEYS.SUPABASE_URL) || (import.meta.env.VITE_SUPABASE_URL as string) || null;
+  return localStorage.getItem(STORAGE_KEYS.SUPABASE_URL) || null;
 }
 
 /** Returns the Supabase anon key stored by the user in Settings, or null if not set. */
 export function getSupabaseAnonKey(): string | null {
-  return localStorage.getItem(STORAGE_KEYS.SUPABASE_ANON_KEY) || (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || null;
+  return localStorage.getItem(STORAGE_KEYS.SUPABASE_ANON_KEY) || null;
+}
+
+/** Returns the Supabase service role key stored by the user in Settings, or null if not set. */
+export function getSupabaseServiceRoleKey(): string | null {
+  return localStorage.getItem(STORAGE_KEYS.SUPABASE_SERVICE_ROLE_KEY) || null;
 }
 
 /** Returns the OpenAI API key stored by the user in Settings, or null if not set. */
@@ -158,6 +165,7 @@ export async function resetStoredAppSettings(): Promise<void> {
   [
     STORAGE_KEYS.SUPABASE_URL,
     STORAGE_KEYS.SUPABASE_ANON_KEY,
+    STORAGE_KEYS.SUPABASE_SERVICE_ROLE_KEY,
     STORAGE_KEYS.OPENAI_API_KEY,
     STORAGE_KEYS.USER,
     SUPABASE_SESSION_STORAGE_KEY,
