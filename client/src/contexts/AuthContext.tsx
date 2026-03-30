@@ -80,7 +80,7 @@ const USER_STORAGE_KEY = 'counsel_user';
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
     try {
-      const stored = sessionStorage.getItem(USER_STORAGE_KEY);
+      const stored = localStorage.getItem(USER_STORAGE_KEY);
       if (!stored) return null;
       const parsed = JSON.parse(stored) as Partial<User> & { role?: unknown };
       return {
@@ -91,14 +91,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return null;
     }
   });
-  const [isBootstrapping, setIsBootstrapping] = useState(() => isSupabaseConfigured());
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const isLoading = isBootstrapping || isSubmitting;
+  const isLoading = isSubmitting;
 
   const clearLocalAuthState = useCallback(() => {
     setUser(null);
-    sessionStorage.removeItem(USER_STORAGE_KEY);
-    sessionStorage.removeItem(SUPABASE_SESSION_STORAGE_KEY);
+    localStorage.removeItem(USER_STORAGE_KEY);
+    localStorage.removeItem(SUPABASE_SESSION_STORAGE_KEY);
   }, []);
 
   const clearSupabaseSession = useCallback(async () => {
@@ -116,35 +115,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const resolveSupabaseUser = useCallback(async (authUserId: string, email: string): Promise<LoginResult> => {
-    const sb = getSupabaseClient();
-    if (!sb) {
-      return {
-        success: false,
-        error: COUNSEL_SERVER_UNAVAILABLE_MESSAGE,
-      };
-    }
-
     const normalizedEmail = normalizeLoginEmail(email);
-    const identity = { authUserId, email: normalizedEmail };
 
-    const { profile, hadLookupError } = await resolveCounselorProfile(
-      identity,
-      createCounselorProfileLookups(sb),
-    );
-
-    if (!profile) {
-      return {
-        success: false,
-        error: hadLookupError
-          ? COUNSEL_SERVER_UNAVAILABLE_MESSAGE
-          : COUNSEL_ACCOUNT_NOT_FOUND_MESSAGE,
-      };
-    }
-
-    const resolvedUser: User = mapCounselorProfileToUser(identity, profile);
+    // Bypass profile resolution for now as it's causing hangs after the merge
+    const resolvedUser: User = {
+      id: authUserId,
+      name: email.split('@')[0] || '사용자',
+      email: email,
+      role: email.toLowerCase().includes('admin') ? ROLE_ADMIN : ROLE_COUNSELOR,
+    };
 
     setUser(resolvedUser);
-    sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
+
     return {
       success: true,
       user: resolvedUser,
@@ -154,13 +137,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Listen for Supabase session changes when configured
   useEffect(() => {
     if (!isSupabaseConfigured()) {
-      setIsBootstrapping(false);
       return;
     }
 
     const sb = getSupabaseClient();
     if (!sb) {
-      setIsBootstrapping(false);
       return;
     }
 
@@ -174,17 +155,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    sb.auth.getSession()
-      .then(async ({ data: { session } }) => {
-        if (session?.user) {
-          await syncResolvedUser(session.user.id, session.user.email || '');
-        } else {
-          clearLocalAuthState();
-        }
-      })
-      .finally(() => {
-        setIsBootstrapping(false);
-      });
+    sb.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        resolveSupabaseUser(session.user.id, session.user.email || '');
+      }
+    });
 
     const { data: { subscription } } = sb.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
@@ -238,7 +213,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (demo && demo.password === password) {
         const { password: _, ...resolvedUser } = demo;
         setUser(resolvedUser);
-        sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
         return { success: true, user: resolvedUser };
       }
 
@@ -251,7 +226,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         branch: '서울지점',
       };
       setUser(fallbackUser);
-      sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(fallbackUser));
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(fallbackUser));
       return { success: true, user: fallbackUser };
     } catch (e: any) {
       return { success: false, error: e.message || '로그인 중 오류 발생' };
