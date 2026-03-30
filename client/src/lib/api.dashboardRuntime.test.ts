@@ -24,7 +24,7 @@ import {
   fetchMyMemo,
   searchDashboardClients,
   updateMyMemo,
-} from './api';
+} from './api.dashboard';
 
 type QueryResult = {
   data?: unknown;
