@@ -248,6 +248,7 @@ export async function createClient(input: any): Promise<ClientRow> {
     participation_type: input.participation_type,
     participation_stage: input.participation_stage,
     memo: input.memo,
+    email: input.email, // 이메일 필드 추가
   };
 
   const { data, error } = await runQuery<LiveClientRecord>(
@@ -353,7 +354,66 @@ export async function createSession(input: SessionInsert): Promise<SessionRow> {
   );
 
   if (error) throw error;
+
+  // 2. 상담 유형에 따른 내담자 참여 단계 자동 업데이트
+  const autoStages: Record<string, string> = {
+    '초기상담': '초기상담',
+    '심층상담': '심층상담',
+    '취업지원': '취업지원',
+    '취업완료': '취업완료',
+    '사후관리': '사후관리',
+  };
+
+  const nextStage = autoStages[payload.counsel_type];
+  if (nextStage) {
+    await sb()
+      .from('client')
+      .update({ participation_stage: nextStage })
+      .eq('client_id', numericClientId);
+  }
+
   return liveCounselHistoryToSessionRow(data as LiveCounselHistoryRecord);
+}
+
+/**
+ * 참여수당 이력 저장 (allowance_log)
+ */
+export async function createAllowanceLog(input: {
+  client_id: string;
+  round: number;
+  start_date: string;
+  end_date: string;
+  apply_date: string;
+  has_income: boolean;
+  family_allowance_count: number;
+  expected_payment_date: string;
+  is_paid: boolean;
+}) {
+  if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
+
+  const payload = {
+    client_id: Number(input.client_id),
+    round: input.round,
+    start_date: input.start_date,
+    end_date: input.end_date,
+    apply_date: input.apply_date,
+    has_income: input.has_income,
+    family_allowance_count: input.family_allowance_count,
+    expected_payment_date: input.expected_payment_date,
+    is_paid: input.is_paid,
+  };
+
+  const { data, error } = await runQuery<Record<string, unknown>>(
+    '참여수당 이력 등록',
+    sb()
+      .from('allowance_log')
+      .insert(payload)
+      .select()
+      .single(),
+  );
+
+  if (error) throw error;
+  return data;
 }
 
 export async function updateSession(id: string, input: Partial<SessionInsert>): Promise<void> {

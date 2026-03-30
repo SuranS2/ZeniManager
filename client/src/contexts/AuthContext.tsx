@@ -171,10 +171,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
-    const { profile, hadLookupError } = await resolveCounselorProfile(
-      { authUserId, email: normalizedEmail },
-      createCounselorProfileLookups(sb, accessToken),
-    );
+    const { profile, hadLookupError } = await Promise.race([
+      resolveCounselorProfile(
+        { authUserId, email: normalizedEmail },
+        createCounselorProfileLookups(sb, accessToken),
+      ),
+      new Promise<{ profile: Awaited<ReturnType<typeof resolveCounselorProfile>>['profile']; hadLookupError: boolean }>(resolve =>
+        setTimeout(() => resolve({ profile: null, hadLookupError: false }), 3000)
+      )
+    ]);
 
     if (profile) {
       const resolvedUser = mapCounselorProfileToUser(

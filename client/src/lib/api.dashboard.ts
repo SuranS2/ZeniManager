@@ -146,10 +146,14 @@ function parseDashboardNumber(value: number | string | null | undefined): number
 }
 
 function liveClientToRow(row: LiveClientRecord): ClientRow {
-  const createdAt = row.created_at ?? new Date().toISOString();
-  const updatedAt = row.update_at
-    ? new Date(`${row.update_at}T00:00:00`).toISOString()
-    : createdAt;
+  const parseSafeDate = (dateStr: string | null | undefined): string => {
+    if (!dateStr) return new Date().toISOString();
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  };
+
+  const createdAt = parseSafeDate(row.created_at);
+  const updatedAt = row.update_at ? parseSafeDate(row.update_at) : createdAt;
   const employmentDate = normalizeEmploymentDate(row.job_place_start, row.hire_date);
 
   return {
