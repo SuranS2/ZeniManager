@@ -8,6 +8,9 @@ export const COUNSEL_SERVER_UNAVAILABLE_MESSAGE =
 export const COUNSEL_ACCOUNT_NOT_FOUND_MESSAGE =
   '상담 관리 서버에서 로그인 정보를 확인할 수 없습니다. 계정 등록 상태를 확인해주세요.';
 
+export const COUNSEL_SESSION_EXPIRED_MESSAGE =
+  '세션이 만료되었거나 연결이 끊어졌습니다. 다시 로그인해주세요.';
+
 const AUTH_NOTICE_STORAGE_KEY = 'counsel_auth_notice';
 
 export function matchesAccessRequirement(

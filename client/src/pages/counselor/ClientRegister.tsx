@@ -681,7 +681,7 @@ export default function ClientRegister() {
 
           <div className="register_row register_field_group">
             <label className="register_label">기타 특이사항 (메모)</label>
-            <textarea
+          <textarea
               value={form.notes}
               onChange={e => update('notes', e.target.value)}
               placeholder="내담자 특이사항, 초기진단 결과 등 전달 메모"
@@ -689,6 +689,69 @@ export default function ClientRegister() {
               className="register_input resize-none"
             />
           </div>
+
+          {isEmploymentCompleted && (
+            <div className="rounded-sm border border-emerald-200 bg-emerald-50/70 p-4 space-y-4">
+              <div>
+                <div className="text-sm font-semibold text-foreground">취업 완료 정보</div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  취업완료 상태로 등록되는 대상자는 저장 직후 성공사례 검색용 snapshot 동기화가 실행됩니다.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">취업처 <span className="text-destructive">*</span></label>
+                  <input
+                    type="text"
+                    value={form.hire_place}
+                    onChange={e => update('hire_place', e.target.value)}
+                    placeholder="OO기업"
+                    className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">취업 직무</label>
+                  <input
+                    type="text"
+                    value={form.hire_job_type}
+                    onChange={e => update('hire_job_type', e.target.value)}
+                    placeholder="사무행정"
+                    className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">취업 구분</label>
+                  <input
+                    type="text"
+                    value={form.hire_type}
+                    onChange={e => update('hire_type', e.target.value)}
+                    placeholder="정규직"
+                    className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">급여</label>
+                  <input
+                    type="text"
+                    value={form.hire_payment}
+                    onChange={e => update('hire_payment', e.target.value)}
+                    placeholder="월 250만원"
+                    className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">취업일</label>
+                  <input
+                    type="date"
+                    value={form.employment_date}
+                    onChange={e => update('employment_date', e.target.value)}
+                    className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </section>
 
         {isEmploymentCompleted && (
