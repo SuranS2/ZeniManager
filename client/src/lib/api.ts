@@ -495,10 +495,14 @@ export {
 // ─── Mappers ──────────────────────────────────────────────────────────────────
 
 function liveClientToRow(row: LiveClientRecord): ClientRow {
-  const createdAt = row.created_at ?? new Date().toISOString();
-  const updatedAt = row.update_at
-    ? new Date(`${row.update_at}T00:00:00`).toISOString()
-    : createdAt;
+  const parseSafeDate = (dateStr: string | null | undefined): string => {
+    if (!dateStr) return new Date().toISOString();
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  };
+
+  const createdAt = parseSafeDate(row.created_at);
+  const updatedAt = row.update_at ? parseSafeDate(row.update_at) : createdAt;
 
   return {
     id: String(row.client_id),
@@ -577,6 +581,12 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
 function liveCounselHistoryToSessionRow(row: LiveCounselHistoryRecord): SessionRow {
   const decoded = decodeSessionPayload(row.counselor_opinion, '일반상담');
 
+  const parseSafeDate = (dateStr: string | null | undefined): string => {
+    if (!dateStr) return new Date().toISOString();
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  };
+
   return {
     id: String(row.counsel_id),
     client_id: String(row.client_id),
@@ -602,7 +612,7 @@ function liveCounselHistoryToSessionRow(row: LiveCounselHistoryRecord): SessionR
     life_history_result: row.life_history_result ?? null,
     profiling_grade: row.profiling_grade ?? null,
     memo: row.memo ?? null,
-    created_at: row.create_at ?? row.counsel_date,
+    created_at: parseSafeDate(row.create_at ?? row.counsel_date),
   };
 }
 
