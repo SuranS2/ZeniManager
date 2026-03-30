@@ -136,7 +136,7 @@ function App() {
       <AuthProvider>
         <WouterRouter hook={isPackagedElectron ? useHashLocation : undefined}>
           <TooltipProvider>
-            <Toaster position="top-right" />
+            <Toaster position="top-center" />
             <AppRoutes />
           </TooltipProvider>
         </WouterRouter>

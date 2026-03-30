@@ -80,7 +80,7 @@ const USER_STORAGE_KEY = 'counsel_user';
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
     try {
-      const stored = localStorage.getItem(USER_STORAGE_KEY);
+      const stored = sessionStorage.getItem(USER_STORAGE_KEY);
       if (!stored) return null;
       const parsed = JSON.parse(stored) as Partial<User> & { role?: unknown };
       return {
@@ -97,8 +97,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearLocalAuthState = useCallback(() => {
     setUser(null);
-    localStorage.removeItem(USER_STORAGE_KEY);
-    localStorage.removeItem(SUPABASE_SESSION_STORAGE_KEY);
+    sessionStorage.removeItem(USER_STORAGE_KEY);
+    sessionStorage.removeItem(SUPABASE_SESSION_STORAGE_KEY);
   }, []);
 
   const clearSupabaseSession = useCallback(async () => {
@@ -144,7 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const resolvedUser: User = mapCounselorProfileToUser(identity, profile);
 
     setUser(resolvedUser);
-    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
+    sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
     return {
       success: true,
       user: resolvedUser,
@@ -238,7 +238,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (demo && demo.password === password) {
         const { password: _, ...resolvedUser } = demo;
         setUser(resolvedUser);
-        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
+        sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
         return { success: true, user: resolvedUser };
       }
 
@@ -251,7 +251,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         branch: '서울지점',
       };
       setUser(fallbackUser);
-      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(fallbackUser));
+      sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(fallbackUser));
       return { success: true, user: fallbackUser };
     } catch (e: any) {
       return { success: false, error: e.message || '로그인 중 오류 발생' };
