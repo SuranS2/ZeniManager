@@ -1,10 +1,28 @@
-import { getSupabaseClient, isSupabaseConfigured } from './supabase';
+import {
+  executeSupabaseRequest,
+  getSupabaseClient,
+  isSupabaseConfigured,
+} from './supabase';
 import type { ClientRow } from './supabase';
 
 function sb() {
   const client = getSupabaseClient();
   if (!client) throw new Error('Supabase가 설정되지 않았습니다. 설정 메뉴에서 Supabase URL과 API 키를 입력하세요.');
   return client;
+}
+
+function runQuery<T>(
+  operationLabel: string,
+  request: PromiseLike<{
+    data: T | null;
+    error: unknown;
+    status?: number | null;
+    count?: number | null;
+  }>,
+) {
+  return executeSupabaseRequest(operationLabel, request, {
+    requireStoredSession: true,
+  });
 }
 
 const ISO_DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -329,13 +347,16 @@ export async function searchDashboardClients(
   if (!safeQuery) return [];
 
   const likeQuery = `%${safeQuery}%`;
-  const { data, error } = await sb()
-    .from('client')
-    .select(CLIENT_SELECT_FIELDS)
-    .eq('counselor_id', scopedAuthUserId)
-    .or(`client_name.ilike.${likeQuery},phone_encrypted.ilike.${likeQuery},desired_job_1.ilike.${likeQuery}`)
-    .order('update_at', { ascending: false, nullsFirst: false })
-    .limit(10);
+  const { data, error } = await runQuery<LiveClientRecord[]>(
+    '대시보드 고객 검색',
+    sb()
+      .from('client')
+      .select(CLIENT_SELECT_FIELDS)
+      .eq('counselor_id', scopedAuthUserId)
+      .or(`client_name.ilike.${likeQuery},phone_encrypted.ilike.${likeQuery},desired_job_1.ilike.${likeQuery}`)
+      .order('update_at', { ascending: false, nullsFirst: false })
+      .limit(10),
+  );
 
   if (error) throw error;
   return ((data ?? []) as LiveClientRecord[]).map(row => liveClientToRow(row));
@@ -353,7 +374,11 @@ export async function fetchDashboardStats(authUserId?: string): Promise<Dashboar
     query = query.eq('counselor_id', scopedAuthUserId);
   }
 
-  const { data, error } = await query;
+  const { data, error } = await runQuery<Array<{
+    participation_stage: string | null;
+    retest_stat: number | null;
+    continue_serv_1_stat: number | string | null;
+  }>>('대시보드 통계 조회', query);
   if (error) throw error;
 
   const rows = (data ?? []) as Array<{
@@ -405,12 +430,18 @@ export async function fetchDashboardMonthlyStats(
   const rangeEndDate = new Date(Number(lastMonthKey.slice(0, 4)), Number(lastMonthKey.slice(5, 7)), 0);
   const rangeEnd = `${rangeEndDate.getFullYear()}-${String(rangeEndDate.getMonth() + 1).padStart(2, '0')}-${String(rangeEndDate.getDate()).padStart(2, '0')}`;
 
-  const { data: histories, error } = await sb()
-    .from('counsel_history')
-    .select('client_id, counsel_date')
-    .eq('user_id', scopedAuthUserId)
-    .gte('counsel_date', rangeStart)
-    .lte('counsel_date', rangeEnd);
+  const { data: histories, error } = await runQuery<Array<{
+    client_id: number | null;
+    counsel_date: string | null;
+  }>>(
+    '대시보드 월간 통계 조회',
+    sb()
+      .from('counsel_history')
+      .select('client_id, counsel_date')
+      .eq('user_id', scopedAuthUserId)
+      .gte('counsel_date', rangeStart)
+      .lte('counsel_date', rangeEnd),
+  );
 
   if (error) throw error;
 
@@ -448,12 +479,18 @@ export async function fetchDashboardCalendarMonthCounts(
   const scopedAuthUserId = assertDashboardRuntimeContract('캘린더', authUserId);
   assertDashboardDateRange('캘린더', monthStart, monthEnd);
 
-  const { data: histories, error } = await sb()
-    .from('counsel_history')
-    .select('client_id, counsel_date')
-    .eq('user_id', scopedAuthUserId)
-    .gte('counsel_date', monthStart)
-    .lte('counsel_date', monthEnd);
+  const { data: histories, error } = await runQuery<Array<{
+    client_id: number | null;
+    counsel_date: string | null;
+  }>>(
+    '캘린더 월간 일정 수 조회',
+    sb()
+      .from('counsel_history')
+      .select('client_id, counsel_date')
+      .eq('user_id', scopedAuthUserId)
+      .gte('counsel_date', monthStart)
+      .lte('counsel_date', monthEnd),
+  );
 
   if (error) throw error;
 
@@ -462,18 +499,23 @@ export async function fetchDashboardCalendarMonthCounts(
   );
   if (clientIds.length === 0) return {};
 
-  const { data: clients, error: clientError } = await sb()
-    .from('client')
-    .select('client_id')
-    .eq('counselor_id', scopedAuthUserId)
-    .in('client_id', clientIds);
+  const { data: clients, error: clientError } = await runQuery<Array<{
+    client_id: number;
+  }>>(
+    '캘린더 고객 소유권 검증',
+    sb()
+      .from('client')
+      .select('client_id')
+      .eq('counselor_id', scopedAuthUserId)
+      .in('client_id', clientIds),
+  );
 
   if (clientError) throw clientError;
 
   const allowedClientIds = new Set((clients ?? []).map(row => row.client_id));
 
   return (histories ?? []).reduce<Record<string, number>>((acc, row) => {
-    if (!row.counsel_date || !allowedClientIds.has(row.client_id)) return acc;
+    if (typeof row.client_id !== 'number' || !row.counsel_date || !allowedClientIds.has(row.client_id)) return acc;
     acc[row.counsel_date] = (acc[row.counsel_date] ?? 0) + 1;
     return acc;
   }, {});
@@ -487,14 +529,41 @@ export async function fetchDashboardCalendarEntries(
   const scopedAuthUserId = assertDashboardRuntimeContract('캘린더', authUserId);
   assertDashboardDateRange('캘린더', rangeStart, rangeEnd);
 
-  const { data: histories, error } = await sb()
-    .from('counsel_history')
-    .select('counsel_id, client_id, user_id, counsel_date, start_time, end_time, session_number, counselor_opinion, counsel_type, document_link, economic_situation, social_situation_family, social_situation_society, self_esteem, self_efficacy, holland_code, career_fluidity, info_gathering, personality_test_result, life_history_result, profiling_grade, memo, create_at')
-    .eq('user_id', scopedAuthUserId)
-    .gte('counsel_date', rangeStart)
-    .lte('counsel_date', rangeEnd)
-    .order('counsel_date', { ascending: false })
-    .order('start_time', { ascending: false });
+  const { data: histories, error } = await runQuery<Array<{
+    counsel_id: number;
+    client_id: number | null;
+    user_id: string | null;
+    counsel_date: string | null;
+    start_time: string | null;
+    end_time: string | null;
+    session_number: number | null;
+    counselor_opinion: string | null;
+    counsel_type: string | null;
+    document_link: string | null;
+    economic_situation: number | null;
+    social_situation_family: number | null;
+    social_situation_society: number | null;
+    self_esteem: number | null;
+    self_efficacy: number | null;
+    holland_code: string | null;
+    career_fluidity: number | null;
+    info_gathering: number | null;
+    personality_test_result: string | null;
+    life_history_result: string | null;
+    profiling_grade: string | null;
+    memo: string | null;
+    create_at: string | null;
+  }>>(
+    '캘린더 일정 조회',
+    sb()
+      .from('counsel_history')
+      .select('counsel_id, client_id, user_id, counsel_date, start_time, end_time, session_number, counselor_opinion, counsel_type, document_link, economic_situation, social_situation_family, social_situation_society, self_esteem, self_efficacy, holland_code, career_fluidity, info_gathering, personality_test_result, life_history_result, profiling_grade, memo, create_at')
+      .eq('user_id', scopedAuthUserId)
+      .gte('counsel_date', rangeStart)
+      .lte('counsel_date', rangeEnd)
+      .order('counsel_date', { ascending: false })
+      .order('start_time', { ascending: false }),
+  );
 
   if (error) throw error;
 
@@ -503,11 +572,19 @@ export async function fetchDashboardCalendarEntries(
   );
   if (clientIds.length === 0) return [];
 
-  const { data: clients, error: clientError } = await sb()
-    .from('client')
-    .select('client_id, client_name, counselor_id, participation_stage')
-    .eq('counselor_id', scopedAuthUserId)
-    .in('client_id', clientIds);
+  const { data: clients, error: clientError } = await runQuery<Array<{
+    client_id: number;
+    client_name: string;
+    counselor_id: string | null;
+    participation_stage: string | null;
+  }>>(
+    '캘린더 일정 고객 조회',
+    sb()
+      .from('client')
+      .select('client_id, client_name, counselor_id, participation_stage')
+      .eq('counselor_id', scopedAuthUserId)
+      .in('client_id', clientIds),
+  );
 
   if (clientError) throw clientError;
 
@@ -533,11 +610,14 @@ export async function fetchDashboardCalendarEntries(
 export async function fetchMyMemo(authUserId: string): Promise<string | null> {
   const scopedAuthUserId = assertDashboardRuntimeContract('개인 메모', authUserId);
 
-  const { data, error } = await sb()
-    .from('user')
-    .select('memo')
-    .eq('user_id', scopedAuthUserId)
-    .maybeSingle();
+  const { data, error } = await runQuery<LiveUserMemoRecord | null>(
+    '개인 메모 조회',
+    sb()
+      .from('user')
+      .select('memo')
+      .eq('user_id', scopedAuthUserId)
+      .maybeSingle(),
+  );
 
   if (error) {
     if (isMissingSchemaError(error)) {
@@ -553,10 +633,13 @@ export async function updateMyMemo(authUserId: string, memo: string | null): Pro
   const normalizedMemo = normalizeMemoValue(memo);
   const scopedAuthUserId = assertDashboardRuntimeContract('개인 메모', authUserId);
 
-  const { error, count } = await sb()
-    .from('user')
-    .update({ memo: normalizedMemo }, { count: 'exact' })
-    .eq('user_id', scopedAuthUserId);
+  const { error, count } = await runQuery<null>(
+    '개인 메모 저장',
+    sb()
+      .from('user')
+      .update({ memo: normalizedMemo }, { count: 'exact' })
+      .eq('user_id', scopedAuthUserId),
+  );
 
   if (error) throw error;
   if (count === 0) {

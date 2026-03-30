@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ROLE_ADMIN, ROLE_COUNSELOR } from '@shared/const';
+
+vi.mock('@/lib/supabase', () => ({
+  executeSupabaseRequest: async (_operationLabel: string, request: PromiseLike<unknown>) => await request,
+  getSupabaseAnonKey: () => 'anon-key',
+  getSupabaseUrl: () => 'https://example.supabase.co',
+}));
+
 import {
   buildFallbackUser,
+  createCounselorProfileLookups,
   mapCounselorProfileToUser,
   normalizeLoginEmail,
   resolveCounselorProfile,
@@ -85,5 +93,50 @@ describe('authProfile', () => {
 
     expect(user.role).toBe(ROLE_COUNSELOR);
     expect(user.name).toBe('counselor');
+  });
+
+  it('prefers token-backed profile lookup when an access token is available', async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify([
+      {
+        user_id: 'auth-admin-1',
+        user_name: '시니어 관리자',
+        department: '본사',
+        role: ROLE_ADMIN,
+      },
+    ]), {
+      status: 200,
+      headers: {
+        'content-type': 'application/json',
+      },
+    }));
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const [lookup] = createCounselorProfileLookups({
+        from: vi.fn(),
+        rpc: vi.fn(),
+      } as any, 'access-token');
+
+      const result = await lookup({
+        authUserId: 'auth-admin-1',
+        email: 'senior@test.com',
+      });
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(result).toEqual({
+        id: 'auth-admin-1',
+        name: '시니어 관리자',
+        department: '본사',
+        role: ROLE_ADMIN,
+      });
+    } finally {
+      if (originalFetch) {
+        vi.stubGlobal('fetch', originalFetch);
+      } else {
+        vi.unstubAllGlobals();
+      }
+    }
   });
 });
