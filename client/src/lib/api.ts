@@ -4,7 +4,11 @@
  * Mock data has been removed.
  */
 import { normalizeAppRole } from '@shared/const';
-import { getSupabaseClient, isSupabaseConfigured } from './supabase';
+import {
+  executeSupabaseRequest,
+  getSupabaseClient,
+  isSupabaseConfigured,
+} from './supabase';
 import type {
   ClientRow, ClientInsert,
   SessionRow, SessionInsert,
@@ -19,6 +23,36 @@ function sb() {
   const client = getSupabaseClient();
   if (!client) throw new Error('Supabase가 설정되지 않았습니다. 설정 메뉴에서 Supabase URL과 API 키를 입력하세요.');
   return client;
+}
+
+function runQuery<T>(
+  operationLabel: string,
+  request: PromiseLike<{
+    data: T | null;
+    error: unknown;
+    status?: number | null;
+    count?: number | null;
+  }>,
+) {
+  return executeSupabaseRequest(operationLabel, request, {
+    requireStoredSession: true,
+  });
+}
+
+function isMissingSchemaError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+
+  const maybeError = error as {
+    code?: string;
+    message?: string;
+  };
+
+  if (maybeError.code === 'PGRST202' || maybeError.code === 'PGRST205') {
+    return true;
+  }
+
+  const message = maybeError.message?.toLowerCase() ?? '';
+  return message.includes('schema cache') || message.includes('could not find');
 }
 
 const SESSION_META_MARKER = '\n\n[__CALENDAR_FLOW_META__]\n';
@@ -148,7 +182,7 @@ export async function fetchClients(counselorId?: string): Promise<ClientRow[]> {
 
   if (counselorId) q = q.eq('counselor_id', counselorId);
 
-  const { data, error } = await q;
+  const { data, error } = await runQuery<LiveClientRecord[]>('고객 목록 조회', q);
   if (error) throw error;
   return ((data ?? []) as LiveClientRecord[]).map(row => liveClientToRow(row));
 }
@@ -159,14 +193,17 @@ export async function fetchClientById(id: string): Promise<ClientRow | null> {
   const numericId = Number(id);
   if (Number.isNaN(numericId)) return null;
 
-  const { data, error } = await sb()
-    .from('client')
-    .select(CLIENT_SELECT_FIELDS)
-    .eq('client_id', numericId)
-    .single();
+  const { data, error } = await runQuery<LiveClientRecord>(
+    '고객 상세 조회',
+    sb()
+      .from('client')
+      .select(CLIENT_SELECT_FIELDS)
+      .eq('client_id', numericId)
+      .single(),
+  );
 
   if (error) {
-    if (error.code === 'PGRST116') return null; // not found
+    if ((error as { code?: string }).code === 'PGRST116') return null; // not found
     throw error;
   }
   return liveClientToRow(data as LiveClientRecord);
@@ -213,32 +250,40 @@ export async function createClient(input: any): Promise<ClientRow> {
     memo: input.memo,
   };
 
-  const { data, error } = await sb()
-    .from('client')
-    .insert(payload)
-    .select(CLIENT_SELECT_FIELDS)
-    .single();
+  const { data, error } = await runQuery<LiveClientRecord>(
+    '고객 등록',
+    sb()
+      .from('client')
+      .insert(payload)
+      .select(CLIENT_SELECT_FIELDS)
+      .single(),
+  );
 
   if (error) throw error;
-  return liveClientToRow(data as LiveClientRecord);
   return liveClientToRow(data as LiveClientRecord);
 }
 
 export async function updateClient(id: string, input: Partial<ClientInsert>): Promise<ClientRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { data, error } = await sb()
-    .from('client')
-    .update({ ...input, update_at: new Date().toISOString().split('T')[0] })
-    .eq('client_id', Number(id))
-    .select(CLIENT_SELECT_FIELDS)
-    .single();
+  const { data, error } = await runQuery<LiveClientRecord>(
+    '고객 수정',
+    sb()
+      .from('client')
+      .update({ ...input, update_at: new Date().toISOString().split('T')[0] })
+      .eq('client_id', Number(id))
+      .select(CLIENT_SELECT_FIELDS)
+      .single(),
+  );
   if (error) throw error;
   return liveClientToRow(data as LiveClientRecord);
 }
 
 export async function deleteClient(id: string): Promise<void> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { error } = await sb().from('client').delete().eq('client_id', Number(id));
+  const { error } = await runQuery<null>(
+    '고객 삭제',
+    sb().from('client').delete().eq('client_id', Number(id)),
+  );
   if (error) throw error;
 }
 
@@ -253,12 +298,15 @@ export async function fetchSessions(clientId: string): Promise<SessionRow[]> {
   const numericClientId = Number(clientId);
   if (Number.isNaN(numericClientId)) return [];
 
-  const { data, error } = await sb()
-    .from('counsel_history')
-    .select(SESSION_SELECT_FIELDS)
-    .eq('client_id', numericClientId)
-    .order('counsel_date', { ascending: false })
-    .order('start_time', { ascending: false });
+  const { data, error } = await runQuery<LiveCounselHistoryRecord[]>(
+    '상담 이력 조회',
+    sb()
+      .from('counsel_history')
+      .select(SESSION_SELECT_FIELDS)
+      .eq('client_id', numericClientId)
+      .order('counsel_date', { ascending: false })
+      .order('start_time', { ascending: false }),
+  );
 
   if (error) throw error;
   return ((data ?? []) as LiveCounselHistoryRecord[]).map(row => liveCounselHistoryToSessionRow(row));
@@ -295,11 +343,14 @@ export async function createSession(input: SessionInsert): Promise<SessionRow> {
     memo: input.memo || null,
   };
 
-  const { data, error } = await sb()
-    .from('counsel_history')
-    .insert(payload)
-    .select(SESSION_SELECT_FIELDS)
-    .single();
+  const { data, error } = await runQuery<LiveCounselHistoryRecord>(
+    '상담 이력 등록',
+    sb()
+      .from('counsel_history')
+      .insert(payload)
+      .select(SESSION_SELECT_FIELDS)
+      .single(),
+  );
 
   if (error) throw error;
   return liveCounselHistoryToSessionRow(data as LiveCounselHistoryRecord);
@@ -308,14 +359,17 @@ export async function createSession(input: SessionInsert): Promise<SessionRow> {
 export async function updateSession(id: string, input: Partial<SessionInsert>): Promise<void> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
 
-  const { error } = await sb()
-    .from('counsel_history')
-    .update({
-      counselor_opinion: input.content || '',
-      counsel_type: input.type || '상담기록',
-      counsel_date: input.date,
-    })
-    .eq('counsel_id', Number(id));
+  const { error } = await runQuery<null>(
+    '상담 이력 수정',
+    sb()
+      .from('counsel_history')
+      .update({
+        counselor_opinion: input.content || '',
+        counsel_type: input.type || '상담기록',
+        counsel_date: input.date,
+      })
+      .eq('counsel_id', Number(id)),
+  );
 
   if (error) throw error;
 }
@@ -324,7 +378,10 @@ export async function deleteSession(id: string): Promise<void> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
   const counselId = Number(id);
   if (Number.isNaN(counselId)) throw new Error('유효한 상담 이력 ID가 아닙니다.');
-  const { error } = await sb().from('counsel_history').delete().eq('counsel_id', counselId);
+  const { error } = await runQuery<null>(
+    '상담 이력 삭제',
+    sb().from('counsel_history').delete().eq('counsel_id', counselId),
+  );
   if (error) throw error;
 }
 
@@ -333,10 +390,13 @@ export async function deleteSession(id: string): Promise<void> {
 export async function fetchCounselors(): Promise<CounselorRow[]> {
   if (!isSupabaseConfigured()) return [];
 
-  const { data, error } = await sb()
-    .from('user')
-    .select('user_id, user_name, department, memo, role')
-    .order('user_name');
+  const { data, error } = await runQuery<any[]>(
+    '상담사 목록 조회',
+    sb()
+      .from('user')
+      .select('user_id, user_name, department, memo, role')
+      .order('user_name'),
+  );
 
   if (error) throw error;
   return (data ?? []).map((row: any) => ({
@@ -358,11 +418,14 @@ export async function createCounselor(input: CounselorInsert): Promise<Counselor
     memo: input.memo ?? null,
     role: input.role ?? null,
   };
-  const { data, error } = await sb()
-    .from('user')
-    .insert(payload)
-    .select('user_id, user_name, department, memo, role')
-    .single();
+  const { data, error } = await runQuery<any>(
+    '상담사 등록',
+    sb()
+      .from('user')
+      .insert(payload)
+      .select('user_id, user_name, department, memo, role')
+      .single(),
+  );
   if (error) throw error;
   return {
     user_id: (data as any).user_id,
@@ -382,12 +445,15 @@ export async function updateCounselor(userId: string, input: Partial<CounselorIn
   if (input.department != null) payload.department = input.department;
   if (input.memo !== undefined) payload.memo = input.memo;
   if (input.role !== undefined) payload.role = input.role;
-  const { data, error } = await sb()
-    .from('user')
-    .update(payload)
-    .eq('user_id', userId)
-    .select('user_id, user_name, department, memo, role')
-    .single();
+  const { data, error } = await runQuery<any>(
+    '상담사 수정',
+    sb()
+      .from('user')
+      .update(payload)
+      .eq('user_id', userId)
+      .select('user_id, user_name, department, memo, role')
+      .single(),
+  );
   if (error) throw error;
   return {
     user_id: (data as any).user_id,
@@ -402,7 +468,10 @@ export async function updateCounselor(userId: string, input: Partial<CounselorIn
 
 export async function deleteCounselor(userId: string): Promise<void> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { error } = await sb().from('user').delete().eq('user_id', userId);
+  const { error } = await runQuery<null>(
+    '상담사 삭제',
+    sb().from('user').delete().eq('user_id', userId),
+  );
   if (error) throw error;
 }
 
@@ -410,31 +479,55 @@ export async function deleteCounselor(userId: string): Promise<void> {
 
 export async function fetchSurveys(clientId: string): Promise<SurveyRow[]> {
   if (!isSupabaseConfigured()) return [];
-  const { data, error } = await sb()
-    .from('survey_responses')
-    .select('*')
-    .eq('client_id', clientId)
-    .order('survey_date', { ascending: false });
-  if (error) throw error;
+  const { data, error } = await runQuery<SurveyRow[]>(
+    '설문 조회',
+    sb()
+      .from('survey_responses')
+      .select('*')
+      .eq('client_id', clientId)
+      .order('survey_date', { ascending: false }),
+  );
+  if (error) {
+    if (isMissingSchemaError(error)) return [];
+    throw error;
+  }
   return data ?? [];
 }
 
 export async function createSurvey(input: SurveyInsert): Promise<SurveyRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { data, error } = await sb().from('survey_responses').insert(input).select().single();
-  if (error) throw error;
+  const { data, error } = await runQuery<SurveyRow>(
+    '설문 등록',
+    sb().from('survey_responses').insert(input).select().single(),
+  );
+  if (error) {
+    if (isMissingSchemaError(error)) {
+      throw new Error('설문 기능이 아직 현재 Supabase 프로젝트에 배포되지 않았습니다.');
+    }
+    throw error;
+  }
+  if (!data) throw new Error('설문 등록 결과가 비어 있습니다.');
   return data;
 }
 
 export async function updateSurvey(id: string, input: Partial<SurveyInsert>): Promise<SurveyRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { data, error } = await sb()
-    .from('survey_responses')
-    .update(input)
-    .eq('id', id)
-    .select()
-    .single();
-  if (error) throw error;
+  const { data, error } = await runQuery<SurveyRow>(
+    '설문 수정',
+    sb()
+      .from('survey_responses')
+      .update(input)
+      .eq('id', id)
+      .select()
+      .single(),
+  );
+  if (error) {
+    if (isMissingSchemaError(error)) {
+      throw new Error('설문 기능이 아직 현재 Supabase 프로젝트에 배포되지 않았습니다.');
+    }
+    throw error;
+  }
+  if (!data) throw new Error('설문 수정 결과가 비어 있습니다.');
   return data;
 }
 
@@ -442,37 +535,51 @@ export async function updateSurvey(id: string, input: Partial<SurveyInsert>): Pr
 
 export async function fetchMemoCards(counselorId: string): Promise<MemoCardRow[]> {
   if (!isSupabaseConfigured()) return [];
-  const { data, error } = await sb()
-    .from('memo_cards')
-    .select('*')
-    .eq('counselor_id', counselorId)
-    .order('sort_order', { ascending: true });
+  const { data, error } = await runQuery<MemoCardRow[]>(
+    '메모 카드 조회',
+    sb()
+      .from('memo_cards')
+      .select('*')
+      .eq('counselor_id', counselorId)
+      .order('sort_order', { ascending: true }),
+  );
   if (error) throw error;
   return data ?? [];
 }
 
 export async function createMemoCard(input: MemoCardInsert): Promise<MemoCardRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { data, error } = await sb().from('memo_cards').insert(input).select().single();
+  const { data, error } = await runQuery<MemoCardRow>(
+    '메모 카드 등록',
+    sb().from('memo_cards').insert(input).select().single(),
+  );
   if (error) throw error;
+  if (!data) throw new Error('메모 카드 등록 결과가 비어 있습니다.');
   return data;
 }
 
 export async function updateMemoCard(id: string, input: Partial<MemoCardInsert>): Promise<MemoCardRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { data, error } = await sb()
-    .from('memo_cards')
-    .update(input)
-    .eq('id', id)
-    .select()
-    .single();
+  const { data, error } = await runQuery<MemoCardRow>(
+    '메모 카드 수정',
+    sb()
+      .from('memo_cards')
+      .update(input)
+      .eq('id', id)
+      .select()
+      .single(),
+  );
   if (error) throw error;
+  if (!data) throw new Error('메모 카드 수정 결과가 비어 있습니다.');
   return data;
 }
 
 export async function deleteMemoCard(id: string): Promise<void> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const { error } = await sb().from('memo_cards').delete().eq('id', id);
+  const { error } = await runQuery<null>(
+    '메모 카드 삭제',
+    sb().from('memo_cards').delete().eq('id', id),
+  );
   if (error) throw error;
 }
 
