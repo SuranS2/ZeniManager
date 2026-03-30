@@ -117,12 +117,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const resolveSupabaseUser = useCallback(async (authUserId: string, email: string): Promise<LoginResult> => {
     const normalizedEmail = normalizeLoginEmail(email);
 
-    // Bypass profile resolution for now as it's causing hangs after the merge
+    const sb = getSupabaseClient();
+    if (!sb) {
+      const fallbackUser: User = {
+        id: authUserId,
+        name: normalizedEmail.split('@')[0] || '사용자',
+        email,
+        role: ROLE_COUNSELOR,
+      };
+
+      setUser(fallbackUser);
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(fallbackUser));
+
+      return {
+        success: true,
+        user: fallbackUser,
+      };
+    }
+
+    const { profile, hadLookupError } = await resolveCounselorProfile(
+      { authUserId, email: normalizedEmail },
+      createCounselorProfileLookups(sb),
+    );
+
+    if (profile) {
+      const resolvedUser = mapCounselorProfileToUser(
+        { authUserId, email: normalizedEmail },
+        profile,
+      );
+
+      setUser(resolvedUser);
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(resolvedUser));
+
+      return {
+        success: true,
+        user: resolvedUser,
+      };
+    }
+
+    if (hadLookupError) {
+      return {
+        success: false,
+        error: COUNSEL_SERVER_UNAVAILABLE_MESSAGE,
+      };
+    }
+
     const resolvedUser: User = {
       id: authUserId,
-      name: email.split('@')[0] || '사용자',
-      email: email,
-      role: email.toLowerCase().includes('admin') ? ROLE_ADMIN : ROLE_COUNSELOR,
+      name: normalizedEmail.split('@')[0] || '사용자',
+      email,
+      role: ROLE_COUNSELOR,
     };
 
     setUser(resolvedUser);

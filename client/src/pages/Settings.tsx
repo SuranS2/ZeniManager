@@ -48,6 +48,13 @@ const FIELDS: SecretField[] = [
     icon: <Key size={14} />,
   },
   {
+    storageKey: STORAGE_KEYS.SUPABASE_SERVICE_ROLE_KEY,
+    label: 'Supabase Service Role Key (관리자)',
+    placeholder: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+    hint: 'Electron 관리자 기능에만 사용됩니다. 로컬 기기에만 저장하세요.',
+    icon: <Key size={14} />,
+  },
+  {
     storageKey: STORAGE_KEYS.OPENAI_API_KEY,
     label: 'OpenAI API Key (선택)',
     placeholder: 'sk-...',
@@ -303,6 +310,7 @@ export default function Settings() {
   const [, navigate] = useLocation();
   const { canRender } = usePageGuard('authenticated');
   const { user, logout } = useAuth();
+  const isAdmin = isAdminRole(user?.role);
   const organizationLabel = user?.department || user?.branch;
 
   const handleLogout = () => {
@@ -382,7 +390,7 @@ export default function Settings() {
           API 키 설정
           <span className="ml-auto text-xs font-normal text-muted-foreground">localStorage에만 저장됨</span>
         </h2>
-        {FIELDS.map(field => (
+        {FIELDS.filter(field => isAdmin || field.storageKey !== STORAGE_KEYS.SUPABASE_SERVICE_ROLE_KEY).map(field => (
           <SecretInput key={field.storageKey} field={field} />
         ))}
       </div>
