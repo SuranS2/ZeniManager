@@ -92,7 +92,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const isLoading = isSubmitting;
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const isLoading = isSubmitting || isInitialLoading;
 
   const clearLocalAuthState = useCallback(() => {
     setUser(null);
@@ -135,10 +136,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
-    const { profile, hadLookupError } = await resolveCounselorProfile(
-      { authUserId, email: normalizedEmail },
-      createCounselorProfileLookups(sb),
-    );
+    const { profile, hadLookupError } = await Promise.race([
+      resolveCounselorProfile(
+        { authUserId, email: normalizedEmail },
+        createCounselorProfileLookups(sb),
+      ),
+      new Promise<{ profile: any; hadLookupError: boolean }>(resolve => 
+        setTimeout(() => resolve({ profile: null, hadLookupError: false }), 3000)
+      )
+    ]);
 
     if (profile) {
       const resolvedUser = mapCounselorProfileToUser(
@@ -180,29 +186,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Listen for Supabase session changes when configured
   useEffect(() => {
+    let mounted = true;
+
     if (!isSupabaseConfigured()) {
+      setIsInitialLoading(false);
       return;
     }
 
     const sb = getSupabaseClient();
     if (!sb) {
+      setIsInitialLoading(false);
       return;
     }
 
     const syncResolvedUser = async (authUserId: string, email: string) => {
       const result = await resolveSupabaseUser(authUserId, email);
 
-      if (!result.success) {
+      if (mounted && !result.success) {
         persistAuthNotice(result.error || COUNSEL_SERVER_UNAVAILABLE_MESSAGE);
         clearLocalAuthState();
         void clearSupabaseSession();
       }
+      if (mounted) setIsInitialLoading(false);
     };
 
+    // Initial session check
     sb.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
-        resolveSupabaseUser(session.user.id, session.user.email || '');
+        syncResolvedUser(session.user.id, session.user.email || '');
+      } else {
+        if (mounted) setIsInitialLoading(false);
       }
+    }).catch(() => {
+      if (mounted) setIsInitialLoading(false);
     });
 
     const { data: { subscription } } = sb.auth.onAuthStateChange(async (_event, session) => {
@@ -210,10 +226,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await syncResolvedUser(session.user.id, session.user.email || '');
       } else {
         clearLocalAuthState();
+        if (mounted) setIsInitialLoading(false);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, [clearLocalAuthState, clearSupabaseSession, resolveSupabaseUser]);
 
   const login = useCallback(async (

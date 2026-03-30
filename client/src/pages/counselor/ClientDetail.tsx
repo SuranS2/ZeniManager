@@ -12,11 +12,12 @@ import {
 import { toast } from 'sonner';
 import {
   fetchClientById, fetchSessions, createSession,
-  deleteSession, fetchSurveys, createSurvey, updateClient, updateSession
+  deleteSession, fetchSurveys, createSurvey, updateClient, updateSession, createAllowanceLog
 } from '@/lib/api';
 import type { ClientRow, SessionRow, SurveyRow } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { ClientSummaryAnalysisTab } from './ClientSummaryAnalysisTab';
+import './ClientDetail.css';
 
 const PRIMARY = '#009C64';
 
@@ -176,7 +177,7 @@ function SurveyTab({ clientId, counselorId }: { clientId: string; counselorId?: 
 
       <div className="grid gap-3">
         {surveys.map(s => (
-          <div key={s.id} className="border border-border rounded-sm p-4 flex items-center justify-between">
+          <div key={s.id} className="counsel_survey_item">
             <div>
               <div className="text-sm font-medium">{s.survey_date} 설문</div>
               <div className="text-xs text-muted-foreground">총점: {s.total_score}점</div>
@@ -206,15 +207,29 @@ export default function ClientDetail() {
   const [newSession, setNewSession] = useState({
     type: '초기상담',
     content: '',
-    nextAction: '',
+    next_action: '',
     date: new Date().toISOString().split('T')[0],
     session_number: 1,
-    start_time: '',
-    end_time: '',
+    start_time: '09:00',
+    end_time: '10:00',
     holland_code: '',
     profiling_grade: '',
     document_link: '',
+    economic_situation: null,
+    social_situation_family: null,
+    social_situation_society: null,
+    self_esteem: null,
+    self_efficacy: null,
+    career_fluidity: null,
+    info_gathering: null,
+    personality_test_result: '',
+    life_history_result: '',
+    memo: '',
   });
+
+
+
+  // Sync client master update state when client data loads
 
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>('');
@@ -287,8 +302,8 @@ export default function ClientDetail() {
         dbKey = 'gender_code';
         val = editValue === '남' ? 'M' : 'F';
       }
-      if (field === 'school') dbKey = 'school_name';
-      if (field === 'desired_job') dbKey = 'desired_job_1';
+      if (field === 'school') dbKey = 'school';
+      if (field === 'desired_job') dbKey = 'desired_job';
       if (field === 'business_type') {
         dbKey = 'business_type_code';
         const num = Number(editValue);
@@ -335,29 +350,58 @@ export default function ClientDetail() {
     setNewSession(prev => ({ ...prev, session_number: nextNum }));
   }, [newSession.type, sessions]);
 
+  const formatTime = (value: string) => {
+    // Only numbers allowed initially
+    const nums = value.replace(/[^0-9]/g, '');
+    if (nums.length >= 4) {
+      return `${nums.slice(0, 2)}:${nums.slice(2, 4)}`;
+    }
+    if (nums.length === 3) {
+      return `${nums.slice(0, 2)}:${nums.slice(2, 3)}`;
+    }
+    return nums;
+  };
+
+  const handleTimeChange = (field: 'start_time' | 'end_time', value: string) => {
+    setNewSession(prev => ({ ...prev, [field]: formatTime(value) }));
+  };
+
   const handleSaveSession = async () => {
     if (!newSession.content.trim()) { toast.error('상담 내용을 입력해주세요.'); return; }
     if (!id) return;
     setSaving(true);
     try {
+      // 1. 상담 기록 저장 (+ 참여 단계 자동 업데이트 포함됨)
       await createSession({
         client_id: id,
-        date: newSession.date,
-        type: newSession.type,
-        content: newSession.content,
+        ...newSession,
         counselor_name: user?.name || null,
-        counselor_id: user?.id || null,
-        next_action: newSession.nextAction || null,
-        session_number: newSession.session_number,
-        start_time: newSession.start_time || null,
-        end_time: newSession.end_time || null,
-        holland_code: newSession.holland_code || null,
-        profiling_grade: newSession.profiling_grade || null,
-        document_link: newSession.document_link || null,
+        counselor_id: user?.id || null, // context has user.id or user.counselorId, using id for user_id fk
       });
+
+
       toast.success('저장되었습니다.');
-      setNewSession({ ...newSession, content: '', nextAction: '', start_time: '', end_time: '', holland_code: '', profiling_grade: '', document_link: '' });
+      setNewSession({
+        type: '초기상담',
+        content: '',
+        next_action: '',
+        date: new Date().toISOString().split('T')[0],
+        session_number: (newSession.session_number || 1) + 1,
+        start_time: '09:00',
+        end_time: '10:00',
+        personality_test_result: '',
+        life_history_result: '',
+        memo: '',
+        economic_situation: null,
+        social_situation_family: null,
+        social_situation_society: null,
+        self_esteem: null,
+        self_efficacy: null,
+        career_fluidity: null,
+        info_gathering: null,
+      });
       loadSessions();
+      loadData(); // 내담자 정보(참여 단계) 새로고침
       setActiveTab('history');
     } catch (e: any) {
       toast.error('저장 실패: ' + e.message);
@@ -396,12 +440,12 @@ export default function ClientDetail() {
   return (
     <div className="space-y-5 pb-12">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <button onClick={() => navigate('/clients/list')} className="p-1.5 rounded-sm hover:bg-muted transition-colors">
+      <div className="counsel_header">
+        <button onClick={() => navigate('/clients/list')} className="counsel_back_btn">
           <ChevronLeft size={18} />
         </button>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-sm flex items-center justify-center text-white font-bold text-lg" style={{ background: PRIMARY }}>
+        <div className="counsel_header">
+          <div className="counsel_avatar" style={{ background: PRIMARY }}>
             {client.name.charAt(0)}
           </div>
           <div>
@@ -415,9 +459,9 @@ export default function ClientDetail() {
       </div>
 
       {/* Progress Board */}
-      <div className="bg-card border border-border rounded-md p-5 shadow-sm">
+      <div className="counsel_progress_board">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+          <h3 className="counsel_section_title flex items-center gap-2">
             <ClipboardList size={14} className="text-primary" />
             참여 진행도
           </h3>
@@ -436,11 +480,9 @@ export default function ClientDetail() {
             const isCurrent = idx === currentIdx;
             
             return (
-              <div key={stage} className="relative z-10 flex flex-col items-center gap-2 flex-1">
+              <div key={stage} className="counsel_progress_step">
                 <div 
-                  className={`w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
-                    isActive ? 'bg-primary border-primary text-white' : 'bg-background border-muted text-muted-foreground'
-                  } ${isCurrent ? 'ring-4 ring-primary/20 scale-110' : ''}`}
+                  className={`counsel_step_circle ${isActive ? 'active' : ''} ${isCurrent ? 'current' : ''}`}
                 >
                   {isActive && idx < currentIdx ? <Check size={12} strokeWidth={3} /> : <span className="text-[10px] font-bold">{idx + 1}</span>}
                 </div>
@@ -459,22 +501,18 @@ export default function ClientDetail() {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-border bg-card rounded-t-md px-2 overflow-x-auto">
+      <div className="counsel_tab_wrapper">
         {[
           { id: 'manage', label: '상담관리' },
           { id: 'history', label: '상담이력' },
           { id: 'input', label: '상담입력' },
-          { id: 'survey', label: '\uad6c\uc9c1\uc900\ube44\ub3c4' },
-          { id: 'summary', label: '\uc694\uc57d \ubc0f \ubd84\uc11d' }
+          { id: 'survey', label: '구직준비도' },
+          { id: 'summary', label: '요약 및 분석' }
         ].map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as ClientTab)}
-            className="px-5 py-3 text-sm font-medium border-b-2 transition-all whitespace-nowrap"
-            style={activeTab === tab.id
-              ? { borderColor: PRIMARY, color: PRIMARY }
-              : { borderColor: 'transparent', color: '#6b7280' }
-            }
+            className={`counsel_tab_btn ${activeTab === tab.id ? 'active' : ''}`}
           >
             {tab.label}
           </button>
@@ -482,7 +520,7 @@ export default function ClientDetail() {
       </div>
 
       {/* Content */}
-      <div className="bg-card rounded-b-md border border-t-0 border-border p-6 shadow-sm min-h-[500px]">
+      <div className="counsel_content_card">
         {activeTab === 'manage' && (
           <div className="grid md:grid-cols-2 gap-8">
             <div className="space-y-6">
@@ -491,52 +529,52 @@ export default function ClientDetail() {
                 <div className="space-y-4">
                   {/* Name */}
                   <div className="group">
-                    <label className="text-[11px] font-medium text-muted-foreground block mb-0.5">성함</label>
+                    <label className="counsel_inline_label">성함</label>
                     {editingField === 'name' ? (
                       <div className="flex items-center gap-1.5">
                         <input
                           autoFocus
                           value={editValue}
                           onChange={e => setEditValue(e.target.value)}
-                          className="flex-1 text-sm bg-background border border-primary px-2 py-1 rounded-sm outline-none"
+                          className="counsel_inline_input"
                         />
-                        <button onClick={() => handleUpdateField('name')} className="p-1 text-primary hover:bg-primary/10 rounded-sm"><Check size={16} /></button>
-                        <button onClick={cancelEdit} className="p-1 text-muted-foreground hover:bg-muted rounded-sm"><X size={16} /></button>
+                        <button onClick={() => handleUpdateField('name')} className="counsel_btn_confirm"><Check size={16} /></button>
+                        <button onClick={cancelEdit} className="counsel_btn_cancel"><X size={16} /></button>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between text-sm group-hover:bg-muted/30 p-1 -m-1 rounded-sm transition-colors">
+                      <div className="counsel_inline_display">
                         <div className="flex items-center gap-2"><User size={14} className="text-muted-foreground" /> {client.name}</div>
-                        <button onClick={() => startEdit('name', client.name)} className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-primary transition-all"><Edit3 size={13} /></button>
+                        <button onClick={() => startEdit('name', client.name)} className="counsel_btn_edit"><Edit3 size={13} /></button>
                       </div>
                     )}
                   </div>
 
                   {/* Phone */}
                   <div className="group">
-                    <label className="text-[11px] font-medium text-muted-foreground block mb-0.5">연락처</label>
+                    <label className="counsel_inline_label">연락처</label>
                     {editingField === 'phone' ? (
                       <div className="flex items-center gap-1.5">
                         <input
                           autoFocus
                           value={editValue}
                           onChange={e => setEditValue(e.target.value)}
-                          className="flex-1 text-sm bg-background border border-primary px-2 py-1 rounded-sm outline-none"
+                          className="counsel_inline_input"
                         />
-                        <button onClick={() => handleUpdateField('phone')} className="p-1 text-primary hover:bg-primary/10 rounded-sm"><Check size={16} /></button>
-                        <button onClick={cancelEdit} className="p-1 text-muted-foreground hover:bg-muted rounded-sm"><X size={16} /></button>
+                        <button onClick={() => handleUpdateField('phone')} className="counsel_btn_confirm"><Check size={16} /></button>
+                        <button onClick={cancelEdit} className="counsel_btn_cancel"><X size={16} /></button>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between text-sm group-hover:bg-muted/30 p-1 -m-1 rounded-sm transition-colors">
+                      <div className="counsel_inline_display">
                         <div className="flex items-center gap-2"><Phone size={14} className="text-muted-foreground" /> {client.phone || '-'}</div>
-                        <button onClick={() => startEdit('phone', client.phone)} className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-primary transition-all"><Edit3 size={13} /></button>
+                        <button onClick={() => startEdit('phone', client.phone)} className="counsel_btn_edit"><Edit3 size={13} /></button>
                       </div>
                     )}
                   </div>
 
                   {/* Age/Gender */}
                   <div className="group">
-                    <label className="text-[11px] font-medium text-muted-foreground block mb-0.5">나이 / 성별</label>
-                    <div className="flex items-center justify-between text-sm group-hover:bg-muted/30 p-1 -m-1 rounded-sm transition-colors">
+                    <label className="counsel_inline_label">나이 / 성별</label>
+                    <div className="counsel_inline_display">
                       <div className="flex items-center gap-4">
                         {/* Age Edit */}
                         <div className="flex items-center gap-1 group/age">
@@ -550,13 +588,13 @@ export default function ClientDetail() {
                                 className="w-12 text-sm bg-background border border-primary px-1 rounded-sm outline-none"
                               />
                               <span>세</span>
-                              <button onClick={() => handleUpdateField('age')} className="p-0.5 text-primary hover:bg-primary/10 rounded-sm"><Check size={14} /></button>
-                              <button onClick={cancelEdit} className="p-0.5 text-muted-foreground hover:bg-muted rounded-sm"><X size={14} /></button>
+                              <button onClick={() => handleUpdateField('age')} className="counsel_btn_confirm p-0.5"><Check size={14} /></button>
+                              <button onClick={cancelEdit} className="counsel_btn_cancel p-0.5"><X size={14} /></button>
                             </div>
                           ) : (
                             <div className="flex items-center gap-1">
                               <span>{client.age}세</span>
-                              <button onClick={() => startEdit('age', client.age)} className="opacity-0 group-hover/age:opacity-100 p-0.5 text-muted-foreground hover:text-primary transition-all"><Edit3 size={11} /></button>
+                              <button onClick={() => startEdit('age', client.age)} className="counsel_btn_edit opacity-0 group-hover/age:opacity-100 p-0.5"><Edit3 size={11} /></button>
                             </div>
                           )}
                         </div>
@@ -576,13 +614,13 @@ export default function ClientDetail() {
                                 <option value="남">남</option>
                                 <option value="여">여</option>
                               </select>
-                              <button onClick={() => handleUpdateField('gender')} className="p-0.5 text-primary hover:bg-primary/10 rounded-sm"><Check size={14} /></button>
-                              <button onClick={cancelEdit} className="p-0.5 text-muted-foreground hover:bg-muted rounded-sm"><X size={14} /></button>
+                              <button onClick={() => handleUpdateField('gender')} className="counsel_btn_confirm p-0.5"><Check size={14} /></button>
+                              <button onClick={cancelEdit} className="counsel_btn_cancel p-0.5"><X size={14} /></button>
                             </div>
                           ) : (
                             <div className="flex items-center gap-1">
                               <span>{client.gender || '성별 미지정'}</span>
-                              <button onClick={() => startEdit('gender', client.gender)} className="opacity-0 group-hover/gender:opacity-100 p-0.5 text-muted-foreground hover:text-primary transition-all"><Edit3 size={11} /></button>
+                              <button onClick={() => startEdit('gender', client.gender)} className="counsel_btn_edit opacity-0 group-hover/gender:opacity-100 p-0.5"><Edit3 size={11} /></button>
                             </div>
                           )}
                         </div>
@@ -592,22 +630,22 @@ export default function ClientDetail() {
 
                   {/* Education */}
                   <div className="group">
-                    <label className="text-[11px] font-medium text-muted-foreground block mb-0.5">학력</label>
+                    <label className="counsel_inline_label">학력</label>
                     {editingField === 'education_level' ? (
                       <div className="flex items-center gap-1.5">
                         <input
                           autoFocus
                           value={editValue}
                           onChange={e => setEditValue(e.target.value)}
-                          className="flex-1 text-sm bg-background border border-primary px-2 py-1 rounded-sm outline-none"
+                          className="counsel_inline_input"
                         />
-                        <button onClick={() => handleUpdateField('education_level')} className="p-1 text-primary hover:bg-primary/10 rounded-sm"><Check size={16} /></button>
-                        <button onClick={cancelEdit} className="p-1 text-muted-foreground hover:bg-muted rounded-sm"><X size={16} /></button>
+                        <button onClick={() => handleUpdateField('education_level')} className="counsel_btn_confirm"><Check size={16} /></button>
+                        <button onClick={cancelEdit} className="counsel_btn_cancel"><X size={16} /></button>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between text-sm group-hover:bg-muted/30 p-1 -m-1 rounded-sm transition-colors">
+                      <div className="counsel_inline_display">
                         <div>{client.education_level || '-'}</div>
-                        <button onClick={() => startEdit('education_level', client.education_level)} className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-primary transition-all"><Edit3 size={13} /></button>
+                        <button onClick={() => startEdit('education_level', client.education_level)} className="counsel_btn_edit"><Edit3 size={13} /></button>
                       </div>
                     )}
                   </div>
@@ -620,26 +658,26 @@ export default function ClientDetail() {
                 <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">진행 현황</h3>
                 <div className="space-y-4">
                   <div className="group">
-                    <label className="text-[11px] font-medium text-muted-foreground block mb-0.5">참여단계</label>
+                    <label className="counsel_inline_label">참여단계</label>
                     {editingField === 'participation_stage' ? (
                       <div className="flex items-center gap-1.5">
                         <select
                           autoFocus
                           value={editValue}
                           onChange={e => setEditValue(e.target.value)}
-                          className="flex-1 text-sm bg-background border border-primary px-2 py-1 rounded-sm outline-none cursor-pointer"
+                          className="counsel_inline_input cursor-pointer"
                         >
                           {Object.keys(stageColors).map(s => (
                             <option key={s} value={s}>{s}</option>
                           ))}
                         </select>
-                        <button onClick={() => handleUpdateField('participation_stage')} className="p-1 text-primary hover:bg-primary/10 rounded-sm"><Check size={16} /></button>
-                        <button onClick={cancelEdit} className="p-1 text-muted-foreground hover:bg-muted rounded-sm"><X size={16} /></button>
+                        <button onClick={() => handleUpdateField('participation_stage')} className="counsel_btn_confirm"><Check size={16} /></button>
+                        <button onClick={cancelEdit} className="counsel_btn_cancel"><X size={16} /></button>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between text-sm group-hover:bg-muted/30 p-1 -m-1 rounded-sm transition-colors cursor-pointer" onClick={() => startEdit('participation_stage', client.participation_stage)}>
+                      <div className="counsel_inline_display cursor-pointer" onClick={() => startEdit('participation_stage', client.participation_stage)}>
                         <span className={stageColors[client.participation_stage || ''] || 'badge-active'}>{client.participation_stage || '초기'}</span>
-                        <button className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground transition-all"><Edit3 size={13} /></button>
+                        <button className="counsel_btn_edit"><Edit3 size={13} /></button>
                       </div>
                     )}
                   </div>
@@ -647,7 +685,7 @@ export default function ClientDetail() {
                   {/* Score uses retest_stat only so detail/list/dashboard all share one live source of truth. */}
                   <div className="group">
                     <div className="flex items-center justify-between mb-0.5">
-                      <label className="text-[11px] font-medium text-muted-foreground">점수</label>
+                      <label className="counsel_inline_label">점수</label>
                     </div>
                     {editingField === 'retest_stat' ? (
                       <div className="flex items-center gap-1.5">
@@ -656,17 +694,17 @@ export default function ClientDetail() {
                           autoFocus
                           value={editValue}
                           onChange={e => setEditValue(e.target.value)}
-                          className="w-20 text-sm bg-background border border-primary px-2 py-1 rounded-sm outline-none font-bold text-primary"
+                          className="w-20 counsel_inline_input font-bold text-primary"
                         />
                         <span className="text-sm font-bold text-primary">점</span>
                         <div className="flex-1"></div>
-                        <button onClick={() => handleUpdateField('retest_stat')} className="p-1 text-primary hover:bg-primary/10 rounded-sm"><Check size={16} /></button>
-                        <button onClick={cancelEdit} className="p-1 text-muted-foreground hover:bg-muted rounded-sm"><X size={16} /></button>
+                        <button onClick={() => handleUpdateField('retest_stat')} className="counsel_btn_confirm"><Check size={16} /></button>
+                        <button onClick={cancelEdit} className="counsel_btn_cancel"><X size={16} /></button>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between group-hover:bg-muted/30 p-1 -m-1 rounded-sm transition-colors">
+                      <div className="counsel_inline_display">
                         <div className="text-lg font-bold" style={{ color: PRIMARY }}>{client.retest_stat ?? '-'}</div>
-                        <button onClick={() => startEdit('retest_stat', client.retest_stat)} className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-primary transition-all"><Edit3 size={13} /></button>
+                        <button onClick={() => startEdit('retest_stat', client.retest_stat)} className="counsel_btn_edit"><Edit3 size={13} /></button>
                       </div>
                     )}
                   </div>
@@ -676,9 +714,9 @@ export default function ClientDetail() {
               {/* Memo */}
               <section className="group">
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">메모</h3>
+                  <h3 className="counsel_section_title">메모</h3>
                   {editingField !== 'memo' && (
-                    <button onClick={() => startEdit('memo', client.memo)} className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-primary transition-all"><Edit3 size={13} /></button>
+                    <button onClick={() => startEdit('memo', client.memo)} className="counsel_btn_edit opacity-100"><Edit3 size={13} /></button>
                   )}
                 </div>
                 {editingField === 'memo' ? (
@@ -708,66 +746,66 @@ export default function ClientDetail() {
                 <div className="space-y-4">
                   {/* Business Type */}
                   <div className="group">
-                    <label className="text-[11px] font-medium text-muted-foreground block mb-0.5">사업 유형</label>
+                    <label className="counsel_inline_label">사업 유형</label>
                     {editingField === 'business_type' ? (
                       <div className="flex items-center gap-1.5">
                         <input
                           autoFocus
                           value={editValue}
                           onChange={e => setEditValue(e.target.value)}
-                          className="flex-1 text-sm bg-background border border-primary px-2 py-1 rounded-sm outline-none"
+                          className="counsel_inline_input"
                         />
-                        <button onClick={() => handleUpdateField('business_type')} className="p-1 text-primary hover:bg-primary/10 rounded-sm"><Check size={16} /></button>
-                        <button onClick={cancelEdit} className="p-1 text-muted-foreground hover:bg-muted rounded-sm"><X size={16} /></button>
+                        <button onClick={() => handleUpdateField('business_type')} className="counsel_btn_confirm"><Check size={16} /></button>
+                        <button onClick={cancelEdit} className="counsel_btn_cancel"><X size={16} /></button>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between text-sm group-hover:bg-muted/30 p-1 -m-1 rounded-sm transition-colors">
+                      <div className="counsel_inline_display">
                         <div>{client.business_type || '-'}</div>
-                        <button onClick={() => startEdit('business_type', client.business_type)} className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-primary transition-all"><Edit3 size={13} /></button>
+                        <button onClick={() => startEdit('business_type', client.business_type)} className="counsel_btn_edit"><Edit3 size={13} /></button>
                       </div>
                     )}
                   </div>
 
                   {/* Participation Type */}
                   <div className="group">
-                    <label className="text-[11px] font-medium text-muted-foreground block mb-0.5">참여 유형</label>
+                    <label className="counsel_inline_label">참여 유형</label>
                     {editingField === 'participation_type' ? (
                       <div className="flex items-center gap-1.5">
                         <input
                           autoFocus
                           value={editValue}
                           onChange={e => setEditValue(e.target.value)}
-                          className="flex-1 text-sm bg-background border border-primary px-2 py-1 rounded-sm outline-none"
+                          className="counsel_inline_input"
                         />
-                        <button onClick={() => handleUpdateField('participation_type')} className="p-1 text-primary hover:bg-primary/10 rounded-sm"><Check size={16} /></button>
-                        <button onClick={cancelEdit} className="p-1 text-muted-foreground hover:bg-muted rounded-sm"><X size={16} /></button>
+                        <button onClick={() => handleUpdateField('participation_type')} className="counsel_btn_confirm"><Check size={16} /></button>
+                        <button onClick={cancelEdit} className="counsel_btn_cancel"><X size={16} /></button>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between text-sm group-hover:bg-muted/30 p-1 -m-1 rounded-sm transition-colors">
+                      <div className="counsel_inline_display">
                         <div>{client.participation_type || '-'}</div>
-                        <button onClick={() => startEdit('participation_type', client.participation_type)} className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-primary transition-all"><Edit3 size={13} /></button>
+                        <button onClick={() => startEdit('participation_type', client.participation_type)} className="counsel_btn_edit"><Edit3 size={13} /></button>
                       </div>
                     )}
                   </div>
 
                   {/* Desired Job */}
                   <div className="group">
-                    <label className="text-[11px] font-medium text-muted-foreground block mb-0.5">희망 직종</label>
+                    <label className="counsel_inline_label">희망 직종</label>
                     {editingField === 'desired_job' ? (
                       <div className="flex items-center gap-1.5">
                         <input
                           autoFocus
                           value={editValue}
                           onChange={e => setEditValue(e.target.value)}
-                          className="flex-1 text-sm bg-background border border-primary px-2 py-1 rounded-sm outline-none"
+                          className="counsel_inline_input"
                         />
-                        <button onClick={() => handleUpdateField('desired_job')} className="p-1 text-primary hover:bg-primary/10 rounded-sm"><Check size={16} /></button>
-                        <button onClick={cancelEdit} className="p-1 text-muted-foreground hover:bg-muted rounded-sm"><X size={16} /></button>
+                        <button onClick={() => handleUpdateField('desired_job')} className="counsel_btn_confirm"><Check size={16} /></button>
+                        <button onClick={cancelEdit} className="counsel_btn_cancel"><X size={16} /></button>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between text-sm group-hover:bg-muted/30 p-1 -m-1 rounded-sm transition-colors">
+                      <div className="counsel_inline_display">
                         <div>{client.desired_job || '-'}</div>
-                        <button onClick={() => startEdit('desired_job', client.desired_job)} className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-primary transition-all"><Edit3 size={13} /></button>
+                        <button onClick={() => startEdit('desired_job', client.desired_job)} className="counsel_btn_edit"><Edit3 size={13} /></button>
                       </div>
                     )}
                   </div>
@@ -775,43 +813,43 @@ export default function ClientDetail() {
                   {/* School & Major Grid */}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="group">
-                      <label className="text-[11px] font-medium text-muted-foreground block mb-0.5">학교</label>
+                      <label className="counsel_inline_label">학교</label>
                       {editingField === 'school' ? (
                         <div className="flex items-center gap-1.5">
                           <input
                             autoFocus
                             value={editValue}
                             onChange={e => setEditValue(e.target.value)}
-                            className="flex-1 text-sm bg-background border border-primary px-2 py-1 rounded-sm outline-none w-full"
+                            className="counsel_inline_input w-full"
                           />
-                          <button onClick={() => handleUpdateField('school')} className="p-1 text-primary hover:bg-primary/10 rounded-sm"><Check size={16} /></button>
-                          <button onClick={cancelEdit} className="p-1 text-muted-foreground hover:bg-muted rounded-sm"><X size={16} /></button>
+                          <button onClick={() => handleUpdateField('school')} className="counsel_btn_confirm"><Check size={16} /></button>
+                          <button onClick={cancelEdit} className="counsel_btn_cancel"><X size={16} /></button>
                         </div>
                       ) : (
-                        <div className="flex items-center justify-between text-sm group-hover:bg-muted/30 p-1 -m-1 rounded-sm transition-colors">
+                        <div className="counsel_inline_display">
                           <div className="truncate">{client.school || '-'}</div>
-                          <button onClick={() => startEdit('school', client.school)} className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-primary transition-all shrink-0"><Edit3 size={13} /></button>
+                          <button onClick={() => startEdit('school', client.school)} className="counsel_btn_edit shrink-0"><Edit3 size={13} /></button>
                         </div>
                       )}
                     </div>
                     
                     <div className="group">
-                      <label className="text-[11px] font-medium text-muted-foreground block mb-0.5">전공</label>
+                      <label className="counsel_inline_label">전공</label>
                       {editingField === 'major' ? (
                         <div className="flex items-center gap-1.5">
                           <input
                             autoFocus
                             value={editValue}
                             onChange={e => setEditValue(e.target.value)}
-                            className="flex-1 text-sm bg-background border border-primary px-2 py-1 rounded-sm outline-none w-full"
+                            className="counsel_inline_input w-full"
                           />
-                          <button onClick={() => handleUpdateField('major')} className="p-1 text-primary hover:bg-primary/10 rounded-sm"><Check size={16} /></button>
-                          <button onClick={cancelEdit} className="p-1 text-muted-foreground hover:bg-muted rounded-sm"><X size={16} /></button>
+                          <button onClick={() => handleUpdateField('major')} className="counsel_btn_confirm"><Check size={16} /></button>
+                          <button onClick={cancelEdit} className="counsel_btn_cancel"><X size={16} /></button>
                         </div>
                       ) : (
-                        <div className="flex items-center justify-between text-sm group-hover:bg-muted/30 p-1 -m-1 rounded-sm transition-colors">
+                        <div className="counsel_inline_display">
                           <div className="truncate">{client.major || '-'}</div>
-                          <button onClick={() => startEdit('major', client.major)} className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-primary transition-all shrink-0"><Edit3 size={13} /></button>
+                          <button onClick={() => startEdit('major', client.major)} className="counsel_btn_edit shrink-0"><Edit3 size={13} /></button>
                         </div>
                       )}
                     </div>
@@ -820,45 +858,45 @@ export default function ClientDetail() {
                   {/* Driving & Car Grid */}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="group">
-                      <label className="text-[11px] font-medium text-muted-foreground block mb-0.5">운전가능 여부</label>
+                      <label className="counsel_inline_label">운전가능 여부</label>
                       {editingField === 'driving_yn' ? (
                         <div className="flex items-center gap-1.5">
                           <input
                             autoFocus
                             value={editValue}
                             onChange={e => setEditValue(e.target.value)}
-                            className="flex-1 text-sm bg-background border border-primary px-2 py-1 rounded-sm outline-none w-full"
+                            className="counsel_inline_input w-full"
                             placeholder="Y/N"
                           />
-                          <button onClick={() => handleUpdateField('driving_yn')} className="p-1 text-primary hover:bg-primary/10 rounded-sm"><Check size={16} /></button>
-                          <button onClick={cancelEdit} className="p-1 text-muted-foreground hover:bg-muted rounded-sm"><X size={16} /></button>
+                          <button onClick={() => handleUpdateField('driving_yn')} className="counsel_btn_confirm"><Check size={16} /></button>
+                          <button onClick={cancelEdit} className="counsel_btn_cancel"><X size={16} /></button>
                         </div>
                       ) : (
-                        <div className="flex items-center justify-between text-sm group-hover:bg-muted/30 p-1 -m-1 rounded-sm transition-colors">
+                        <div className="counsel_inline_display">
                           <div>{client.driving_yn === 'Y' || client.driving_yn === 'y' || client.driving_yn === '가능' ? '가능' : client.driving_yn === 'N' || client.driving_yn === 'n' || client.driving_yn === '불가능' ? '불가능' : (client.driving_yn || '-')}</div>
-                          <button onClick={() => startEdit('driving_yn', client.driving_yn)} className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-primary transition-all shrink-0"><Edit3 size={13} /></button>
+                          <button onClick={() => startEdit('driving_yn', client.driving_yn)} className="counsel_btn_edit shrink-0"><Edit3 size={13} /></button>
                         </div>
                       )}
                     </div>
                     
                     <div className="group">
-                      <label className="text-[11px] font-medium text-muted-foreground block mb-0.5">자차 여부</label>
+                      <label className="counsel_inline_label">자차 여부</label>
                       {editingField === 'own_car_yn' ? (
                         <div className="flex items-center gap-1.5">
                           <input
                             autoFocus
                             value={editValue}
                             onChange={e => setEditValue(e.target.value)}
-                            className="flex-1 text-sm bg-background border border-primary px-2 py-1 rounded-sm outline-none w-full"
+                            className="counsel_inline_input w-full"
                             placeholder="Y/N"
                           />
-                          <button onClick={() => handleUpdateField('own_car_yn')} className="p-1 text-primary hover:bg-primary/10 rounded-sm"><Check size={16} /></button>
-                          <button onClick={cancelEdit} className="p-1 text-muted-foreground hover:bg-muted rounded-sm"><X size={16} /></button>
+                          <button onClick={() => handleUpdateField('own_car_yn')} className="counsel_btn_confirm"><Check size={16} /></button>
+                          <button onClick={cancelEdit} className="counsel_btn_cancel"><X size={16} /></button>
                         </div>
                       ) : (
-                        <div className="flex items-center justify-between text-sm group-hover:bg-muted/30 p-1 -m-1 rounded-sm transition-colors">
+                        <div className="counsel_inline_display">
                           <div>{client.own_car_yn === 'Y' || client.own_car_yn === 'y' || client.own_car_yn === '있음' ? '있음' : client.own_car_yn === 'N' || client.own_car_yn === 'n' || client.own_car_yn === '없음' ? '없음' : (client.own_car_yn || '-')}</div>
-                          <button onClick={() => startEdit('own_car_yn', client.own_car_yn)} className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-primary transition-all shrink-0"><Edit3 size={13} /></button>
+                          <button onClick={() => startEdit('own_car_yn', client.own_car_yn)} className="counsel_btn_edit shrink-0"><Edit3 size={13} /></button>
                         </div>
                       )}
                     </div>
@@ -874,7 +912,7 @@ export default function ClientDetail() {
             {sessionsLoading ? <Loader2 className="animate-spin mx-auto mt-8 opacity-20" /> :
               sessions.length === 0 ? <p className="text-center py-12 text-muted-foreground text-sm">기록된 상담 이력이 없습니다.</p> :
                 sessions.map(s => (
-                  <div key={s.id} className="border border-border rounded-sm p-4 hover:bg-muted/10 transition-colors group">
+                  <div key={s.id} className="counsel_history_item group">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <span className="badge-active px-2 py-0.5">{s.type || '일반상담'}</span>
@@ -917,112 +955,221 @@ export default function ClientDetail() {
         )}
 
         {activeTab === 'input' && (
-          <div className="max-w-3xl mx-auto space-y-6">
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="text-xs font-medium mb-1.5 block">상담유형</label>
-                <select
-                  value={newSession.type}
-                  onChange={e => setNewSession({ ...newSession, type: e.target.value })}
-                  className="w-full px-3 py-2 border border-input rounded-sm text-sm"
-                >
-                  {['초기상담', '심층상담', '취업지원', '사후관리', '집단상담', '기타'].map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
+          <div className="max-w-4xl mx-auto space-y-8 pb-10">
+            {/* 1. 기본 상담 정보 */}
+            <section className="bg-card border border-border rounded-md overflow-hidden">
+              <div className="bg-muted/30 px-4 py-2 border-b border-border">
+                <h3 className="text-xs font-bold text-muted-foreground uppercase">1. 기본 상담 정보</h3>
               </div>
-              <div>
-                <label className="text-xs font-medium mb-1.5 block">상담회차</label>
-                <select
-                  value={newSession.session_number}
-                  onChange={e => setNewSession({ ...newSession, session_number: Number(e.target.value) })}
-                  className="w-full px-3 py-2 border border-input rounded-sm text-sm"
-                >
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map(n => {
-                    const isUsed = sessions.some(s => (s.type === newSession.type || (!s.type && newSession.type === '일반상담')) && s.session_number === n);
-                    return (
-                      <option key={n} value={n} disabled={isUsed}>
-                        {n}회차 {isUsed ? "(작성됨)" : ""}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-medium mb-1.5 block">상담일</label>
-                <input
-                  type="date"
-                  value={newSession.date}
-                  onChange={e => setNewSession({ ...newSession, date: e.target.value })}
-                  className="w-full px-3 py-2 border border-input rounded-sm text-sm"
-                />
-              </div>
-            </div>
+              <div className="counsel_data_basic">
+                {/* 1. 상담유형 */}
+                <div className="counsel_item">
+                  <label className="counsel_label">상담유형</label>
+                  <select
+                    value={newSession.type}
+                    onChange={e => setNewSession({ ...newSession, type: e.target.value })}
+                    className="counsel_input"
+                  >
+                    {['초기상담', '심층상담', '취업지원', '사후관리', '집단상담', '기기', '기타'].map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs font-medium mb-1.5 block">상담 시간 <span className="text-muted-foreground font-normal">(선택)</span></label>
-                <div className="flex gap-2">
+                {/* 2. 상담회차 */}
+                <div className="counsel_item">
+                  <label className="counsel_label">상담회차</label>
+                  <select
+                    value={newSession.session_number || 1}
+                    onChange={e => setNewSession({ ...newSession, session_number: Number(e.target.value) })}
+                    className="counsel_input text-center"
+                  >
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map(n => (
+                      <option key={n} value={n}>{n}회차</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 3. 상담일 */}
+                <div className="counsel_item">
+                  <label className="counsel_label">상담일</label>
                   <input
-                    type="time"
-                    value={newSession.start_time}
-                    onChange={e => setNewSession({...newSession, start_time: e.target.value})}
-                    className="flex-1 px-3 py-2 border border-input rounded-sm text-sm"
-                  />
-                  <span className="flex items-center text-muted-foreground">-</span>
-                  <input
-                    type="time"
-                    value={newSession.end_time}
-                    onChange={e => setNewSession({...newSession, end_time: e.target.value})}
-                    className="flex-1 px-3 py-2 border border-input rounded-sm text-sm"
+                    type="date"
+                    value={newSession.date}
+                    onChange={e => setNewSession({ ...newSession, date: e.target.value })}
+                    className="counsel_input"
                   />
                 </div>
-              </div>
-              <div>
-                <label className="text-xs font-medium mb-1.5 block">첨부 파일 <span className="text-muted-foreground font-normal">(추후 업데이트 예정)</span></label>
-                <div className="flex px-3 py-2 border border-input rounded-sm border-dashed items-center justify-center text-muted-foreground text-sm cursor-not-allowed bg-muted/20">
-                  <span className="mr-2">📎</span> 첨부파일 선택
+
+                {/* 4. 상담시간 */}
+                <div className="counsel_item">
+                  <label className="counsel_label">상담시간</label>
+                  <div className="counsel_time_wrapper">
+                    <input
+                      type="text"
+                      maxLength={5}
+                      value={newSession.start_time || ''}
+                      onChange={e => handleTimeChange('start_time', e.target.value)}
+                      placeholder="시작"
+                      className="counsel_time_input"
+                    />
+                    <span className="counsel_time_separator">-</span>
+                    <input
+                      type="text"
+                      maxLength={5}
+                      value={newSession.end_time || ''}
+                      onChange={e => handleTimeChange('end_time', e.target.value)}
+                      placeholder="종료"
+                      className="counsel_time_input"
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
+            </section>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs font-medium mb-1.5 block">프로파일링 등급 <span className="text-muted-foreground font-normal">(선택)</span></label>
-                <input
-                    type="text"
-                    placeholder="예: A등급"
-                    value={newSession.profiling_grade}
-                    onChange={e => setNewSession({...newSession, profiling_grade: e.target.value})}
-                    className="w-full px-3 py-2 border border-input rounded-sm text-sm"
-                 />
+            {/* 2. 상담 상세 기록 */}
+            <section className="counsel_section">
+              <div className="counsel_section_header">
+                <h3 className="counsel_section_title">2. 상담 상세 기록</h3>
               </div>
-              <div>
-                <label className="text-xs font-medium mb-1.5 block">홀랜드 코드 <span className="text-muted-foreground font-normal">(선택)</span></label>
-                <input
-                    type="text"
-                    placeholder="예: RIA"
-                    value={newSession.holland_code}
-                    onChange={e => setNewSession({...newSession, holland_code: e.target.value})}
-                    className="w-full px-3 py-2 border border-input rounded-sm text-sm"
-                 />
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="counsel_label">주요 상담내용</label>
+                  <textarea
+                    rows={6}
+                    value={newSession.content}
+                    onChange={e => setNewSession({ ...newSession, content: e.target.value })}
+                    className="counsel_input resize-none h-auto outline-none"
+                    placeholder="상담 내용을 상세히 입력하세요..."
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="counsel_label">향후 계획 (Next Action)</label>
+                    <input
+                      type="text"
+                      value={newSession.next_action || ''}
+                      onChange={e => setNewSession({...newSession, next_action: e.target.value})}
+                      className="counsel_input"
+                      placeholder="예: 2차 심층상담 예정"
+                    />
+                  </div>
+                  <div>
+                    <label className="counsel_label">내부 메모 <span className="text-muted-foreground font-normal">(비공개)</span></label>
+                    <input
+                      type="text"
+                      value={newSession.memo || ''}
+                      onChange={e => setNewSession({...newSession, memo: e.target.value})}
+                      className="counsel_input"
+                      placeholder="상담사 참고용 메모"
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
-            <div>
-              <label className="text-xs font-medium mb-1.5 block">상담내용</label>
-              <textarea
-                rows={8}
-                value={newSession.content}
-                onChange={e => setNewSession({ ...newSession, content: e.target.value })}
-                className="w-full px-3 py-2 border border-input rounded-sm text-sm resize-none"
-                placeholder="상담 내용을 상세히 입력하세요..."
-              />
-            </div>
+            </section>
+
+
+              {/* 검사 및 프로파일링 */}
+              <section className="counsel_section flex flex-col">
+                <div className="counsel_section_header">
+                  <h3 className="counsel_section_title">4. 추가 검사 및 결과</h3>
+                </div>
+                <div className="p-5 space-y-4 flex-1">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="counsel_label">프로파일링 등급</label>
+                      <input
+                        type="text"
+                        value={newSession.profiling_grade || ''}
+                        onChange={e => setNewSession({...newSession, profiling_grade: e.target.value})}
+                        placeholder="예: A등급"
+                        className="counsel_input"
+                      />
+                    </div>
+                    <div>
+                      <label className="counsel_label">홀랜드 코드</label>
+                      <input
+                        type="text"
+                        value={newSession.holland_code || ''}
+                        onChange={e => setNewSession({...newSession, holland_code: e.target.value})}
+                        placeholder="예: RIA"
+                        className="counsel_input"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="counsel_label">성격검사 결과</label>
+                    <input
+                      type="text"
+                      value={newSession.personality_test_result || ''}
+                      onChange={e => setNewSession({...newSession, personality_test_result: e.target.value})}
+                      placeholder="주요 강점 및 특징"
+                      className="counsel_input"
+                    />
+                  </div>
+                  <div>
+                    <label className="counsel_label">생활사/성장배경 결과</label>
+                    <textarea
+                      rows={2}
+                      value={newSession.life_history_result || ''}
+                      onChange={e => setNewSession({...newSession, life_history_result: e.target.value})}
+                      placeholder="특이사항 기록"
+                      className="counsel_input resize-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="counsel_label">문서/파일 링크 (URL)</label>
+                    <input
+                      type="text"
+                      value={newSession.document_link || ''}
+                      onChange={e => setNewSession({...newSession, document_link: e.target.value})}
+                      placeholder="https://..."
+                      className="counsel_input"
+                    />
+                  </div>
+                </div>
+              </section>
+
+
+            {/* 5. 심리/환경 진단 척도 (0-5점) - 최하단 이동 */}
+            <section className="counsel_section">
+              <div className="counsel_section_header">
+                <h3 className="counsel_section_title">5. 심리/환경 진단 척도 (0-5점)</h3>
+              </div>
+              <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-8">
+                {[
+                  { key: 'economic_situation', label: '경제적 상황' },
+                  { key: 'social_situation_family', label: '사회적 환경 (가족/지지체계)' },
+                  { key: 'social_situation_society', label: '사회적 환경 (인간관계)' },
+                  { key: 'self_esteem', label: '자아존중감' },
+                  { key: 'self_efficacy', label: '자기효능감' },
+                  { key: 'career_fluidity', label: '진로유연성' },
+                  { key: 'info_gathering', label: '정보수집능력' },
+                ].map((item) => (
+                  <div key={item.key} className="counsel_item">
+                    <label className="counsel_label">{item.label}</label>
+                    <div className="scale_group">
+                      {[0, 1, 2, 3, 4, 5].map((score) => (
+                        <button
+                          key={score}
+                          type="button"
+                          onClick={() => setNewSession({ ...newSession, [item.key]: score })}
+                          className={`scale_btn ${newSession[item.key as keyof typeof newSession] === score ? 'active' : ''}`}
+                        >
+                          {score}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
             <button
               onClick={handleSaveSession}
               disabled={saving}
-              className="btn-primary w-full py-2.5 flex items-center justify-center gap-2"
+              className="btn-primary w-full py-3.5 flex items-center justify-center gap-2 text-base font-bold shadow-lg shadow-primary/20"
             >
-              {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-              상담 일지 저장
+              {saving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
+              상담 일지 최종 저장
             </button>
           </div>
         )}

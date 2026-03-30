@@ -9,6 +9,8 @@ import { ChevronLeft, User, Phone, Mail, Calendar, Building2, Briefcase, BookOpe
 import { usePageGuard } from '@/hooks/usePageGuard';
 import { createClient } from '@/lib/api';
 import DaumPostcode from 'react-daum-postcode';
+import { encrypt } from '@/lib/crypto'; // 암호화 유틸리티 추가
+import './ClientRegister.css'; // 새로 생성한 시맨틱 CSS import
 
 export default function ClientRegister() {
   const { canRender, user } = usePageGuard('counselor');
@@ -17,7 +19,9 @@ export default function ClientRegister() {
 
   const [form, setForm] = useState({
     name: '',
-    resident_id: '',
+    resident_id: '', // 뒷자리 (DB resident_id 컬럼용)
+    res_id_front: '', // 앞자리 (입력용)
+    res_id_back: '', // 뒷자리 (입력용)
     birth_date: '',
     phone: '',
     email: '',
@@ -69,21 +73,47 @@ export default function ClientRegister() {
     update('phone', formatted);
   };
 
-  // 주민등록번호 자동 하이픈
-  const handleResidentIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 13);
-    const formatted = raw.length > 6 ? `${raw.slice(0, 6)}-${raw.slice(6)}` : raw;
-    update('resident_id', formatted);
+  // 주민등록번호 앞자리 입력 핸들러
+  const handleResFrontChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 6);
+    update('res_id_front', raw);
   };
 
-  // 주민등록번호 입력 시 성별, 생년월일, 나이 자동 계산
+  // 주민등록번호 뒷자리 입력 핸들러
+  const handleResBackChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 7);
+    update('res_id_back', raw);
+    update('resident_id', raw); // 뒷자리를 resident_id 컬럼으로 매핑
+  };
+
+  // 생년월일 자동 하이픈 핸들러 (YYYY-MM-DD)
+  const handleBirthDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/\D/g, '').slice(0, 8);
+    let formatted = raw;
+    if (raw.length > 6) {
+      formatted = `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6)}`;
+    } else if (raw.length > 4) {
+      formatted = `${raw.slice(0, 4)}-${raw.slice(4)}`;
+    }
+    update('birth_date', formatted);
+
+    // 8자리 완성 시 나이 자동 계산
+    if (raw.length === 8) {
+      const year = parseInt(raw.slice(0, 4), 10);
+      const currentYear = new Date().getFullYear();
+      const calculatedAge = currentYear - year;
+      update('age', calculatedAge.toString());
+    }
+  };
+
+  // 주민번호 앞자리 및 뒷자리 첫번째 자리 입력 시 성별, 생년월일, 나이 자동 계산
   useEffect(() => {
-    const res = form.resident_id.replace(/-/g, '');
-    if (res.length >= 7) {
-      const yearPrefixStr = res.substring(0, 2);
-      const month = res.substring(2, 4);
-      const day = res.substring(4, 6);
-      const genderDigit = res.substring(6, 7);
+    if (form.res_id_front.length === 6 && form.res_id_back.length >= 1) {
+      const front = form.res_id_front;
+      const yearPrefixStr = front.substring(0, 2);
+      const month = front.substring(2, 4);
+      const day = front.substring(4, 6);
+      const genderDigit = form.res_id_back.substring(0, 1);
 
       let yearPrefix = '19';
       if (['3', '4'].includes(genderDigit)) yearPrefix = '20';
@@ -99,8 +129,11 @@ export default function ClientRegister() {
       let calculatedAge = currentYear - fullYear;
 
       setForm(f => ({ ...f, birth_date: birthDateStr, age: calculatedAge.toString(), gender }));
+    } else {
+      // 정보가 불충분할 때 초기화 (선택 사항)
+      // setForm(f => ({ ...f, birth_date: '', age: '', gender: 'M' }));
     }
-  }, [form.resident_id]);
+  }, [form.res_id_front, form.res_id_back]);
 
   // Auto-save logic
   useEffect(() => {
@@ -117,9 +150,8 @@ export default function ClientRegister() {
   }, []);
 
   useEffect(() => {
-    // Exclude sensitive fields like resident_id if needed, but for usability we keep it.
-    // We only save if there is at least some data (e.g. name or phone)
-    if (form.name || form.phone || form.resident_id) {
+    // We only save if there is at least some data (e.g. name, phone, email, or resident id parts)
+    if (form.name || form.phone || form.email || form.res_id_front || form.res_id_back) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(form));
     }
   }, [form]);
@@ -140,8 +172,8 @@ export default function ClientRegister() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name || !form.phone || !form.resident_id) {
-      toast.error('이름, 연락처, 주민번호는 필수 입력 항목입니다.');
+    if (!form.name || !form.phone || !form.res_id_front || !form.res_id_back) {
+      toast.error('이름, 연락처, 주민번호(앞/뒤)는 필수 입력 항목입니다.');
       return;
     }
 
@@ -157,11 +189,12 @@ export default function ClientRegister() {
     try {
       await createClient({
         name: form.name,
-        resident_id: form.resident_id,
+        resident_id: encrypt(form.res_id_back), // 뒷자리 암호화 적용
         birth_date: form.birth_date || null,
         age: form.age ? parseInt(form.age, 10) : null,
         gender: form.gender,
         phone: form.phone,
+        email: form.email, // 추가된 이메일 필드 매핑
         address_1: form.address_1,
         address_2: form.address_2,
         has_car: form.has_car,
@@ -209,10 +242,10 @@ export default function ClientRegister() {
   return (
     <div className="max-w-4xl mx-auto space-y-5 pb-12">
       {/* Header */}
-      <div className="flex items-center gap-3">
+      <div className="register_header">
         <button
           onClick={() => navigate('/clients/list')}
-          className="p-1.5 rounded-sm hover:bg-muted transition-colors"
+          className="register_back_btn"
         >
           <ChevronLeft size={18} />
         </button>
@@ -222,99 +255,115 @@ export default function ClientRegister() {
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="register_form_container">
         {/* Section 1: Basic Info */}
-        <div className="bg-card rounded-md p-5 shadow-sm border border-border space-y-4">
-          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2 border-b border-border pb-2">
+        <section className="register_section">
+          <h2 className="register_section_title">
             <User size={15} /> 기본 정보
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Row 1: Name & Phone */}
+          <div className="register_grid_2">
             <div>
-              <label className="block text-sm font-medium mb-1.5">이름 <span className="text-destructive">*</span></label>
+              <label className="register_label">이름 <span className="text-destructive">*</span></label>
               <input
                 type="text"
                 value={form.name}
                 onChange={e => update('name', e.target.value)}
                 placeholder="홍길동"
-                className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="register_input"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5">연락처 <span className="text-destructive">*</span></label>
+              <label className="register_label">연락처 <span className="text-destructive">*</span></label>
               <input
                 type="tel"
                 value={form.phone}
                 onChange={handlePhoneChange}
                 placeholder="010-0000-0000"
                 maxLength={13}
-                className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="register_input"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="col-span-1 md:col-span-1">
-              <label className="block text-sm font-medium mb-1.5">주민등록번호 <span className="text-destructive">*</span></label>
-              <input
-                type="text"
-                value={form.resident_id}
-                onChange={handleResidentIdChange}
-                placeholder="900101-1234567"
-                maxLength={14}
-                className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">생년월일 / 나이 (자동입력)</label>
-              <div className="flex gap-2">
+          {/* Row 2: Email (Full width) */}
+          <div className="register_row">
+            <label className="register_label">이메일</label>
+            <input
+              type="email"
+              value={form.email}
+              onChange={e => update('email', e.target.value)}
+              placeholder="example@email.com"
+              className="register_input"
+            />
+          </div>
+
+          {/* Row 3: Resident ID (Full width) */}
+          <div className="register_row">
+            <label className="register_label">주민등록번호 <span className="text-destructive">*</span></label>
+            <div className="register_field_group">
+              <div className="register_flex_row">
                 <input
-                  type="date"
-                  value={form.birth_date}
-                  onChange={e => update('birth_date', e.target.value)}
-                  className="flex-1 px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  type="text"
+                  value={form.res_id_front}
+                  onChange={handleResFrontChange}
+                  placeholder="앞 6자리"
+                  maxLength={6}
+                  className="register_input text-center max-w-[120px]"
                 />
+                <span className="text-muted-foreground">-</span>
                 <input
-                  type="number"
-                  value={form.age}
-                  readOnly
-                  placeholder="나이"
-                  className="w-16 px-2 py-2 rounded-sm border border-input bg-muted text-sm text-center"
+                  type="password"
+                  value={form.res_id_back}
+                  onChange={handleResBackChange}
+                  placeholder="뒤 7자리"
+                  maxLength={7}
+                  className="register_input text-center max-w-[140px]"
                 />
+                
+                {/* 계산된 정보 자동 노출 영역 */}
+                {form.birth_date && (
+                  <div className="register_info_badge">
+                    <span className="register_badge_text register_badge_primary">
+                      {form.gender === 'M' ? '남성' : '여성'}
+                    </span>
+                    <span className="register_badge_divider" />
+                    <span className="register_badge_text register_badge_foreground">
+                      {form.age}세
+                    </span>
+                    <span className="register_badge_divider" />
+                    <span className="register_badge_text register_badge_muted">
+                      {form.birth_date}
+                    </span>
+                  </div>
+                )}
               </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">성별 (자동입력)</label>
-              <select
-                value={form.gender}
-                disabled
-                className="w-full px-3 py-2 rounded-sm border border-input bg-muted text-sm"
-              >
-                <option value="M">남성</option>
-                <option value="F">여성</option>
-              </select>
+              {!form.birth_date && (
+                 <p className="register_hint_text">번호를 모두 입력하면 성별, 나이가 자동으로 산출됩니다.</p>
+              )}
             </div>
           </div>
 
-          <div className="space-y-2">
-            <label className="block text-sm font-medium">거주지 주소</label>
-            <div className="flex gap-2">
+          <div className="register_row register_field_group">
+            <label className="register_label">거주지 주소</label>
+            <div className="register_flex_row">
               <input
                 type="text"
                 value={form.address_1}
                 readOnly
                 placeholder="도로명 주소를 검색하세요"
-                className="flex-1 px-3 py-2 rounded-sm border border-input bg-muted text-sm"
+                className="register_input flex-1"
               />
               <button
                 type="button"
                 onClick={() => setShowPostcode(!showPostcode)}
-                className="btn-secondary px-4 py-2"
+                className="btn-secondary px-4 py-2 whitespace-nowrap"
               >
                 {showPostcode ? '닫기' : '주소 검색'}
               </button>
             </div>
             {showPostcode && (
-              <div className="border border-input rounded-sm overflow-hidden mb-2 relative z-10">
+              <div className="border border-input rounded-sm overflow-hidden mb-2 relative z-10 w-full">
                 <DaumPostcode onComplete={handleCompleteAddress} autoClose />
               </div>
             )}
@@ -323,24 +372,25 @@ export default function ClientRegister() {
               value={form.address_2}
               onChange={e => update('address_2', e.target.value)}
               placeholder="상세 주소 (동, 호수 등)"
-              className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="register_input"
             />
           </div>
-        </div>
+        </section>
 
         {/* Section 2: Education & Skills */}
-        <div className="bg-card rounded-md p-5 shadow-sm border border-border space-y-4">
-          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2 border-b border-border pb-2">
+        <section className="register_section">
+          <h2 className="register_section_title">
             <BookOpen size={15} /> 학력 및 부가정보
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Row 1: Education */}
+          <div className="register_grid_3">
             <div>
-              <label className="block text-sm font-medium mb-1.5">최종 학력</label>
+              <label className="register_label">최종 학력</label>
               <select
                 value={form.education_level}
                 onChange={e => update('education_level', e.target.value)}
-                className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="register_input"
               >
                 <option value="">선택 안함</option>
                 {['초졸', '중졸', '고졸', '전문대졸', '대졸', '석사', '박사'].map(v => (
@@ -349,112 +399,127 @@ export default function ClientRegister() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5">학교명</label>
+              <label className="register_label">학교명</label>
               <input
                 type="text"
                 value={form.school}
                 onChange={e => update('school', e.target.value)}
                 placeholder="OO대학교"
-                className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="register_input"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5">전공</label>
+              <label className="register_label">전공</label>
               <input
                 type="text"
                 value={form.major}
                 onChange={e => update('major', e.target.value)}
                 placeholder="경영학"
-                className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="register_input"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2">
-            <div>
-              <label className="block text-sm font-medium mb-1.5">MBTI</label>
-              <select
-                value={form.MBTI}
-                onChange={e => update('MBTI', e.target.value)}
-                className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="">선택 안함</option>
-                {['ISTJ', 'ISFJ', 'INFJ', 'INTJ', 'ISTP', 'ISFP', 'INFP', 'INTP', 'ESTP', 'ESFP', 'ENFP', 'ENTP', 'ESTJ', 'ESFJ', 'ENFJ', 'ENTJ'].map(v => (
-                  <option key={v} value={v}>{v}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5 flex items-center gap-1"><Car size={13} /> 차량/운전</label>
-              <div className="flex gap-4 mt-2">
-                <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                  <input type="checkbox" checked={form.has_car} onChange={e => update('has_car', e.target.checked)} className="rounded-sm border-input" />
-                  자차보유
-                </label>
-                <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                  <input type="checkbox" checked={form.can_drive} onChange={e => update('can_drive', e.target.checked)} className="rounded-sm border-input" />
-                  운전가능
-                </label>
+          {/* Row 2: Personality & Others */}
+          <div className="register_row">
+            <div className="register_grid_3">
+              <div>
+                <label className="register_label">MBTI</label>
+                <select
+                  value={form.MBTI}
+                  onChange={e => update('MBTI', e.target.value)}
+                  className="register_input"
+                >
+                  <option value="">선택 안함</option>
+                  {['ISTJ', 'ISFJ', 'INFJ', 'INTJ', 'ISTP', 'ISFP', 'INFP', 'INTP', 'ESTP', 'ESFP', 'ENFP', 'ENTP', 'ESTJ', 'ESFJ', 'ENFJ', 'ENTJ'].map(v => (
+                    <option key={v} value={v}>{v}</option>
+                  ))}
+                </select>
               </div>
-            </div>
-            <div className="col-span-2">
-              <label className="block text-sm font-medium mb-1.5">기타 자격/상태</label>
-              <div className="flex flex-wrap gap-4 mt-2">
-                <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                  <input type="checkbox" checked={form.is_working_parttime} onChange={e => update('is_working_parttime', e.target.checked)} className="rounded-sm border-input" />
-                  현재 알바중
-                </label>
-                <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                  <input type="checkbox" checked={form.future_card_stat} onChange={e => update('future_card_stat', e.target.checked)} className="rounded-sm border-input" />
-                  내일배움카드 소유
-                </label>
+              <div>
+                <label className="register_label flex items-center gap-1"><Car size={14} /> 차량/운전</label>
+                <div className="register_toggle_group">
+                  <button
+                    type="button"
+                    onClick={() => update('has_car', !form.has_car)}
+                    className={`register_toggle_btn ${form.has_car ? 'active' : ''}`}
+                  >
+                    자차 보유
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => update('can_drive', !form.can_drive)}
+                    className={`register_toggle_btn ${form.can_drive ? 'active' : ''}`}
+                  >
+                    운전 가능
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="register_label">기타 상태</label>
+                <div className="register_toggle_group">
+                  <button
+                    type="button"
+                    onClick={() => update('is_working_parttime', !form.is_working_parttime)}
+                    className={`register_toggle_btn ${form.is_working_parttime ? 'active' : ''}`}
+                  >
+                    현재 알바 중
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => update('future_card_stat', !form.future_card_stat)}
+                    className={`register_toggle_btn ${form.future_card_stat ? 'active' : ''}`}
+                  >
+                    내일배움카드
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </section>
 
         {/* Section 3: Job Requirements */}
-        <div className="bg-card rounded-md p-5 shadow-sm border border-border space-y-4">
-          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2 border-b border-border pb-2">
+        <section className="register_section">
+          <h2 className="register_section_title">
             <Target size={15} /> 희망 취업 조건 & 일경험
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3">
-            <div>
-              <label className="block text-xs font-medium mb-1 text-muted-foreground">희망 직종 1</label>
-              <input type="text" value={form.desired_job_1} onChange={e => update('desired_job_1', e.target.value)} className="w-full px-2 py-1.5 text-sm border border-input rounded-sm" />
+          <div className="register_grid_3">
+            <div className="register_field_group">
+              <label className="register_sub_label">희망 직종 1</label>
+              <input type="text" value={form.desired_job_1} onChange={e => update('desired_job_1', e.target.value)} className="register_input sm_padding" />
             </div>
-            <div>
-              <label className="block text-xs font-medium mb-1 text-muted-foreground">희망 직종 2</label>
-              <input type="text" value={form.desired_job_2} onChange={e => update('desired_job_2', e.target.value)} className="w-full px-2 py-1.5 text-sm border border-input rounded-sm" />
+            <div className="register_field_group">
+              <label className="register_sub_label">희망 직종 2</label>
+              <input type="text" value={form.desired_job_2} onChange={e => update('desired_job_2', e.target.value)} className="register_input sm_padding" />
             </div>
-            <div>
-              <label className="block text-xs font-medium mb-1 text-muted-foreground">희망 직종 3</label>
-              <input type="text" value={form.desired_job_3} onChange={e => update('desired_job_3', e.target.value)} className="w-full px-2 py-1.5 text-sm border border-input rounded-sm" />
+            <div className="register_field_group">
+              <label className="register_sub_label">희망 직종 3</label>
+              <input type="text" value={form.desired_job_3} onChange={e => update('desired_job_3', e.target.value)} className="register_input sm_padding" />
             </div>
 
-            <div>
-              <label className="block text-xs font-medium mb-1 text-muted-foreground">희망 지역 1</label>
-              <input type="text" value={form.desired_area_1} onChange={e => update('desired_area_1', e.target.value)} className="w-full px-2 py-1.5 text-sm border border-input rounded-sm" />
+            <div className="register_field_group">
+              <label className="register_sub_label">희망 지역 1</label>
+              <input type="text" value={form.desired_area_1} onChange={e => update('desired_area_1', e.target.value)} className="register_input sm_padding" />
             </div>
-            <div>
-              <label className="block text-xs font-medium mb-1 text-muted-foreground">희망 지역 2</label>
-              <input type="text" value={form.desired_area_2} onChange={e => update('desired_area_2', e.target.value)} className="w-full px-2 py-1.5 text-sm border border-input rounded-sm" />
+            <div className="register_field_group">
+              <label className="register_sub_label">희망 지역 2</label>
+              <input type="text" value={form.desired_area_2} onChange={e => update('desired_area_2', e.target.value)} className="register_input sm_padding" />
             </div>
-            <div>
-              <label className="block text-xs font-medium mb-1 text-muted-foreground">희망 지역 3</label>
-              <input type="text" value={form.desired_area_3} onChange={e => update('desired_area_3', e.target.value)} className="w-full px-2 py-1.5 text-sm border border-input rounded-sm" />
+            <div className="register_field_group">
+              <label className="register_sub_label">희망 지역 3</label>
+              <input type="text" value={form.desired_area_3} onChange={e => update('desired_area_3', e.target.value)} className="register_input sm_padding" />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-border pt-3">
-            <div>
-              <label className="block text-sm font-medium mb-1.5">희망 연봉 (만원)</label>
-              <input type="number" value={form.desired_payment} onChange={e => update('desired_payment', e.target.value)} placeholder="3000" className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+          <div className="register_grid_3 register_row border-t border-border pt-3">
+            <div className="register_field_group">
+              <label className="register_label">희망 연봉 (만원)</label>
+              <input type="number" value={form.desired_payment} onChange={e => update('desired_payment', e.target.value)} placeholder="3000" className="register_input" />
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">역량 레벨 (A/B/C/D)</label>
-              <select value={form.capa} onChange={e => update('capa', e.target.value)} className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm">
+            <div className="register_field_group">
+              <label className="register_label">역량 레벨</label>
+              <select value={form.capa} onChange={e => update('capa', e.target.value)} className="register_input">
                 <option value="">미작성</option>
                 <option value="A">A등급 (구직준비도 높음)</option>
                 <option value="B">B등급 (구직역량 필요)</option>
@@ -462,9 +527,9 @@ export default function ClientRegister() {
                 <option value="D">D등급 (심층상담 필요)</option>
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">일경험 필요여부</label>
-              <select value={form.work_ex_desire} onChange={e => update('work_ex_desire', e.target.value)} className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm">
+            <div className="register_field_group">
+              <label className="register_label">일경험 필요여부</label>
+              <select value={form.work_ex_desire} onChange={e => update('work_ex_desire', e.target.value)} className="register_input">
                 <option value="">선택 안함</option>
                 <option value="1">필요</option>
                 <option value="2">미필요</option>
@@ -473,42 +538,42 @@ export default function ClientRegister() {
             </div>
           </div>
 
-          <div className="pt-2">
-            <label className="flex items-center gap-2 cursor-pointer text-sm font-medium mb-2">
-              <input type="checkbox" checked={form.work_ex_intent_checkbox} onChange={e => update('work_ex_intent_checkbox', e.target.checked)} className="rounded-sm border-input" />
+          <div className="register_row">
+            <label className="register_checkbox_label font-medium">
+              <input type="checkbox" checked={form.work_ex_intent_checkbox} onChange={e => update('work_ex_intent_checkbox', e.target.checked)} className="register_checkbox" />
               참여의사 및 상세 정보 작성하기
             </label>
           </div>
 
-          {form.work_ex_intent_checkbox && (
-            <div className="bg-muted/30 p-4 border border-border rounded-sm space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">일경험 유형</label>
-                  <select value={form.work_ex_type} onChange={e => update('work_ex_type', e.target.value)} className="w-full px-2 py-1.5 text-sm border border-input rounded-sm">
+          {form.work_ex_intent_checkbox &&
+            <div className="bg-muted/30 p-4 border border-border rounded-sm register_field_group mt-3">
+              <div className="register_grid_2">
+                <div className="register_field_group">
+                  <label className="register_label">일경험 유형</label>
+                  <select value={form.work_ex_type} onChange={e => update('work_ex_type', e.target.value)} className="register_input sm_padding">
                     <option value="">유형 선택</option>
                     <option value="1">훈련연계형</option>
                     <option value="2">체험형</option>
                     <option value="3">인턴형</option>
                   </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">일경험 참여기업</label>
-                  <input type="text" value={form.work_ex_company} onChange={e => update('work_ex_company', e.target.value)} className="w-full px-2 py-1.5 text-sm border border-input rounded-sm" />
+                <div className="register_field_group">
+                  <label className="register_label">일경험 참여기업</label>
+                  <input type="text" value={form.work_ex_company} onChange={e => update('work_ex_company', e.target.value)} className="register_input sm_padding" />
                 </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-medium mb-1 text-muted-foreground">시작일</label>
-                  <input type="date" value={form.work_ex_start} onChange={e => update('work_ex_start', e.target.value)} className="w-full px-2 py-1.5 text-sm border border-input rounded-sm" />
+              <div className="register_grid_3">
+                <div className="register_field_group">
+                  <label className="register_sub_label">시작일</label>
+                  <input type="date" value={form.work_ex_start} onChange={e => update('work_ex_start', e.target.value)} className="register_input sm_padding" />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1 text-muted-foreground">종료일</label>
-                  <input type="date" value={form.work_ex_end} onChange={e => update('work_ex_end', e.target.value)} className="w-full px-2 py-1.5 text-sm border border-input rounded-sm" />
+                <div className="register_field_group">
+                  <label className="register_sub_label">종료일</label>
+                  <input type="date" value={form.work_ex_end} onChange={e => update('work_ex_end', e.target.value)} className="register_input sm_padding" />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1 text-muted-foreground">수료 여부</label>
-                  <select value={form.work_ex_graduate} onChange={e => update('work_ex_graduate', e.target.value)} className="w-full px-2 py-1.5 text-sm border border-input rounded-sm">
+                <div className="register_field_group">
+                  <label className="register_sub_label">수료 여부</label>
+                  <select value={form.work_ex_graduate} onChange={e => update('work_ex_graduate', e.target.value)} className="register_input sm_padding">
                     <option value="">확인 불가</option>
                     <option value="1">수료</option>
                     <option value="0">미수료</option>
@@ -516,32 +581,32 @@ export default function ClientRegister() {
                 </div>
               </div>
             </div>
-          )}
-        </div>
+          }
+        </section>
 
         {/* Section 4: Counseling Processing Info */}
-        <div className="bg-card rounded-md p-5 shadow-sm border border-border space-y-4">
-          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2 border-b border-border pb-2">
+        <section className="register_section">
+          <h2 className="register_section_title">
             <Briefcase size={15} /> 사업 운영부서 정보
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1.5">위탁 지점</label>
+          <div className="register_grid_3">
+            <div className="register_field_group">
+              <label className="register_label">위탁 지점</label>
               <input
                 type="text"
                 value={form.branch}
                 onChange={e => update('branch', e.target.value)}
                 placeholder="서울 강남지점"
-                className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="register_input"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">참여 사업 유형</label>
+            <div className="register_field_group">
+              <label className="register_label">참여 사업 유형</label>
               <select
                 value={form.businessType}
                 onChange={e => update('businessType', e.target.value)}
-                className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="register_input"
               >
                 <option value="1">취업성공패키지</option>
                 <option value="2">국민취업지원제도</option>
@@ -549,30 +614,27 @@ export default function ClientRegister() {
                 <option value="99">기타</option>
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">참여 유형 분류</label>
+            <div className="register_field_group">
+              <label className="register_label">참여 유형 분류</label>
               <input
                 type="text"
                 value={form.participationType}
                 onChange={e => update('participationType', e.target.value)}
                 placeholder="(예: 1유형, 2유형)"
-                className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="register_input"
               />
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1.5">상담 단계</label>
-            <div className="flex flex-wrap gap-2">
+          <div className="register_row register_field_group">
+            <label className="register_label">상담 단계</label>
+            <div className="register_toggle_group">
               {['초기상담', '심층상담', '취업지원', '취업완료', '사후관리'].map(s => (
                 <button
                   key={s}
                   type="button"
                   onClick={() => update('processStage', s)}
-                  className={`px-4 py-2 rounded-sm text-[13px] font-medium border transition-all ${
-                    form.processStage === s ? 'text-white' : 'border-border text-muted-foreground hover:border-primary/50'
-                  }`}
-                  style={form.processStage === s ? { background: '#009C64', borderColor: '#009C64' } : {}}
+                  className={`register_toggle_btn ${form.processStage === s ? 'active' : ''}`}
                 >
                   {s}
                 </button>
@@ -580,20 +642,20 @@ export default function ClientRegister() {
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1.5">기타 특이사항 (메모)</label>
+          <div className="register_row register_field_group">
+            <label className="register_label">기타 특이사항 (메모)</label>
             <textarea
               value={form.notes}
               onChange={e => update('notes', e.target.value)}
               placeholder="내담자 특이사항, 초기진단 결과 등 전달 메모"
               rows={4}
-              className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+              className="register_input resize-none"
             />
           </div>
-        </div>
+        </section>
 
         {/* Actions */}
-        <div className="flex gap-3 justify-end pt-2 pb-8">
+        <div className="register_flex_row justify-end register_row pb-8">
           <button
             type="button"
             onClick={() => navigate('/clients/list')}

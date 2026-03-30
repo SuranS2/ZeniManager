@@ -31,17 +31,17 @@ function getElectronApi() {
 
 /** Returns the Supabase URL stored by the user in Settings, or null if not set. */
 export function getSupabaseUrl(): string | null {
-  return localStorage.getItem(STORAGE_KEYS.SUPABASE_URL) || null;
+  return localStorage.getItem(STORAGE_KEYS.SUPABASE_URL) || (import.meta.env.VITE_SUPABASE_URL as string) || null;
 }
 
 /** Returns the Supabase anon key stored by the user in Settings, or null if not set. */
 export function getSupabaseAnonKey(): string | null {
-  return localStorage.getItem(STORAGE_KEYS.SUPABASE_ANON_KEY) || null;
+  return localStorage.getItem(STORAGE_KEYS.SUPABASE_ANON_KEY) || (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || null;
 }
 
 /** Returns the Supabase service role key stored by the user in Settings, or null if not set. */
 export function getSupabaseServiceRoleKey(): string | null {
-  return localStorage.getItem(STORAGE_KEYS.SUPABASE_SERVICE_ROLE_KEY) || null;
+  return localStorage.getItem(STORAGE_KEYS.SUPABASE_SERVICE_ROLE_KEY) || (import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY as string) || null;
 }
 
 /** Returns the OpenAI API key stored by the user in Settings, or null if not set. */
@@ -82,7 +82,7 @@ export function getSupabaseClient(): SupabaseClient | null {
         persistSession: true,
         autoRefreshToken: true,
         storageKey: SUPABASE_SESSION_STORAGE_KEY,
-        storage: window.sessionStorage,
+        storage: window.localStorage,
       },
     });
     _clientUrl = url;
