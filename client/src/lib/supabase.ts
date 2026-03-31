@@ -372,28 +372,35 @@ export type Database = {
 // ─── Row types matching the Supabase schema ───────────────────────────────────
 
 export interface ClientRow {
-  id: string;
-  seq_no: number | null;
-  year: number | null;
-  assignment_type: string | null; // 배정구분: 이관/모집/배정
-  name: string;
-  resident_id_masked: string | null; // 주민번호 앞 6자리만 저장
-  phone: string | null;
-  last_counsel_date: string | null;
+  id: string; // 기존 호환용
+  client_id?: number; // DB 실제
+  seq_no?: number | null;
+  year?: number | null;
+  assignment_type: string | null;
+  name: string; // 기존 호환용
+  client_name?: string; // DB 실제
+  resident_id: string | null;
+  resident_id_masked?: string | null;
+  phone?: string | null;
+  phone_encrypted?: string | null;
+  last_counsel_date?: string | null;
   age: number | null;
-  gender: '남' | '여' | null;
+  gender?: '남' | '여' | null;
+  gender_code?: string | null;
   birth_date: string | null;
   email: string | null;
   MBTI: string | null;
-  certifications: string | null; // 자격증 목록
+  certifications?: string | null;
   certificates?: { certificate_name: string; acquisition_date: string | null }[];
-  future_card_stat: number | null; // 내일배움카드 상태 (0: 없음, 1: 있음)
-  business_type: string | null; // 사업유형: Ⅰ/Ⅱ
-  participation_type: string | null; // 참여유형
-  participation_stage: string | null; // 참여단계
-  capa: string | null; // 역량등급: A/B/C/D
-  recognition_date: string | null; // 인정통지일
-  desired_job: string | null; // 희망직종
+  future_card_stat: number | null;
+  business_type?: string | null;
+  business_type_code: number | null;
+  participation_type: string | null;
+  participation_stage: string | null;
+  capa: string | null;
+  recognition_date?: string | null;
+  notificate_date: string | null;
+  desired_job?: string | null;
   desired_job_1: string | null;
   desired_job_2: string | null;
   desired_job_3: string | null;
@@ -403,13 +410,14 @@ export interface ClientRow {
   desired_payment: number | null;
   has_car: boolean | null;
   is_working_parttime: boolean | null;
-  can_drive: boolean | null; // 운전가능여부
-  counsel_notes: string | null; // 상담내역
-  address: string | null;
+  can_drive: boolean | null;
+  counsel_notes?: string | null;
+  address?: string | null;
   address_1: string | null;
   address_2: string | null;
   school_name: string | null;
   major: string | null;
+<<<<<<< HEAD
   education_level: string | null; // 최종학력
   initial_counsel_date: string | null; // 초기상담(1차)
   iap_date: string | null; // IAP수립일
@@ -435,29 +443,71 @@ export interface ClientRow {
   hire_payment: number | null; // 급여
   employment_type: string | null; // 취업유형 (본인 등)
   employment_duration: string | null; // 취업소요기간
+=======
+  education_level: string | null;
+  initial_counsel_date?: string | null;
+  iap_date?: string | null;
+  iap_duration?: string | null;
+  allowance_apply_date?: string | null;
+  rediagnosis_date?: string | null;
+  rediagnosis_yn?: string | null;
+  work_exp_type?: string | null;
+  work_exp_intent?: string | null;
+  work_exp_company?: string | null;
+  work_exp_period?: string | null;
+  work_exp_completed?: string | null;
+  training_name?: string | null;
+  training_start?: string | null;
+  training_end?: string | null;
+  training_allowance?: string | null;
+  intensive_start?: string | null;
+  intensive_end?: string | null;
+  support_end_date?: string | null;
+  employment_duration?: string | null;
+  counselor_name?: string | null;
+  counselor_id: string | null;
+  branch?: string | null;
+  follow_up?: boolean;
+  score?: number | null;
+  participate_type?: string | null;
+  
+  // 실제 DB 스키마 속성들
+  iap_todate: number | null;
+  iap_to: string | null;
+  retest_stat: number | null;
+  retest_date: string | null;
+  work_ex_type: number | null;
+  work_ex_desire: number | null;
+  work_ex_history: string | null;
+  work_ex_company: string | null;
+  work_ex_start: string | null;
+  work_ex_end: string | null;
+  work_ex_graduate: number | null;
+  job_place_start: string | null;
+  job_place_end: string | null;
+  job_place_support_end: string | null;
+  hire_type: string | null;
+  hire_date: string | null;
+  hire_place: string | null;
+  hire_job_type: string | null;
+  hire_payment: string | null;
+  retirement_date: string | null;
+>>>>>>> feature/adminlist-rse
   continue_serv_1_date: string | null;
   continue_serv_1_stat: number | null;
   continue_serv_6_date: string | null;
   continue_serv_6_stat: number | null;
   continue_serv_12_date: string | null;
   continue_serv_12_stat: number | null;
-  continue_serv_18_date: string | null;
+  continue_serv_18_date: string | number | null; 
   continue_serv_18_stat: number | null;
-  counselor_name: string | null; // 담당자
-  counselor_id: string | null;
-  branch: string | null;
-  follow_up: boolean;
-  score: number | null;
-  iap_to: string | null;
-  retest_stat: number | null;
-  memo: string | null;
-  participate_type: string | null;
   created_at: string;
-  update_at: string;
+  update_at: string | null;
+  memo: string | null;
 }
 
 
-export type ClientInsert = Omit<ClientRow, 'id' | 'created_at' | 'update_at'> & {
+export type ClientInsert = Omit<ClientRow, 'id' | 'client_id' | 'created_at' | 'update_at'> & {
   id?: string;
 };
 

@@ -4,7 +4,7 @@
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ROLE_ADMIN, ROLE_COUNSELOR, isAdminRole, type AppRole } from '@shared/const';
-import { Search, Plus, Edit3, Trash2, X, Loader2, RefreshCw, AlertTriangle, Eye, Target, Users, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Plus, Edit3, Trash2, X, Loader2, RefreshCw, AlertTriangle, Eye, Target, Users, TrendingUp, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, Filter } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePageGuard } from '@/hooks/usePageGuard';
 import { fetchCounselors, updateCounselor, fetchClients } from '@/lib/api';
@@ -15,7 +15,7 @@ import { useElectron } from '@/hooks/useElectron';
 const PRIMARY_HEX = '#009C64';
 const ITEMS_PER_PAGE = 20;
 
-const STAGE_COLORS = {
+const STAGE_COLORS: Record<string, string> = {
   '초기상담': '#4299E1',
   '심층상담': '#9F7AEA',
   '취업지원': '#F6AD55',
@@ -50,8 +50,12 @@ function CounselorDetailModal({
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(true);
   
+<<<<<<< HEAD
   // 메모 수정용 상태
   const [memo, setMemo] = useState(counselor.memo_bymanager || '');
+=======
+  const [memo, setMemo] = useState(counselor.memo || '');
+>>>>>>> feature/adminlist-rse
   const [savingMemo, setSavingMemo] = useState(false);
 
   useEffect(() => {
@@ -66,12 +70,11 @@ function CounselorDetailModal({
       });
   }, [counselor.user_id]);
 
-  // 통계 계산
-  const totalClients = clients.length; // 담당 인원 수
-  const completedClients = clients.filter(c => !!c.employment_type || c.participation_stage === '취업완료').length; // 취업 완료 수
+  const totalClients = clients.length; 
+  // 🚨 에러 수정: employment_type 대신 hire_date(취업일자)가 있거나 단계가 취업완료인 경우로 변경
+  const completedClients = clients.filter(c => !!c.hire_date || c.participation_stage === '취업완료').length;
   const successRate = totalClients > 0 ? Math.round((completedClients / totalClients) * 100) : 0;
 
-  // 프로세스 과정 계산
   const stageData = useMemo(() => {
     const order = ['초기상담', '심층상담', '취업지원', '취업완료', '사후관리'];
     const map: Record<string, number> = { '초기상담': 0, '심층상담': 0, '취업지원': 0, '취업완료': 0, '사후관리': 0 };
@@ -85,7 +88,6 @@ function CounselorDetailModal({
 
   const maxStageValue = Math.max(...stageData.map(s => s.value), 1);
 
-  // 메모 저장 핸들러
   const handleSaveMemo = async () => {
     setSavingMemo(true);
     try {
@@ -128,7 +130,6 @@ function CounselorDetailModal({
             </div>
           ) : (
             <>
-              {/* 핵심 KPI */}
               <div className="grid grid-cols-3 gap-4">
                 <div className="bg-card border border-border rounded-md p-4 text-center shadow-sm">
                   <Users size={20} className="mx-auto text-blue-500 mb-2" />
@@ -147,13 +148,12 @@ function CounselorDetailModal({
                 </div>
               </div>
 
-              {/* 프로세스 과정 분포 */}
               <div className="bg-card border border-border rounded-md p-5 shadow-sm">
                 <h3 className="text-sm font-semibold text-foreground mb-5">상담자 프로세스 과정 분포</h3>
                 <div className="space-y-4">
                   {stageData.map((stage) => {
                     const widthPct = maxStageValue > 0 ? (stage.value / maxStageValue) * 100 : 0;
-                    const barColor = STAGE_COLORS[stage.name as keyof typeof STAGE_COLORS] || '#CBD5E0';
+                    const barColor = STAGE_COLORS[stage.name] || '#CBD5E0';
                     return (
                       <div key={stage.name}>
                         <div className="flex justify-between text-xs mb-1.5">
@@ -172,7 +172,6 @@ function CounselorDetailModal({
                 </div>
               </div>
 
-              {/* 관리자 메모 (수정 가능) */}
               <div className="bg-amber-50 border border-amber-200 rounded-md p-4 shadow-sm">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-sm font-semibold text-amber-900">관리자 메모</h3>
@@ -384,14 +383,15 @@ export default function CounselorList() {
   
   const [counselors, setCounselors] = useState<CounselorRow[]>([]);
   const [loading, setLoading] = useState(true);
+  
   const [search, setSearch] = useState('');
+  const [branchFilter, setBranchFilter] = useState('all');
   
   const [currentPage, setCurrentPage] = useState(1);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
-  // 🚨 스크롤 타겟용 Ref 추가
   const topRef = useRef<HTMLDivElement>(null);
 
-  // 🚨 페이지가 변경될 때마다 topRef 위치로 스크롤
   useEffect(() => {
     topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [currentPage]);
@@ -411,7 +411,8 @@ export default function CounselorList() {
 
       const enhancedCounselors = counselorsData.map(c => {
         const myClients = allClientsData.filter(client => client.counselor_id === c.user_id);
-        const completedCount = myClients.filter(client => !!client.employment_type || client.participation_stage === '취업완료').length;
+        // 🚨 에러 수정: employment_type 대신 hire_date(취업일자) 유무 및 participation_stage 사용
+        const completedCount = myClients.filter(client => !!client.hire_date || client.participation_stage === '취업완료').length;
         
         return {
           ...c,
@@ -439,21 +440,52 @@ export default function CounselorList() {
 
   const counselorOnlyList = counselors.filter(c => Number(c.role) === 5);
 
-  const filtered = counselorOnlyList.filter(c =>
-    !search ||
-    c.user_name.toLowerCase().includes(search.toLowerCase()) ||
-    (c.department || '').includes(search)
-  );
+  const filtered = counselorOnlyList.filter(c => {
+    const matchSearch = !search ||
+      c.user_name.toLowerCase().includes(search.toLowerCase()) ||
+      (c.department || '').includes(search);
+    const matchBranch = branchFilter === 'all' || c.department === branchFilter;
+    
+    return matchSearch && matchBranch;
+  });
+
+  const sortedData = useMemo(() => {
+    const sortableItems = [...filtered];
+    if (sortConfig !== null) {
+      sortableItems.sort((a, b) => {
+        const aValue = a[sortConfig.key as keyof CounselorRow] ?? '';
+        const bValue = b[sortConfig.key as keyof CounselorRow] ?? '';
+        
+        if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+    return sortableItems;
+  }, [filtered, sortConfig]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search]);
+  }, [search, branchFilter, sortConfig]);
 
-  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
-  const paginatedData = filtered.slice(
+  const totalPages = Math.ceil(sortedData.length / ITEMS_PER_PAGE);
+  const paginatedData = sortedData.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE
   );
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const renderSortIcon = (key: string) => {
+    if (sortConfig?.key !== key) return <ArrowUpDown size={14} className="opacity-40" />;
+    return sortConfig.direction === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />;
+  };
 
   const handleSave = async (form: CounselorForm) => {
     if (!isSupabaseConfigured()) {
@@ -569,7 +601,7 @@ export default function CounselorList() {
   if (!canRender) return null;
 
   return (
-    <div ref={topRef} className="space-y-4"> {/* 🚨 최상단 div에 ref를 부착합니다 */}
+    <div ref={topRef} className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-foreground">상담사 목록</h1>
@@ -592,7 +624,7 @@ export default function CounselorList() {
         </div>
       </div>
 
-      <div className="bg-card rounded-md p-4 shadow-sm border border-border">
+      <div className="bg-card rounded-md p-4 shadow-sm border border-border space-y-3">
         <div className="relative">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -602,6 +634,21 @@ export default function CounselorList() {
             placeholder="이름, 지점으로 검색..."
             className="w-full pl-9 pr-4 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
+        </div>
+        <div className="flex gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Filter size={14} className="text-muted-foreground" />
+            <select
+              value={branchFilter}
+              onChange={e => setBranchFilter(e.target.value)}
+              className="px-3 py-1.5 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="all">전체 지점</option>
+              {existingBranches.map(b => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -617,10 +664,30 @@ export default function CounselorList() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">이름</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">지점</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">담당 인원</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">상담 완료</th>
+                    <th 
+                      className="text-left px-4 py-3 font-medium text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
+                      onClick={() => handleSort('user_name')}
+                    >
+                      <div className="flex items-center gap-1.5">이름 {renderSortIcon('user_name')}</div>
+                    </th>
+                    <th 
+                      className="text-left px-4 py-3 font-medium text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
+                      onClick={() => handleSort('department')}
+                    >
+                      <div className="flex items-center gap-1.5">지점 {renderSortIcon('department')}</div>
+                    </th>
+                    <th 
+                      className="text-right px-4 py-3 font-medium text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
+                      onClick={() => handleSort('client_count')}
+                    >
+                      <div className="flex items-center justify-end gap-1.5">{renderSortIcon('client_count')} 담당 인원</div>
+                    </th>
+                    <th 
+                      className="text-right px-4 py-3 font-medium text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
+                      onClick={() => handleSort('completed_count')}
+                    >
+                      <div className="flex items-center justify-end gap-1.5">{renderSortIcon('completed_count')} 상담 완료</div>
+                    </th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">역할</th>
                     <th className="text-right px-4 py-3 font-medium text-muted-foreground">상세/수정/삭제</th>
                   </tr>
@@ -629,7 +696,7 @@ export default function CounselorList() {
                   {paginatedData.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                        {search ? '검색 결과가 없습니다.' : '등록된 상담사가 없습니다.'}
+                        {search || branchFilter !== 'all' ? '검색 결과가 없습니다.' : '등록된 상담사가 없습니다.'}
                       </td>
                     </tr>
                   ) : (
@@ -688,8 +755,8 @@ export default function CounselorList() {
             {totalPages > 1 && (
               <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/10">
                 <div className="text-sm text-muted-foreground">
-                  총 <span className="font-medium text-foreground">{filtered.length}</span>건 중 {(currentPage - 1) * ITEMS_PER_PAGE + 1}-
-                  {Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)} 표시
+                  총 <span className="font-medium text-foreground">{sortedData.length}</span>건 중 {(currentPage - 1) * ITEMS_PER_PAGE + 1}-
+                  {Math.min(currentPage * ITEMS_PER_PAGE, sortedData.length)} 표시
                 </div>
                 <div className="flex items-center gap-2">
                   <button
