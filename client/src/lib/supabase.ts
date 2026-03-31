@@ -428,6 +428,7 @@ export interface ClientRow {
   hire_job_type: string | null; // 취업직무
   hire_date: string | null; // 취업일자
   hire_payment: number | null; // 급여
+  employment_type: string | null; // 취업유형 (본인 등)
   employment_duration: string | null; // 취업소요기간
   continue_serv_1_date: string | null;
   continue_serv_1_stat: number | null;
@@ -490,11 +491,21 @@ export interface CounselorRow {
   user_id: string;       // PK (uuid)
   user_name: string;
   department: string;
-  memo: string | null;
+  memo: string | null;           // 상담사 개인 메모 (Notepad)
   role: AppRole | null;   // integer in DB — mapped via AppRole
   // 클라이언트 계산 필드 (집계용)
   client_count: number;
   completed_count: number;
+  // UI 매핑용 (manager_memo 테이블에서 가져옴)
+  memo_bymanager?: string | null; 
+}
+
+export interface ManagerMemoRow {
+  id?: number | string;
+  manager_id: string;   // 작성한 매니저 ID
+  counselor_id: string; // 대상 상담사 ID
+  memo: string | null;
+  created_at?: string;
 }
 
 export type CounselorInsert = Omit<CounselorRow, 'client_count' | 'completed_count' | 'user_id'> & {

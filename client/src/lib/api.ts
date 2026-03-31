@@ -110,7 +110,6 @@ type LiveClientRecord = {
   client_certificates?: { certificate_name: string; acquisition_date: string | null }[] | null;
   business_code?: { participate_type: string | null }[] | null;
   job_place_support_end: string | null;
-  hire_date: string | null;
   created_at: string | null;
   update_at: string | null;
 };
@@ -278,7 +277,7 @@ export async function fetchClientById(id: string): Promise<ClientRow | null> {
   try {
     const certs = await fetchCertificates(id);
     clientRow.certificates = certs;
-    clientRow.certifications = certs.map(c => `${c.certificates_name}${c.acquisition_date ? ` (${c.acquisition_date})` : ''}`).join(', ');
+    clientRow.certifications = certs.map(c => `${c.certificate_name}${c.acquisition_date ? ` (${c.acquisition_date})` : ''}`).join(', ');
   } catch (e) {
     console.error('Failed to fetch certificates', e);
   }
@@ -615,31 +614,55 @@ export async function fetchCounselors(): Promise<CounselorRow[]> {
     '상담사 목록 조회',
     sb()
       .from('user')
-      .select('user_id, user_name, department, memo, role')
+      .select(`
+        user_id, 
+        user_name, 
+        department, 
+        memo, 
+        role,
+        manager_memo!counselor_id(memo)
+      `)
       .eq('role', 5)
       .order('user_name'),
   );
 
   if (error) throw error;
-  return (data ?? []).map((row: any) => ({
-    user_id: row.user_id,
-    user_name: row.user_name ?? '이름 미상',
-    department: row.department ?? '',
-    memo: row.memo ?? null,
-    role: row.role != null ? normalizeAppRole(row.role) : null,
-    client_count: 0,
-    completed_count: 0,
-  }));
+  return (data ?? []).map((row: any) => {
+    // 1:1 관계라도 배열 혹은 객체로 올 수 있어 유연하게 처리
+    let memoValue = null;
+    const rawMemo = row.manager_memo;
+    if (rawMemo) {
+      if (Array.isArray(rawMemo) && rawMemo.length > 0) {
+        memoValue = rawMemo[0].memo;
+      } else if (typeof rawMemo === 'object' && 'memo' in rawMemo) {
+        memoValue = (rawMemo as any).memo;
+      }
+    }
+
+    return {
+      user_id: row.user_id,
+      user_name: row.user_name ?? '이름 미상',
+      department: row.department ?? '',
+      memo: row.memo ?? null,
+      memo_bymanager: memoValue,
+      role: row.role != null ? normalizeAppRole(row.role) : null,
+      client_count: 0,
+      completed_count: 0,
+    };
+  });
 }
 
 export async function createCounselor(input: CounselorInsert): Promise<CounselorRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
+  
+  // 1. user 테이블 등록
   const payload = {
     user_name: input.user_name,
     department: input.department ?? '',
     memo: input.memo ?? null,
     role: input.role ?? null,
   };
+  
   const { data, error } = await runQuery<any>(
     '상담사 등록',
     sb()
@@ -649,11 +672,30 @@ export async function createCounselor(input: CounselorInsert): Promise<Counselor
       .single(),
   );
   if (error) throw error;
+  
+  const newUserId = (data as any).user_id;
+
+  // 2. manager_memo 테이블 등록 (데이터가 있을 때만)
+  if (input.memo_bymanager) {
+    const { data: authData } = await sb().auth.getUser();
+    const managerId = authData.user?.id;
+    
+    const { error: memoError } = await sb()
+      .from('manager_memo')
+      .insert({ 
+        manager_id: managerId || newUserId, // 매니저 권한이면 로그인한 ID, 아니면 본인 
+        counselor_id: newUserId, 
+        memo: input.memo_bymanager 
+      });
+    if (memoError) throw memoError;
+  }
+
   return {
-    user_id: (data as any).user_id,
+    user_id: newUserId,
     user_name: (data as any).user_name ?? '이름 미상',
     department: (data as any).department ?? '',
     memo: (data as any).memo ?? null,
+    memo_bymanager: input.memo_bymanager ?? null,
     role: (data as any).role != null ? normalizeAppRole((data as any).role) : null,
     client_count: 0,
     completed_count: 0,
@@ -662,30 +704,39 @@ export async function createCounselor(input: CounselorInsert): Promise<Counselor
 
 export async function updateCounselor(userId: string, input: Partial<CounselorInsert>): Promise<CounselorRow> {
   if (!isSupabaseConfigured()) throw new Error('Supabase 설정이 필요합니다.');
-  const payload: Record<string, unknown> = {};
-  if (input.user_name != null) payload.user_name = input.user_name;
-  if (input.department != null) payload.department = input.department;
-  if (input.memo !== undefined) payload.memo = input.memo;
-  if (input.role !== undefined) payload.role = input.role;
-  const { data, error } = await runQuery<any>(
-    '상담사 수정',
-    sb()
-      .from('user')
-      .update(payload)
-      .eq('user_id', userId)
-      .select('user_id, user_name, department, memo, role')
-      .single(),
-  );
-  if (error) throw error;
-  return {
-    user_id: (data as any).user_id,
-    user_name: (data as any).user_name ?? '이름 미상',
-    department: (data as any).department ?? '',
-    memo: (data as any).memo ?? null,
-    role: (data as any).role != null ? normalizeAppRole((data as any).role) : null,
-    client_count: 0,
-    completed_count: 0,
-  };
+
+  // 1. user 테이블 필드 업데이트
+  const userPayload: Record<string, any> = {};
+  if (input.user_name !== undefined) userPayload.user_name = input.user_name;
+  if (input.department !== undefined) userPayload.department = input.department;
+  if (input.memo !== undefined) userPayload.memo = input.memo;
+  if (input.role !== undefined) userPayload.role = input.role;
+
+  if (Object.keys(userPayload).length > 0) {
+    const { error: userError } = await sb().from('user').update(userPayload).eq('user_id', userId);
+    if (userError) throw userError;
+  }
+
+  // 2. manager_memo 테이블 필드 업데이트 (Upsert)
+  if (input.memo_bymanager !== undefined) {
+    const { data: authData } = await sb().auth.getUser();
+    const managerId = authData.user?.id;
+
+    const { error: memoError } = await sb()
+      .from('manager_memo')
+      .upsert({ 
+        manager_id: managerId,
+        counselor_id: userId, 
+        memo: input.memo_bymanager 
+      }, { onConflict: 'counselor_id' });
+    if (memoError) throw memoError;
+  }
+
+  // 3. 최신 데이터 조회 후 반환
+  const counselors = await fetchCounselors();
+  const updated = counselors.find(c => c.user_id === userId);
+  if (!updated) throw new Error('상담사를 찾을 수 없습니다.');
+  return updated;
 }
 
 export async function deleteCounselor(userId: string): Promise<void> {
@@ -864,6 +915,7 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
     hire_job_type: row.hire_job_type ?? null,
     hire_date: row.hire_date ?? null,
     hire_payment: row.hire_payment ?? null,
+    employment_type: row.hire_type ?? null,
     employment_duration: null,
     training_name: null,
     training_start: null,
@@ -936,121 +988,3 @@ function liveCounselHistoryToSessionRow(row: LiveCounselHistoryRecord): SessionR
 
 // encodeSessionPayload 외부 노출 (ClientDetail 등에서 사용 가능)
 export { encodeSessionPayload };
-
-// ─── Mock → Row converters ────────────────────────────────────────────────────
-
-function mockClientToRow(c: Client): ClientRow {
-  return {
-    id: c.id,
-    seq_no: null,
-    year: new Date(c.registeredAt).getFullYear(),
-    assignment_type: null,
-    name: c.name,
-    resident_id_masked: null,
-    phone: c.phone,
-    last_counsel_date: c.sessions.at(-1)?.date ?? null,
-    age: c.age,
-    gender: c.gender === '남' ? '남' : (c.gender === '여' ? '여' : null),
-    birth_date: null,
-    email: null,
-    MBTI: null,
-    certifications: null,
-    future_card_stat: 0,
-    business_type: null,
-    participation_type: null,
-    participation_stage: c.processStage,
-    capa: null,
-    recognition_date: null,
-    desired_job: null,
-    desired_job_1: null,
-    desired_job_2: null,
-    desired_job_3: null,
-    desired_area_1: null,
-    desired_area_2: null,
-    desired_area_3: null,
-    desired_payment: null,
-    has_car: false,
-    is_working_parttime: false,
-    counsel_notes: c.notes ?? null,
-    address: null,
-    address_1: null,
-    address_2: null,
-    school_name: null,
-    major: null,
-    education_level: null,
-    initial_counsel_date: c.registeredAt,
-    iap_date: null,
-    iap_duration: null,
-    allowance_apply_date: null,
-    rediagnosis_date: null,
-    rediagnosis_yn: null,
-    work_exp_type: null,
-    work_exp_intent: null,
-    work_exp_company: null,
-    work_exp_period: null,
-    work_exp_completed: null,
-    training_name: null,
-    training_start: null,
-    training_end: null,
-    training_allowance: null,
-    intensive_start: null,
-    intensive_end: null,
-    support_end_date: null,
-    employment_type: c.employmentStatus === '취업완료' ? '본인' : null,
-    employment_date: null,
-    employer: null,
-    job_title: null,
-    salary: null,
-    employment_duration: null,
-    resignation_date: null,
-    retention_1m_date: null,
-    retention_1m_yn: null,
-    retention_6m_date: null,
-    retention_6m_yn: null,
-    retention_12m_date: null,
-    retention_12m_yn: null,
-    retention_18m_date: null,
-    retention_18m_yn: null,
-    counselor_name: c.counselorName,
-    counselor_id: c.counselorId,
-    branch: c.branch,
-    follow_up: c.followUp,
-    score: c.score ?? null,
-    iap_to: null,
-    retest_stat: null,
-    continue_serv_1_stat: null,
-    driving_yn: null,
-    own_car_yn: null,
-    memo: null,
-    participate_type: null,
-    created_at: c.registeredAt,
-    update_at: c.registeredAt,
-  };
-}
-
-function mockSessionToRow(s: Session, clientId: string): SessionRow {
-  return {
-    id: s.id,
-    client_id: clientId,
-    date: s.date,
-    type: s.type,
-    content: s.content,
-    counselor_name: s.counselorName,
-    counselor_id: null,
-    next_action: s.nextAction ?? null,
-    session_number: null,
-    created_at: s.date,
-  };
-}
-
-function mockCounselorToRow(c: Counselor): CounselorRow {
-  return {
-    user_id: c.user_id,
-    user_name: c.user_name,
-    department: c.department,
-    memo: c.memo || null,
-    role: normalizeAppRole(c.role),
-    client_count: c.clientCount,
-    completed_count: c.completedCount,
-  };
-}
