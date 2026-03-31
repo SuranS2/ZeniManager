@@ -6,7 +6,7 @@ import { useLocation, useParams } from 'wouter';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   ChevronLeft, User, Phone, Edit3, ClipboardList,
-  Loader2, Trash2, Save, AlertTriangle, ChevronRight, Plus,
+  Loader2, Trash2, Save, ChevronRight, Plus,
   Check, X, Mail, Calendar, MapPin, Target, BookOpen, 
   Building2, Briefcase, Car, Clock, Award
 } from 'lucide-react';
@@ -20,6 +20,7 @@ import {
   deleteSession,
   fetchSurveys, 
   createSurvey,
+  updateSurvey,
   updateSession,
   createAllowanceLog,
   fetchAllowanceLogs,
@@ -31,28 +32,14 @@ import { syncEmploymentSuccessCase } from '@/lib/employmentSuccessCase';
 import type { ClientRow, SessionRow, SurveyRow } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import DaumPostcode from 'react-daum-postcode';
+import { CounselChatTab } from './CounselChatTab';
 import { ClientSummaryAnalysisTab } from './ClientSummaryAnalysisTab';
 import { EmploymentSuccessCaseCard } from './EmploymentSuccessCaseCard';
 import './ClientDetail.css';
 
 const PRIMARY = '#009C64';
 
-const SUCCESS_CASE_SYNC_FIELDS = new Set([
-  'age',
-  'education_level',
-  'school_name',
-  'major',
-  'participation_stage',
-  'desired_job_1',
-  'desired_job_2',
-  'desired_job_3',
-  'hire_place',
-  'hire_type',
-  'hire_job_type',
-  'hire_date',
-]);
-
-type ClientTab = 'manage' | 'history' | 'input' | 'survey' | 'summary';
+type ClientTab = 'manage' | 'history' | 'input' | 'survey' | 'summary' | 'chat';
 
 // ─── Survey Definitions ──────────────────────────────────────────────────────
 
@@ -73,10 +60,9 @@ const SURVEY_OPTIONS = [
   { value: 1, label: '아니오', color: '#ef4444' },
 ];
 
-function SurveyTab({ clientId, counselorId }: { clientId: string; counselorId?: string }) {
+function SurveyTab({ clientId }: { clientId: string; }) {
   const [surveys, setSurveys] = useState<SurveyRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [barrierDetail, setBarrierDetail] = useState('');
   const [surveyDate, setSurveyDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -94,10 +80,38 @@ function SurveyTab({ clientId, counselorId }: { clientId: string; counselorId?: 
     }
   }, [clientId]);
 
-  useEffect(() => { load(); }, [load]);
+  const latestSurvey = surveys[0] ?? null;
 
-  const totalScore = SURVEY_QUESTIONS.reduce((sum, q) => sum + (answers[q.key] || 0), 0);
-  const maxScore = SURVEY_QUESTIONS.length * 3;
+  const syncFormFromSurvey = useCallback((survey: SurveyRow | null) => {
+    const today = new Date().toISOString().split('T')[0];
+    if (!survey) {
+      setAnswers({});
+      setBarrierDetail('');
+      setSurveyDate(today);
+      return;
+    }
+
+    const nextAnswers: Record<string, number> = {};
+    SURVEY_QUESTIONS.forEach(q => {
+      const value = (survey as any)[q.key];
+      if (typeof value === 'number') {
+        nextAnswers[q.key] = value;
+      }
+    });
+
+    setAnswers(nextAnswers);
+    setBarrierDetail(survey.survey_7_memo || '');
+    setSurveyDate(survey.survey_date || today);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    syncFormFromSurvey(latestSurvey);
+  }, [latestSurvey, syncFormFromSurvey]);
+
+  const resetForm = () => {
+    syncFormFromSurvey(latestSurvey);
+  };
 
   const handleSave = async () => {
     if (Object.keys(answers).length < SURVEY_QUESTIONS.length) {
@@ -110,9 +124,8 @@ function SurveyTab({ clientId, counselorId }: { clientId: string; counselorId?: 
     }
     setSaving(true);
     try {
-      await createSurvey({
+      const payload = {
         client_id: clientId,
-        counselor_id: counselorId || null,
         survey_date: surveyDate,
         survey_1: answers['survey_1'] || null,
         survey_2: answers['survey_2'] || null,
@@ -122,13 +135,15 @@ function SurveyTab({ clientId, counselorId }: { clientId: string; counselorId?: 
         survey_6: answers['survey_6'] || null,
         survey_7: answers['survey_7'] || null,
         survey_8: answers['survey_8'] || null,
-        survey_7_memo: barrierDetail || null,
-        total_score: totalScore,
-      });
+        survey_7_memo: answers['survey_7'] && answers['survey_7'] >= 2 ? barrierDetail || null : null,
+      };
+      if (latestSurvey) {
+        await updateSurvey(latestSurvey.survey_id, payload);
+      } else {
+        await createSurvey(payload);
+      }
       toast.success('설문이 저장되었습니다.');
-      setShowForm(false);
-      setAnswers({});
-      setBarrierDetail('');
+      syncFormFromSurvey((await fetchSurveys(clientId))[0] ?? null);
       load();
     } catch (e: any) {
       toast.error('저장 실패: ' + e.message);
@@ -148,85 +163,83 @@ function SurveyTab({ clientId, counselorId }: { clientId: string; counselorId?: 
       <div className="flex items-center justify-between">
         <div className="text-sm font-medium text-foreground">구직준비도 설문 이력</div>
         <button
-          onClick={() => setShowForm(!showForm)}
+          onClick={resetForm}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs font-medium text-white"
           style={{ background: PRIMARY }}
         >
           <Plus size={12} />
-          새 설문 입력
+          설문 내용 불러오기
         </button>
       </div>
 
-      {showForm && (
-        <div className="border border-border rounded-sm p-4 space-y-4 bg-muted/10">
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-medium">구직준비도 점검 설문지</div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-muted-foreground">설문일</label>
-              <input
-                type="date"
-                value={surveyDate}
-                onChange={e => setSurveyDate(e.target.value)}
-                className="text-xs px-2 py-1 rounded-sm border border-input bg-background"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {SURVEY_QUESTIONS.map((q, idx) => (
-              <div key={q.key} className="space-y-1.5">
-                <div className="text-xs font-medium text-foreground">{idx + 1}. {q.label}</div>
-                <div className="text-xs text-muted-foreground">{q.desc}</div>
-                <div className="flex gap-2">
-                  {SURVEY_OPTIONS.map(opt => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setAnswers(a => ({ ...a, [q.key]: opt.value }))}
-                      className="flex-1 py-1.5 rounded-sm text-xs font-medium border transition-all"
-                      style={answers[q.key] === opt.value
-                        ? { background: opt.color, borderColor: opt.color, color: 'white' }
-                        : { borderColor: '#e5e7eb', color: '#6b7280' }
-                      }
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {answers['survey_7'] && answers['survey_7'] < 3 && (
-            <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
-              <div className="text-xs font-medium text-foreground">취업장애요인 상세내용</div>
-              <textarea
-                value={barrierDetail}
-                onChange={e => setBarrierDetail(e.target.value)}
-                placeholder="장애요인에 대해 상세히 입력해주세요..."
-                className="w-full text-xs p-2 rounded-sm border border-input bg-background min-h-[60px] outline-none focus:ring-1 focus:ring-primary/30"
-              />
-            </div>
-          )}
-
-          <div className="flex items-center justify-between pt-2 border-t border-border">
-            <div className="text-sm">총점: <span className="font-bold" style={{ color: PRIMARY }}>{totalScore}</span></div>
-            <div className="flex gap-2">
-              <button onClick={handleSave} disabled={saving} className="btn-primary py-1.5 px-3 text-xs">저장</button>
-              <button onClick={() => setShowForm(false)} className="btn-cancel py-1.5 px-3 text-xs">취소</button>
-            </div>
+      <div className="border border-border rounded-sm p-4 space-y-4 bg-muted/10">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-medium">구직준비도 점검 설문지</div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted-foreground">설문일</label>
+            <input
+              type="date"
+              value={surveyDate}
+              onChange={e => setSurveyDate(e.target.value)}
+              className="text-xs px-2 py-1 rounded-sm border border-input bg-background"
+            />
           </div>
         </div>
-      )}
+
+        <div className="space-y-3">
+          {SURVEY_QUESTIONS.map((q, idx) => (
+            <div key={q.key} className="space-y-1.5">
+              <div className="text-xs font-medium text-foreground">{idx + 1}. {q.label}</div>
+              <div className="text-xs text-muted-foreground">{q.desc}</div>
+              <div className="flex gap-2">
+                {SURVEY_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setAnswers(a => ({ ...a, [q.key]: opt.value }))}
+                    className="flex-1 py-1.5 rounded-sm text-xs font-medium border transition-all"
+                    style={answers[q.key] === opt.value
+                      ? { background: opt.color, borderColor: opt.color, color: 'white' }
+                      : { borderColor: '#e5e7eb', color: '#6b7280' }
+                    }
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {(answers['survey_7'] === 2 || answers['survey_7'] === 3) && (
+          <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
+            <div className="text-xs font-medium text-foreground">취업장애요인 상세내용</div>
+            <textarea
+              value={barrierDetail}
+              onChange={e => setBarrierDetail(e.target.value)}
+              placeholder="장애요인에 대해 상세히 입력해주세요..."
+              className="w-full text-xs p-2 rounded-sm border border-input bg-background min-h-[60px] outline-none focus:ring-1 focus:ring-primary/30"
+            />
+          </div>
+        )}
+
+        <div className="flex items-center justify-end pt-2 border-t border-border">
+          <div className="flex gap-2">
+            <button onClick={handleSave} disabled={saving} className="btn-primary py-1.5 px-3 text-xs">저장</button>
+            <button onClick={resetForm} className="btn-cancel py-1.5 px-3 text-xs">취소</button>
+          </div>
+        </div>
+      </div>
 
       <div className="grid gap-3">
         {surveys.map(s => (
-          <div key={s.id} className="counsel_survey_item">
+          <div key={s.survey_id} className="counsel_survey_item">
             <div>
               <div className="text-sm font-medium">{s.survey_date} 설문</div>
-              <div className="text-xs text-muted-foreground">총점: {s.total_score}점</div>
+              <div className="text-xs text-muted-foreground">
+                {s.survey_7_memo ? `취업장애요인 메모: ${s.survey_7_memo}` : '설문 완료'}
+              </div>
             </div>
-            <div className="text-sm font-bold" style={{ color: PRIMARY }}>{Math.round(((s.total_score || 0) / 24) * 100)}%</div>
           </div>
         ))}
       </div>
@@ -757,14 +770,6 @@ export default function ClientDetail() {
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
-          <button className="flex items-center gap-1.5 px-4 py-2 bg-white border border-border rounded-lg text-xs font-semibold hover:bg-muted transition-all shadow-sm">
-            <AlertTriangle size={14} className="text-amber-500" /> 이상징후 보고
-          </button>
-          <button className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white rounded-lg text-xs font-semibold hover:bg-primary/90 transition-all shadow-sm shadow-primary/20">
-            <Save size={14} /> 종합 정보 수정
-          </button>
-        </div>
       </div>
 
       {/* Progress Tracker */}
@@ -778,7 +783,7 @@ export default function ClientDetail() {
             return (
               <div key={stage} className="flex flex-col items-center gap-2 relative z-10 flex-1">
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center border-2 transition-all duration-500 text-xs
-                    ${isActive ? 'bg-primary border-primary text-white scale-110' : 'bg-background border-muted text-muted-foreground'}
+                    ${isActive ? 'bg-primary border-primary text-white scale-110' : 'bg-white border-muted text-muted-foreground'}
                     ${isCurrent ? 'ring-4 ring-primary/20' : ''}`}
                 >
                   {isActive && idx < currentIdx ? <Check size={12} strokeWidth={3} /> : <span className="text-[10px] font-bold">{idx + 1}</span>}
@@ -801,12 +806,13 @@ export default function ClientDetail() {
 
       {/* Tabs */}
       <div className="counsel_tab_wrapper flex gap-1 border-b border-border pb-px overflow-x-auto mb-6">
-        {[
+        {[ 
           { id: 'manage', label: '대시보드' },
           { id: 'history', label: '상담이력' },
           { id: 'input', label: '상담입력' },
           { id: 'survey', label: '구직준비도' },
-          { id: 'summary', label: '요약 및 분석' }
+          { id: 'summary', label: '요약 및 분석' },
+          { id: 'chat', label: '챗봇' }
         ].map((tab) => (
           <button
             key={tab.id}
@@ -1459,7 +1465,22 @@ export default function ClientDetail() {
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-3">
                           <span className="text-xl font-bold bg-primary/5 px-3 py-1 rounded-lg text-primary">{s.type || '일반상담'}</span>
-                          {s.session_number && <span className="bg-muted text-muted-foreground px-3 py-1 rounded-lg text-xs font-bold">{s.session_number}회차</span>}
+                          {isEditingHistory ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-medium text-muted-foreground">회차</span>
+                              <input
+                                type="number"
+                                value={historyEditDraft.session_number ?? ''}
+                                onChange={e => setHistoryEditDraft({
+                                  ...historyEditDraft,
+                                  session_number: e.target.value === '' ? null : Number(e.target.value),
+                                })}
+                                className="w-24 rounded-md border border-input bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-ring"
+                              />
+                            </div>
+                          ) : (
+                            s.session_number && <span className="bg-muted text-muted-foreground px-3 py-1 rounded-lg text-xs font-bold">{s.session_number}회차</span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 text-sm text-muted-foreground ml-1">
                           <Clock size={13} />
@@ -1473,6 +1494,7 @@ export default function ClientDetail() {
                       <button 
                         onClick={() => {
                           setHistoryEditDraft({
+                            session_number: s.session_number,
                             memo: s.memo,
                             economic_situation: s.economic_situation,
                             social_situation_family: s.social_situation_family,
@@ -1671,8 +1693,9 @@ export default function ClientDetail() {
           </div>
         )}
 
-        {activeTab === 'survey' && <SurveyTab clientId={id!} counselorId={user?.id} />}
+        {activeTab === 'survey' && <SurveyTab clientId={id!} />}
         {activeTab === 'summary' && <ClientSummaryAnalysisTab client={client!} />}
+        {activeTab === 'chat' && <CounselChatTab client={client!} />}
       </div>
     </div>
   );

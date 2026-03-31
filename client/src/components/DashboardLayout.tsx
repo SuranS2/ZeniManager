@@ -55,15 +55,6 @@ const counselorNav: NavItem[] = [
       { label: '메모장', path: '/dashboard/memo', icon: <ChevronRight size={14} /> },
     ],
   },
-  {
-    label: '상담자 목록',
-    icon: <Users size={17} />,
-    children: [
-      { label: '상담자 검색', path: '/clients', icon: <ChevronRight size={14} /> },
-      { label: '상담자 목록', path: '/clients/list', icon: <ChevronRight size={14} /> },
-      { label: '상담자 등록', path: '/clients/register', icon: <ChevronRight size={14} /> },
-    ],
-  },
 ];
 
 const adminNav: NavItem[] = [

@@ -575,6 +575,7 @@ export async function updateSession(id: string, input: Partial<any>): Promise<vo
   if (input.content !== undefined || input.counselor_opinion !== undefined) payload.counselor_opinion = input.content ?? input.counselor_opinion;
   if (input.type !== undefined || input.counsel_type !== undefined) payload.counsel_type = input.type ?? input.counsel_type;
   if (input.date !== undefined || input.counsel_date !== undefined) payload.counsel_date = input.date ?? input.counsel_date;
+  if (input.session_number !== undefined) payload.session_number = input.session_number;
   if (input.memo !== undefined) payload.memo = input.memo;
   if (input.economic_situation !== undefined) payload.economic_situation = input.economic_situation;
   if (input.social_situation_family !== undefined) payload.social_situation_family = input.social_situation_family;
@@ -584,11 +585,7 @@ export async function updateSession(id: string, input: Partial<any>): Promise<vo
     '상담 이력 수정',
     sb()
       .from('counsel_history')
-      .update({
-        counselor_opinion: input.content || '',
-        counsel_type: input.type || '상담기록',
-        counsel_date: input.date,
-      })
+      .update(payload)
       .eq('counsel_id', Number(id)),
   );
 
@@ -722,7 +719,7 @@ export async function updateSurvey(id: string, input: any): Promise<SurveyRow> {
   const { data, error } = await sb()
     .from('job_search_survey')
     .update(input)
-    .eq('id', id)
+    .eq('survey_id', id)
     .select()
     .single();
   if (error) throw error;
