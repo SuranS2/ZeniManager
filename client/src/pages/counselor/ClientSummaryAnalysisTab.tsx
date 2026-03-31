@@ -32,6 +32,7 @@ import {
   type StructuredSummaryJson,
 } from "@/lib/summaryAnalysisPipeline";
 import {
+  deleteSummaryAnalysisFile,
   fetchClientSummaryAnalysis,
   hasDifferentCompetencyScoring,
   normalizeStoredSummaryAnalysis,
@@ -67,6 +68,7 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
   const [recommendation, setRecommendation] =
     useState<RecommendationResult | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [deletingFilePath, setDeletingFilePath] = useState<string | null>(null);
 
   const completedAnalyses = useMemo(
     () =>
@@ -264,6 +266,32 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
 
   const removeItem = (id: string) => {
     setItems(prev => prev.filter(item => item.id !== id));
+  };
+
+  const removeSavedFile = async (path: string) => {
+    const nextFileRefs = savedFileRefs.filter(fileRef => fileRef.path !== path);
+
+    setDeletingFilePath(path);
+    try {
+      await deleteSummaryAnalysisFile({
+        clientId: client.id,
+        path,
+      });
+      await upsertClientSummaryAnalysis({
+        clientId: client.id,
+        fileRefs: nextFileRefs,
+      });
+      setSavedFileRefs(nextFileRefs);
+      toast.success("저장된 분석 파일을 삭제했습니다.");
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "저장된 분석 파일 삭제에 실패했습니다.";
+      toast.error(message);
+    } finally {
+      setDeletingFilePath(null);
+    }
   };
 
   const handleSave = async () => {
@@ -557,6 +585,14 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
                         열기
                       </a>
                       <StatusBadge status="done" />
+                      <button
+                        type="button"
+                        onClick={() => void removeSavedFile(fileRef.path)}
+                        disabled={deletingFilePath === fileRef.path}
+                        className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   </div>
                 </div>
