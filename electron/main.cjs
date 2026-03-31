@@ -2,7 +2,7 @@
  * electron/main.js
  * Electron Main Process for 상담 관리 시스템 (Zeniel)
  *
- * - Dev mode: loads Vite dev server from ELECTRON_RENDERER_URL (default: http://localhost:5181)
+ * - Dev mode: loads Vite dev server from ELECTRON_RENDERER_URL (default: http://127.0.0.1:5181)
  * - Production: loads built index.html from dist/public
  */
 const {
@@ -400,7 +400,7 @@ function createWindow() {
     icon: path.join(
       __dirname,
       "icons",
-      process.platform === "win32" ? "icon.ico" : "icon.png"
+      process.platform === "win32" ? "zeniel-logo.ico" : "zeniel-logo.png"
     ),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -418,7 +418,7 @@ function createWindow() {
 
   // ── Load URL ──────────────────────────────────────────────────────────────
   const devServerUrl =
-    process.env.ELECTRON_RENDERER_URL || "http://localhost:5181";
+    process.env.ELECTRON_RENDERER_URL || "http://127.0.0.1:5181";
   const startUrl = isDev
     ? devServerUrl
     : `file://${path.join(__dirname, "..", "dist", "public", "index.html")}`;
@@ -859,8 +859,8 @@ app.on("window-all-closed", () => {
 app.on("web-contents-created", (_, contents) => {
   contents.on("will-navigate", (event, navigationUrl) => {
     const parsedUrl = new URL(navigationUrl);
-    // Allow localhost in dev mode
-    if (isDev && parsedUrl.hostname === "localhost") return;
+    // Allow loopback host in dev mode
+    if (isDev && (parsedUrl.hostname === "localhost" || parsedUrl.hostname === "127.0.0.1")) return;
     // Allow file:// protocol in production
     if (parsedUrl.protocol === "file:") return;
     // Block all other navigation

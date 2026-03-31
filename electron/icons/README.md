@@ -7,8 +7,8 @@ Place your app icons in this directory before building.
 | File | Size | Platform |
 |------|------|----------|
 | `icon.icns` | 512×512 (multi-resolution) | macOS |
-| `icon.ico` | 256×256 (multi-resolution) | Windows |
-| `icon.png` | 512×512 | Linux / fallback |
+| `zeniel-logo.ico` | 256×256 (multi-resolution) | Windows |
+| `zeniel-logo.png` | 512×512 | Linux / fallback |
 | `dmg-background.png` | 540×380 | macOS DMG background (optional) |
 
 ## How to Generate Icons from the Zeniel Logo

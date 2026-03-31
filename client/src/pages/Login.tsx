@@ -24,6 +24,8 @@ import {
   setStoredAppSetting,
 } from '@/lib/supabase';
 
+const ZENIEL_LOGO_SRC = '/zeniel-logo.png';
+
 function ApiSettingsPanel({ onClose }: { onClose: () => void }) {
   const [url, setUrl] = useState(() => localStorage.getItem(STORAGE_KEYS.SUPABASE_URL) || '');
   const [anonKey, setAnonKey] = useState(() => localStorage.getItem(STORAGE_KEYS.SUPABASE_ANON_KEY) || '');
@@ -48,7 +50,7 @@ function ApiSettingsPanel({ onClose }: { onClose: () => void }) {
       <div className="flex items-center gap-1.5 text-xs">
         {configured
           ? <><CheckCircle2 size={12} className="text-green-600" /><span className="text-green-700">Supabase 연결됨</span></>
-          : <><AlertTriangle size={12} className="text-amber-500" /><span className="text-amber-700">미설정 (데모 모드)</span></>
+          : <><AlertTriangle size={12} className="text-amber-500" /><span className="text-amber-700">Supabase 미설정</span></>
         }
       </div>
 
@@ -65,7 +67,7 @@ function ApiSettingsPanel({ onClose }: { onClose: () => void }) {
             autoComplete="off"
           />
         </div>
-        <p className="mt-0.5 text-xs text-muted-foreground">Settings → API → Project URL</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">Project URL을 입력하세요.</p>
       </div>
 
       <div>
@@ -88,7 +90,7 @@ function ApiSettingsPanel({ onClose }: { onClose: () => void }) {
             {showKey ? <EyeOff size={12} /> : <Eye size={12} />}
           </button>
         </div>
-        <p className="mt-0.5 text-xs text-muted-foreground">Settings → API → anon public</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">Anon Key를 입력하세요.</p>
       </div>
 
       <div className="flex gap-2">
@@ -152,7 +154,7 @@ export default function Login() {
     await resetStoredAppSettings();
     setError('');
     setShowApiSettings(false);
-    toast.success('로컬 및 공용 설정 저장소가 초기화되었습니다. 데모 모드로 전환됩니다.');
+    toast.success('로컬 설정이 초기화되었습니다.');
   };
 
   const configured = isSupabaseConfigured();
@@ -163,7 +165,7 @@ export default function Login() {
         {/* Logo */}
         <div className="mb-8 text-center">
           <img
-            src="https://d2xsxph8kpxj0f.cloudfront.net/310519663477530955/KJzdo2y2Lmf5RsBh2TqxqF/zeniel_d6e9bacb.png"
+            src={ZENIEL_LOGO_SRC}
             alt="ZENIEL"
             className="mx-auto mb-4 h-16 object-contain"
           />
@@ -225,15 +227,6 @@ export default function Login() {
               {isLoading ? '로그인 중...' : '로그인'}
             </button>
           </form>
-
-          {/* Demo hint — shown only when Supabase not configured */}
-          {!configured && (
-            <div className="mt-4 rounded-sm p-3 text-xs text-muted-foreground" style={{ background: 'oklch(0.94 0.006 75)' }}>
-              <div className="mb-1 font-medium">데모 계정 (Supabase 미설정 시)</div>
-              <div>상담사: counselor@example.com / REDACTED</div>
-              <div>관리자: admin@example.com / REDACTED</div>
-            </div>
-          )}
 
           {/* Supabase Settings Toggle */}
           <div className="mt-4 space-y-2 border-t border-border pt-4">

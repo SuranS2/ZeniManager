@@ -30,6 +30,8 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { toast } from 'sonner';
 
+const ZENIEL_LOGO_SRC = '/zeniel-logo.png';
+
 interface NavItem {
   label: string;
   path?: string;
@@ -153,9 +155,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         {/* Logo */}
         <div className="flex items-center justify-center px-4 py-3 border-b border-border">
           <img
-            src="https://d2xsxph8kpxj0f.cloudfront.net/310519663477530955/KJzdo2y2Lmf5RsBh2TqxqF/zeniel_d6e9bacb.png"
+            src={ZENIEL_LOGO_SRC}
             alt="ZENIEL"
-            className="h-9 object-contain"
+            className="h-12 object-contain"
           />
         </div>
 
@@ -195,9 +197,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </button>
             {!sidebarOpen && (
               <img
-                src="https://d2xsxph8kpxj0f.cloudfront.net/310519663477530955/KJzdo2y2Lmf5RsBh2TqxqF/zeniel_d6e9bacb.png"
+                src={ZENIEL_LOGO_SRC}
                 alt="ZENIEL"
-                className="h-7 object-contain"
+                className="h-9 object-contain"
               />
             )}
             <div className="text-sm text-muted-foreground hidden sm:block">

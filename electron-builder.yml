@@ -64,7 +64,7 @@ dmg:
 # ─── Windows Configuration ────────────────────────────────────────────────────
 win:
   executableName: ZeniManager
-  icon: electron/icons/icon.ico
+  icon: electron/icons/zeniel-logo.ico
   target:
     - target: nsis
       arch:
@@ -81,9 +81,9 @@ nsis:
   oneClick: false               # Show installer wizard
   allowToChangeInstallationDirectory: true
   allowElevation: true
-  installerIcon: electron/icons/icon.ico
-  uninstallerIcon: electron/icons/icon.ico
-  installerHeaderIcon: electron/icons/icon.ico
+  installerIcon: electron/icons/zeniel-logo.ico
+  uninstallerIcon: electron/icons/zeniel-logo.ico
+  installerHeaderIcon: electron/icons/zeniel-logo.ico
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: 상담 관리 시스템
@@ -96,7 +96,7 @@ nsis:
 
 # ─── Linux Configuration (optional) ──────────────────────────────────────────
 linux:
-  icon: electron/icons/icon.png
+  icon: electron/icons/zeniel-logo.png
   category: Office
   target:
     - target: AppImage
