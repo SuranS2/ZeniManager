@@ -29,11 +29,12 @@ interface CounselorForm {
   password: string;
   department: string;
   memo: string;
+  memo_bymanager: string;
   role: AppRole;
 }
 
 const EMPTY_FORM: CounselorForm = {
-  user_name: '', email: '', password: '', department: '', memo: '', role: ROLE_COUNSELOR,
+  user_name: '', email: '', password: '', department: '', memo: '', memo_bymanager: '', role: ROLE_COUNSELOR,
 };
 
 // ─── 1. 상담사 상세 정보(통계) 모달 ───
@@ -50,7 +51,7 @@ function CounselorDetailModal({
   const [loading, setLoading] = useState(true);
   
   // 메모 수정용 상태
-  const [memo, setMemo] = useState(counselor.memo || '');
+  const [memo, setMemo] = useState(counselor.memo_bymanager || '');
   const [savingMemo, setSavingMemo] = useState(false);
 
   useEffect(() => {
@@ -92,7 +93,7 @@ function CounselorDetailModal({
         toast.success('메모가 저장되었습니다. (데모 모드)');
         onMemoUpdate(memo);
       } else {
-        await updateCounselor(counselor.user_id, { memo } as any);
+        await updateCounselor(counselor.user_id, { memo_bymanager: memo });
         toast.success('관리자 메모가 저장되었습니다.');
         onMemoUpdate(memo);
       }
@@ -219,6 +220,7 @@ function CounselorModal({
           password: '',
           department: counselor.department || '',
           memo: counselor.memo || '',
+          memo_bymanager: counselor.memo_bymanager || '',
           role: counselor.role || ROLE_COUNSELOR,
         }
       : { ...EMPTY_FORM, department: existingBranches.length > 0 ? '' : '' } 
@@ -354,12 +356,12 @@ function CounselorModal({
           )}
 
           <div>
-            <label className="block text-sm font-medium mb-1.5">메모</label>
+            <label className="block text-sm font-medium mb-1.5">관리자 메모</label>
             <textarea
-              value={form.memo}
-              onChange={e => setForm(f => ({ ...f, memo: e.target.value }))}
+              value={form.memo_bymanager}
+              onChange={e => setForm(f => ({ ...f, memo_bymanager: e.target.value }))}
               className="w-full px-3 py-2 rounded-sm border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring min-h-[80px]"
-              placeholder="상담사에 대한 참고 사항..."
+              placeholder="상담사에 대한 관리자 전용 참고 사항..."
             />
           </div>
           <div className="flex gap-2 pt-2">
@@ -728,8 +730,8 @@ export default function CounselorList() {
           counselor={detailTarget} 
           onClose={() => setDetailTarget(null)}
           onMemoUpdate={(newMemo) => {
-            setCounselors(prev => prev.map(c => c.user_id === detailTarget.user_id ? { ...c, memo: newMemo } : c));
-            setDetailTarget(prev => prev ? { ...prev, memo: newMemo } : null);
+            setCounselors(prev => prev.map(c => c.user_id === detailTarget.user_id ? { ...c, memo_bymanager: newMemo } : c));
+            setDetailTarget(prev => prev ? { ...prev, memo_bymanager: newMemo } : null);
           }}
         />
       )}
