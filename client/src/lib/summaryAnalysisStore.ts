@@ -279,3 +279,42 @@ export async function uploadSummaryAnalysisFiles(input: {
   });
   return refs;
 }
+
+export async function deleteSummaryAnalysisFile(input: {
+  clientId: string;
+  path: string;
+}): Promise<void> {
+  console.log("[summaryAnalysisStore] delete:start", {
+    clientId: input.clientId,
+    path: input.path,
+  });
+
+  if (!isSupabaseConfigured()) {
+    throw new Error("Supabase가 설정되지 않아 파일을 삭제할 수 없습니다.");
+  }
+
+  const client = getSupabaseClient();
+  if (!client) {
+    throw new Error("Supabase client를 초기화할 수 없습니다.");
+  }
+
+  const bucket = "summary-analysis-files";
+  const { error } = await withTimeout(
+    client.storage.from(bucket).remove([input.path]),
+    "분석 파일 삭제 응답이 지연되고 있습니다."
+  );
+
+  if (error) {
+    console.error("[summaryAnalysisStore] delete:error", {
+      clientId: input.clientId,
+      path: input.path,
+      error,
+    });
+    throw error;
+  }
+
+  console.log("[summaryAnalysisStore] delete:success", {
+    clientId: input.clientId,
+    path: input.path,
+  });
+}
