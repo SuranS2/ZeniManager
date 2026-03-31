@@ -437,6 +437,7 @@ export interface ClientRow {
   intensive_end?: string | null;
   support_end_date?: string | null;
   employment_duration?: string | null;
+  employment_type: string | null; // 취업유형 (본인 등)
   counselor_name?: string | null;
   counselor_id: string | null;
   branch?: string | null;
@@ -460,7 +461,6 @@ export interface ClientRow {
   job_place_end: string | null;
   job_place_support_end: string | null;
   hire_type: string | null;
-  hire_date: string | null;
   hire_place: string | null;
   hire_job_type: string | null;
   hire_payment: string | null;

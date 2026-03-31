@@ -173,7 +173,7 @@ function CounselorDetailModal({
                   <h3 className="text-sm font-semibold text-amber-900">관리자 메모</h3>
                   <button
                     onClick={handleSaveMemo}
-                    disabled={savingMemo || memo === (counselor.memo || '')}
+                    disabled={savingMemo || memo === (counselor.memo_bymanager || '')}
                     className="px-3 py-1.5 bg-amber-600 text-white text-xs font-medium rounded-sm hover:bg-amber-700 disabled:opacity-50 transition-colors flex items-center gap-1.5"
                   >
                     {savingMemo && <Loader2 size={12} className="animate-spin" />}
