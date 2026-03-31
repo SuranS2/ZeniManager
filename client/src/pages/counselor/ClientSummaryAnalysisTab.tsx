@@ -638,6 +638,17 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
         </section>
       )}
 
+      {structuredJson && (
+        <section className="grid gap-4">
+          <AnalysisCard
+            title={"메모"}
+            icon={<FileText size={16} style={{ color: PRIMARY }} />}
+            value={renderMemoInsights(structuredJson)}
+            multiline
+          />
+        </section>
+      )}
+
       {competencyScoring && (
         <section className="grid gap-4 xl:grid-cols-2">
           <ScoreCard title="평가 점수" value={`${competencyScoring.score}점`} />
@@ -826,6 +837,31 @@ function renderStructuredExtraSpecsSafe(
   return rows.length > 0 ? Array.from(new Set(rows)).join("\n") : "?뺣낫 ?놁쓬";
 }
 
+function renderMemoInsights(structuredJson: StructuredSummaryJson | null): string {
+  if (!structuredJson) return "정보 없음";
+
+  const memoLines = [
+    structuredJson.memoInsights.preferredLocation
+      ? "희망 지역: " + structuredJson.memoInsights.preferredLocation
+      : null,
+    structuredJson.memoInsights.mbti
+      ? "MBTI: " + structuredJson.memoInsights.mbti
+      : null,
+    structuredJson.memoInsights.preferredSalary
+      ? "희망 연봉: " + structuredJson.memoInsights.preferredSalary
+      : null,
+    ...structuredJson.memoInsights.hiddenStrengths.map(item =>
+      "참고용 메모: " + item
+    ),
+  ]
+    .filter(Boolean)
+    .map(item => item!.trim())
+    .filter(Boolean);
+
+  return memoLines.length > 0
+    ? Array.from(new Set(memoLines)).join("\n")
+    : "정보 없음";
+}
 function sanitizeExtraSpecRow(value: string): string {
   const cleaned = value
     .replace(
