@@ -1,7 +1,6 @@
 /**
  * api.ts — Supabase data access layer
  * All functions require Supabase to be configured.
- * Mock data has been removed.
  */
 import { normalizeAppRole } from '@shared/const';
 import {

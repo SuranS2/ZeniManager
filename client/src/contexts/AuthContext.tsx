@@ -1,9 +1,7 @@
 /**
  * AuthContext
  *
- * Supports two modes:
- * 1. Supabase Auth — when Supabase URL + anon key are configured in Settings
- * 2. Local demo — when Supabase is not configured (mock users)
+ * Uses Supabase Auth when Supabase URL + anon key are configured in Settings.
  *
  * SECURITY: No API keys are hardcoded. All credentials come from localStorage.
  */
@@ -67,26 +65,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
-
-// ─── Demo users (used only when Supabase is not configured) ──────────────────
-const DEMO_USERS: Record<string, User & { password: string }> = {
-  'counselor@example.com': {
-    id: 'demo-c001',
-    name: '최인수',
-    email: 'counselor@example.com',
-    password: 'REDACTED',
-    role: ROLE_COUNSELOR,
-    branch: '울산지점',
-  },
-  'admin@example.com': {
-    id: 'demo-a001',
-    name: '관리자',
-    email: 'admin@example.com',
-    password: 'REDACTED',
-    role: ROLE_ADMIN,
-    branch: '본사',
-  },
-};
 
 const USER_STORAGE_KEY = 'counsel_user';
 const SESSION_REVALIDATION_INTERVAL_MS = 20_000;
@@ -405,26 +383,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { success: false, error: '로그인 실패' };
       }
 
-      // ── Demo / local mode ─────────────────────────────────────────────────
-      await new Promise(r => setTimeout(r, 500)); // simulate latency
-
-      const demo = DEMO_USERS[normalizedEmail];
-      if (demo && demo.password === password) {
-        const { password: _, ...resolvedUser } = demo;
-        persistResolvedUser(resolvedUser);
-        return { success: true, user: resolvedUser };
-      }
-
-      // Fallback: accept any credentials in demo mode as a counselor profile.
-      const fallbackUser: User = {
-        id: `local_${Date.now()}`,
-        name: normalizedEmail.split('@')[0] || '상담사',
-        email: normalizedEmail,
-        role: ROLE_COUNSELOR,
-        branch: '서울지점',
+      return {
+        success: false,
+        error: 'Supabase 설정이 필요합니다. 설정 화면에서 Supabase URL과 API 키를 먼저 입력하세요.',
       };
-      persistResolvedUser(fallbackUser);
-      return { success: true, user: fallbackUser };
     } catch (e: any) {
       return { success: false, error: e.message || '로그인 중 오류 발생' };
     } finally {
