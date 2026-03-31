@@ -335,18 +335,14 @@ pnpm electron:build:linux
 
 현재 Windows 배포는 `portable` 전용 정책을 사용합니다.
 
-1. 버전 번호를 올립니다. 예: `1.0.1`
-2. Windows portable 빌드를 실행합니다.
+1. `main` 브랜치로 PR을 머지합니다.
+2. GitHub Actions가 최신 태그를 기준으로 다음 patch 버전을 자동 계산합니다.
+3. Windows portable 빌드를 실행합니다.
    ```bash
    pnpm electron:build:win
    ```
-3. `release/{version}/` 아래에 생성된 portable exe를 확인합니다.
-4. `v1.0.1` 같은 태그를 만들고 원격 저장소로 푸시합니다.
-   ```bash
-   git tag v1.0.1
-   git push origin v1.0.1
-   ```
-5. GitHub Actions의 `windows-exe-build` workflow가 태그 푸시를 감지해 GitHub Release를 생성하고 portable exe를 첨부합니다.
+4. `release/{version}/` 아래에 생성된 portable exe를 확인합니다.
+5. 워크플로우가 자동으로 `v{version}` 태그를 만들고 GitHub Release를 생성합니다.
 
 설치형 `Setup.exe`는 현재 릴리스 정책에서 제외되어 있습니다.
 
