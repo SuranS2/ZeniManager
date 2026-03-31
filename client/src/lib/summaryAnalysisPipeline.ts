@@ -93,8 +93,16 @@ export function buildStructuredSummaryJson(
   const memoInsights = extractMemoInsights(client.memo);
   const cleanedCertifications = cleanData(profile.certifications);
   const cleanedExtraSpecs = cleanData(profile.extraSpecs);
+  const combinedQualificationCandidates = [
+    ...cleanedCertifications,
+    ...expandAdditionalSpecValues(cleanedExtraSpecs),
+    ...extractQualificationCandidates([
+      ...cleanedExtraSpecs,
+      ...profile.sourceTexts,
+    ]),
+  ];
   const { certifications, languageScores } = splitCertificationsAndLanguage(
-    cleanedCertifications
+    combinedQualificationCandidates
   );
   const languageScoreDetails = uniqueLanguageScoreEntries([
     ...parseLanguageScoreEntries(languageScores),
@@ -103,7 +111,11 @@ export function buildStructuredSummaryJson(
   const { careerHistory, completedEducation } =
     splitAdditionalSpecs(cleanedExtraSpecs);
   const experience = buildExperience(cleanedExtraSpecs);
-  const education = buildEducation(cleanedExtraSpecs, client);
+  const education = selectHighestEducation(
+    cleanedExtraSpecs,
+    client,
+    profile.sourceTexts
+  );
 
   return {
     clientId: client.id,
@@ -127,6 +139,14 @@ export function calculateCompetencyScoring(
   json: StructuredSummaryJson
 ): CompetencyScoring {
   const educationScore = scoreEducationLevel(json.education);
+  const highestLanguageScores =
+    json.languageScores.length > 0
+      ? [
+          json.languageScores.reduce((best, current) =>
+            scoreLanguage(current) >= scoreLanguage(best) ? current : best
+          ),
+        ]
+      : [];
   const breakdown = [
     {
       label: "기본 점수",
@@ -143,7 +163,7 @@ export function calculateCompetencyScoring(
       score: scoreCertificate(name),
       reason: "자격증 절대 기준 점수",
     })),
-    ...json.languageScores.map(name => ({
+    ...highestLanguageScores.map(name => ({
       label: name,
       score: scoreLanguage(name),
       reason: "어학 점수 절대 기준 점수",
@@ -336,12 +356,12 @@ function splitCertificationsAndLanguage(values: string[]): {
   const certifications: string[] = [];
   const languageScores: string[] = [];
 
-  values.forEach(value => {
+  cleanData(values.flatMap(splitMixedSpecValueV2)).forEach(value => {
     if (!cleanData([value]).length) return;
     if (parseLanguageScoreEntries([value]).length > 0) {
       languageScores.push(value);
-    } else if (isQualification(value)) {
-      certifications.push(value);
+    } else if (isQualificationEntry(value)) {
+      certifications.push(value.replace(/[([]+$/g, "").trim());
     }
   });
 
@@ -469,7 +489,9 @@ function splitAdditionalSpecs(values: string[]): {
   careerHistory: string[];
   completedEducation: string[];
 } {
-  const normalized = cleanData(values).filter(value => !isQualification(value));
+  const normalized = expandAdditionalSpecValues(values).filter(
+    value => !isQualificationEntry(value)
+  );
   const careerHistory = normalized.filter(
     value => isCompanyLike(value) || /(경력|근무|재직|인턴)/.test(value)
   );
@@ -488,7 +510,7 @@ function scoreCertificate(value: string): number {
   if (/(?:\uAE30\uC0AC|engineer)/i.test(value)) return 10;
   if (/(?:\uAE30\uB2A5\uC0AC|craftsman)/i.test(value)) return 5;
   if (
-    /(?:\uCEF4\uD4E8\uD130\uD65C\uC6A9\uB2A5\uB825|\uCEF4\uD65C|\uC6CC\uB4DC\uD504\uB85C\uC138\uC11C|erp|gtq|mos|\uC804\uC0B0\uD68C\uACC4|\uC804\uC0B0\uC138\uBB34|\uD55C\uAD6D\uC0AC\uB2A5\uB825\uAC80\uC815|\uC720\uD1B5\uAD00\uB9AC\uC0AC|\uC0AC\uD68C\uBCF5\uC9C0\uC0AC|\uBCF4\uC721\uAD50\uC0AC|\uAC04\uD638\uC870\uBB34\uC0AC|\uC9C1\uC5C5\uC0C1\uB2F4\uC0AC|\uAD6D\uAC00\uACF5\uC778)/i.test(
+    /(?:\uCEF4\uD4E8\uD130\uD65C\uC6A9\uB2A5\uB825|\uCEF4\uD65C|\uC6CC\uB4DC\uD504\uB85C\uC138\uC11C|erp|gtq|mos|sqld|\uC804\uC0B0\uD68C\uACC4|\uC804\uC0B0\uC138\uBB34|\uD55C\uAD6D\uC0AC\uB2A5\uB825\uAC80\uC815|\uC720\uD1B5\uAD00\uB9AC\uC0AC|\uC0AC\uD68C\uBCF5\uC9C0\uC0AC|\uBCF4\uC721\uAD50\uC0AC|\uAC04\uD638\uC870\uBB34\uC0AC|\uC9C1\uC5C5\uC0C1\uB2F4\uC0AC|\uAD6D\uAC00\uACF5\uC778)/i.test(
       value
     )
   )
@@ -531,25 +553,33 @@ function toGrade(score: number): "A" | "B" | "C" | "D" | "E" | "-" {
 
 function scoreEducationLevel(value: string | null): number {
   if (!value) return 0;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (/(?:\uBC15\uC0AC|ph\.?d|doctor)/i.test(normalized)) return 40;
+  if (/(?:\uC11D\uC0AC|master)/i.test(normalized)) return 30;
   if (
-    /(?:\uBC15\uC0AC|ph\.?d)/i.test(value) &&
-    /(?:\uC218\uB8CC|\uACFC\uC815)/.test(value)
+    /(?:\uD559\uC0AC|bachelor|4\s*년제|사년제|4년제|\uB300\uD559(?:\uAD50)?\s*(?:\uC878\uC5C5|\uC7AC\uD559|\uC218\uB8CC)|\uB300\uC878)/i.test(
+      normalized
+    )
   )
-    return 40;
-  if (/(?:\uC11D\uC0AC|master)/i.test(value)) return 30;
+    return 10;
   if (
-    /(?:\uC804\uBB38\uB300|\uC804\uBB38\uB300\uD559\uAD50|\uC804\uBB38\uD559\uC0AC)/.test(
-      value
+    /(?:\uC804\uBB38\uB300|\uC804\uBB38\uB300\uD559\uAD50|\uC804\uBB38\uD559\uC0AC|2\s*년제|이년제|\uC804\uBB38\uACFC)/i.test(
+      normalized
     )
   )
     return 5;
   if (
-    /(?:\uB300\uD559\uAD50|\uB300\uD559)\s?.*(?:\uC878\uC5C5|\uD559\uC0AC)|\uD559\uC0AC/.test(
-      value
+    /(?:\uACE0\uB4F1\uD559\uAD50|\uACE0\uC878|\uACE0\uAD50\s*\uC878\uC5C5)/i.test(
+      normalized
     )
   )
-    return 10;
-  if (/(?:\uACE0\uB4F1\uD559\uAD50|\uACE0\uC878)/.test(value)) return 1;
+    return 1;
+  if (
+    /(?:\uC911\uD559\uAD50|\uC911\uC878|\uCD08\uB4F1\uD559\uAD50|\uCD08\uC878)/i.test(
+      normalized
+    )
+  )
+    return 0;
   return 0;
 }
 
@@ -625,7 +655,9 @@ function isCompanyLike(value: string): boolean {
 function buildExperience(
   values: string[]
 ): Array<{ company: string | null; task: string | null }> {
-  const cleaned = cleanData(values).filter(value => !isQualification(value));
+  const cleaned = expandAdditionalSpecValues(values).filter(
+    value => !isQualificationEntry(value)
+  );
   const companyCandidates = cleaned.filter(isCompanyLike);
   const taskCandidates = cleaned.filter(
     value =>
@@ -652,7 +684,9 @@ function buildExperience(
 }
 
 function buildEducation(values: string[], client: ClientRow): string | null {
-  const cleaned = cleanData(values);
+  const cleaned = expandAdditionalSpecValues(values).filter(
+    value => !isQualificationEntry(value)
+  );
   const matched = cleaned.find(value =>
     /(대학교|대학원|학과|졸업|수료)/.test(value)
   );
@@ -668,4 +702,142 @@ function buildEducation(values: string[], client: ClientRow): string | null {
   );
 
   return schoolParts.length > 0 ? schoolParts.join(" ") : null;
+}
+
+function selectHighestEducation(
+  values: string[],
+  client: ClientRow,
+  sourceTexts: string[] = []
+): string | null {
+  const schoolParts = [client.school, client.major, client.education_level]
+    .filter(
+      (value): value is string =>
+        typeof value === "string" && value.trim().length > 0
+    )
+    .map(value => value.trim());
+
+  const candidates = [
+    ...expandAdditionalSpecValues(values),
+    ...extractEducationCandidatesFromSourceTexts(sourceTexts),
+    ...schoolParts,
+    ...(schoolParts.length > 0 ? [schoolParts.join(" ")] : []),
+  ].filter(candidate =>
+    /(?:\uBC15\uC0AC|ph\.?d|\uC11D\uC0AC|master|\uB300\uD559\uAD50|\uB300\uD559|\uC804\uBB38\uB300|\uC804\uBB38\uD559\uC0AC|\uACE0\uB4F1\uD559\uAD50|\uACE0\uC878|\uC911\uD559\uAD50|\uC911\uC878|\uD559\uC0AC|\uC878\uC5C5|\uC218\uB8CC|\uD559\uB825|\uB300\uD559\uC6D0)/i.test(
+      candidate
+    )
+  );
+
+  let bestEducation: string | null = null;
+  let bestScore = -1;
+
+  for (const candidate of candidates) {
+    const score = scoreEducationLevel(candidate);
+
+    if (score > bestScore) {
+      bestEducation = candidate;
+      bestScore = score;
+      continue;
+    }
+
+    if (
+      score === bestScore &&
+      bestEducation &&
+      candidate.length > bestEducation.length
+    ) {
+      bestEducation = candidate;
+    }
+  }
+
+  return bestEducation;
+}
+
+function extractQualificationCandidates(values: string[]): string[] {
+  const patterns = [
+    /([가-힣A-Za-z0-9]+(?:산업기사|기사|기능사|기술사|관리사))/g,
+    /\b(SQLD|ADSP|MOS|GTQ|ERP)\b/gi,
+    /(?:컴퓨터활용능력\s*\d급|컴퓨터활용능력|컴활\s*\d급|컴활|워드프로세서)/gi,
+  ];
+
+  const matches: string[] = [];
+
+  for (const value of values) {
+    for (const pattern of patterns) {
+      pattern.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(value)) !== null) {
+        const token = (match[1] ?? match[0] ?? "").replace(/\s+/g, " ").trim();
+        if (token) matches.push(token.replace(/\(\s*$/, "").trim());
+      }
+    }
+  }
+
+  return unique(matches);
+}
+
+function expandAdditionalSpecValues(values: string[]): string[] {
+  return cleanData(values.flatMap(splitMixedSpecValueV2));
+}
+
+function isQualificationEntry(value: string): boolean {
+  return /(?:기사|산업기사|기능사|기술사|관리사|자격증|면허증|면허|정보처리기사|정보통신기사|sqld|adsp|컴퓨터활용능력|컴활|워드프로세서|mos|gtq|erp|전산회계|전산세무|사회복지사|보육교사|간호조무사|직업상담사|유통관리사|한국사능력검정|국가공인|민간자격|toeic(?:\s*speaking)?|토익(?:\s*스피킹|스피킹)?|opic|오픽|toefl|토플|teps|텝스)/i.test(
+    value
+  );
+}
+
+function splitMixedSpecValue(value: string): string[] {
+  const normalized = value
+    .replace(/\[(?:자격증|어학|학력|경력)\]/gi, "|")
+    .replace(/(?:자격증|어학|학력|경력)\s*[:：]/gi, "|")
+    .replace(/[•·]/g, "|")
+    .replace(/\s\*\s/g, "|")
+    .replace(/\s\/\s/g, "|")
+    .replace(/\s\|\s/g, "|");
+
+  return normalized
+    .split("|")
+    .map(part => part.trim())
+    .filter(Boolean);
+}
+
+function splitMixedSpecValueV2(value: string): string[] {
+  const normalized = value
+    .replace(/\[(?:자격증|어학|학력|경력)\]/gi, "|")
+    .replace(/(?:자격증|어학|학력|경력)\s*[:：]/gi, "|")
+    .replace(/[•·]/g, "|")
+    .replace(/\*/g, "|")
+    .replace(/\s\/\s/g, "|")
+    .replace(/\s\|\s/g, "|")
+    .replace(/,\s*/g, "|");
+
+  return normalized
+    .split("|")
+    .map(part => part.trim())
+    .filter(Boolean);
+}
+
+function extractEducationCandidatesFromSourceTexts(values: string[]): string[] {
+  const patterns = [
+    /(?:박사|Ph\.?D|doctor)[^\n,.;)]*/gi,
+    /(?:석사|master)[^\n,.;)]*/gi,
+    /(?:학사|bachelor)[^\n,.;)]*/gi,
+    /(?:4\s*년제|사년제|4년제)[^\n,.;)]*/gi,
+    /(?:전문대|전문대학교|전문학사|2\s*년제|이년제|전문과)[^\n,.;)]*/gi,
+    /(?:고등학교|고졸|고교\s*졸업)[^\n,.;)]*/gi,
+    /(?:중학교|중졸|초등학교|초졸)[^\n,.;)]*/gi,
+  ];
+
+  const candidates: string[] = [];
+
+  for (const rawText of values) {
+    for (const pattern of patterns) {
+      pattern.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(rawText)) !== null) {
+        const candidate = match[0].replace(/\s+/g, " ").trim();
+        if (candidate) candidates.push(candidate);
+      }
+    }
+  }
+
+  return unique(candidates);
 }
