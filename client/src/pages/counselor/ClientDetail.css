@@ -300,9 +300,9 @@ input.counsel_input {
 }
 
 .counsel_step_circle.active {
-  background-color: var(--color-primary);
-  border-color: var(--color-primary);
-  color: white;
+  background-color: #ffffff;
+  border-color: #ffffff;
+  color: var(--color-primary);
 }
 
 .counsel_step_circle.current {
@@ -315,10 +315,11 @@ input.counsel_input {
   display: flex;
   background-color: var(--color-card);
   border-bottom: 1px solid var(--color-border);
-  border-top-left-radius: var(--radius-md, 0.375rem);
-  border-top-right-radius: var(--radius-md, 0.375rem);
+  border-top-left-radius: var(--radius-xl, 0.75rem);
+  border-top-right-radius: var(--radius-xl, 0.75rem);
   padding: 0 0.5rem; /* px-2 */
   overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .counsel_tab_btn {
