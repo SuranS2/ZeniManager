@@ -360,6 +360,11 @@ export type Database = {
       counselors: { Row: CounselorRow; Insert: CounselorInsert; Update: Partial<CounselorInsert> };
       survey_responses: { Row: SurveyRow; Insert: SurveyInsert; Update: Partial<SurveyInsert> };
       memo_cards: { Row: MemoCardRow; Insert: MemoCardInsert; Update: Partial<MemoCardInsert> };
+      client_chat_history: {
+        Row: ClientChatHistoryRow;
+        Insert: Partial<ClientChatHistoryRow> & { client_id: number };
+        Update: Partial<ClientChatHistoryRow>;
+      };
     };
   };
 };
@@ -502,9 +507,8 @@ export type CounselorInsert = Omit<CounselorRow, 'client_count' | 'completed_cou
 };
 
 export interface SurveyRow {
-  id: string;
+  survey_id: string;
   client_id: string;
-  counselor_id: string | null;
   survey_date: string;
   survey_1: number | null;
   survey_2: number | null;
@@ -536,3 +540,11 @@ export interface MemoCardRow {
 }
 
 export type MemoCardInsert = Omit<MemoCardRow, 'id' | 'created_at' | 'update_at'> & { id?: string };
+
+export interface ClientChatHistoryRow {
+  client_id: number;
+  messages: { role: 'user' | 'assistant'; content: string }[];
+  last_message_at: string | null;
+  created_at: string;
+  updated_at: string;
+}

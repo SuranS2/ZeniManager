@@ -15,7 +15,7 @@ import {
   AlertTriangle, RefreshCw, ArrowUp, ArrowDown, GripVertical
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { fetchClients, fetchSessions, createSession, deleteSession, fetchSurveys, createSurvey, updateClient } from '@/lib/api';
+import { fetchClients, fetchSessions, createSession, deleteSession, fetchSurveys, createSurvey, updateSurvey, updateClient } from '@/lib/api';
 import { syncEmploymentSuccessCase } from '@/lib/employmentSuccessCase';
 import type { ClientRow, SessionRow, SurveyRow } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/lib/supabase';
@@ -67,12 +67,27 @@ const SURVEY_OPTIONS = [
   { value: 1, label: '아니오', color: '#ef4444' },
 ];
 
+const SURVEY_FIELD_MAP = {
+  q1_job_goal: 'survey_1',
+  q2_will_3months: 'survey_2',
+  q3_job_plan: 'survey_3',
+  q4_skill_need: 'survey_4',
+  q5_info_need: 'survey_5',
+  q6_competency: 'survey_6',
+  q7_barrier: 'survey_7',
+  q8_health: 'survey_8',
+} as const;
+
+function getSurveyAnswer(survey: SurveyRow | Record<string, unknown>, key: keyof typeof SURVEY_FIELD_MAP): number | null {
+  const value = (survey as any)[key] ?? (survey as any)[SURVEY_FIELD_MAP[key]];
+  return typeof value === 'number' ? value : null;
+}
+
 // ─── Survey Tab ───────────────────────────────────────────────────────────────
 
-function SurveyTab({ clientId, counselorId }: { clientId: string; counselorId?: string }) {
+function SurveyTab({ clientId }: { clientId: string }) {
   const [surveys, setSurveys] = useState<SurveyRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [barrierDetail, setBarrierDetail] = useState('');
   const [surveyDate, setSurveyDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -90,7 +105,38 @@ function SurveyTab({ clientId, counselorId }: { clientId: string; counselorId?: 
     }
   }, [clientId]);
 
+  const latestSurvey = surveys[0] ?? null;
+
+  const syncFormFromSurvey = useCallback((survey: SurveyRow | null) => {
+    const today = new Date().toISOString().split('T')[0];
+    if (!survey) {
+      setAnswers({});
+      setBarrierDetail('');
+      setSurveyDate(today);
+      return;
+    }
+
+    const nextAnswers: Record<string, number> = {};
+    (Object.keys(SURVEY_FIELD_MAP) as Array<keyof typeof SURVEY_FIELD_MAP>).forEach(key => {
+      const value = getSurveyAnswer(survey, key);
+      if (typeof value === 'number') {
+        nextAnswers[key] = value;
+      }
+    });
+
+    setAnswers(nextAnswers);
+    setBarrierDetail((survey as any).survey_7_memo || (survey as any).q7_barrier_detail || '');
+    setSurveyDate(survey.survey_date || today);
+  }, []);
+
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    syncFormFromSurvey(latestSurvey);
+  }, [latestSurvey, syncFormFromSurvey]);
+
+  const resetForm = () => {
+    syncFormFromSurvey(latestSurvey);
+  };
 
   const totalScore = SURVEY_QUESTIONS.reduce((sum, q) => sum + (answers[q.key] || 0), 0);
   const maxScore = SURVEY_QUESTIONS.length * 3;
@@ -106,24 +152,26 @@ function SurveyTab({ clientId, counselorId }: { clientId: string; counselorId?: 
     }
     setSaving(true);
     try {
-      await createSurvey({
+      const payload = {
         client_id: clientId,
-        counselor_id: counselorId || null,
         survey_date: surveyDate,
-        q1_job_goal: answers['q1_job_goal'] || null,
-        q2_will_3months: answers['q2_will_3months'] || null,
-        q3_job_plan: answers['q3_job_plan'] || null,
-        q4_skill_need: answers['q4_skill_need'] || null,
-        q5_info_need: answers['q5_info_need'] || null,
-        q6_competency: answers['q6_competency'] || null,
-        q7_barrier: answers['q7_barrier'] || null,
-        q7_barrier_detail: barrierDetail || null,
-        q8_health: answers['q8_health'] || null,
-      } as any);
+        survey_1: answers['q1_job_goal'] || null,
+        survey_2: answers['q2_will_3months'] || null,
+        survey_3: answers['q3_job_plan'] || null,
+        survey_4: answers['q4_skill_need'] || null,
+        survey_5: answers['q5_info_need'] || null,
+        survey_6: answers['q6_competency'] || null,
+        survey_7: answers['q7_barrier'] || null,
+        survey_8: answers['q8_health'] || null,
+        survey_7_memo: answers['q7_barrier'] && answers['q7_barrier'] >= 2 ? barrierDetail || null : null,
+      };
+      if (latestSurvey) {
+        await updateSurvey(latestSurvey.survey_id, payload);
+      } else {
+        await createSurvey(payload);
+      }
       toast.success('설문이 저장되었습니다.');
-      setShowForm(false);
-      setAnswers({});
-      setBarrierDetail('');
+      syncFormFromSurvey((await fetchSurveys(clientId))[0] ?? null);
       load();
     } catch (e: any) {
       toast.error('저장 실패: ' + e.message);
@@ -143,103 +191,106 @@ function SurveyTab({ clientId, counselorId }: { clientId: string; counselorId?: 
       <div className="flex items-center justify-between">
         <div className="text-sm font-medium text-foreground">구직준비도 설문 이력</div>
         <button
-          onClick={() => setShowForm(!showForm)}
+          onClick={resetForm}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs font-medium text-white"
           style={{ background: PRIMARY }}
         >
           <Plus size={12} />
-          새 설문 입력
+          설문 내용 불러오기
         </button>
       </div>
 
-      {showForm && (
-        <div className="border border-border rounded-sm p-4 space-y-4 bg-muted/10">
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-medium">구직준비도 점검 설문지</div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-muted-foreground">설문일</label>
-              <input
-                type="date"
-                value={surveyDate}
-                onChange={e => setSurveyDate(e.target.value)}
-                className="text-xs px-2 py-1 rounded-sm border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {SURVEY_QUESTIONS.map((q, idx) => (
-              <div key={q.key} className="space-y-1.5">
-                <div className="text-xs font-medium text-foreground">
-                  {idx + 1}. {q.label}
-                </div>
-                <div className="text-xs text-muted-foreground">{q.desc}</div>
-                <div className="flex gap-2">
-                  {SURVEY_OPTIONS.map(opt => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setAnswers(a => ({ ...a, [q.key]: opt.value }))}
-                      className="flex-1 py-1.5 rounded-sm text-xs font-medium border transition-all"
-                      style={answers[q.key] === opt.value
-                        ? { background: opt.color, borderColor: opt.color, color: 'white' }
-                        : { borderColor: '#e5e7eb', color: '#6b7280' }
-                      }
-                    >
-                      {opt.label} ({opt.value}점)
-                    </button>
-                  ))}
-                </div>
-                {q.key === 'q7_barrier' && answers['q7_barrier'] && answers['q7_barrier'] < 3 && (
-                  <input
-                    type="text"
-                    value={barrierDetail}
-                    onChange={e => setBarrierDetail(e.target.value)}
-                    placeholder="장애요인 내용을 입력하세요..."
-                    className="w-full px-3 py-1.5 rounded-sm border border-input bg-background text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-
-          <div className="flex items-center justify-between pt-2 border-t border-border">
-            <div className="text-sm">
-              총점: <span className="font-bold" style={{ color: PRIMARY }}>{totalScore}</span>
-              <span className="text-muted-foreground text-xs"> / {maxScore}점</span>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs font-medium text-white disabled:opacity-60"
-                style={{ background: PRIMARY }}
-              >
-                {saving ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
-                저장
-              </button>
-              <button
-                onClick={() => { setShowForm(false); setAnswers({}); }}
-                className="px-3 py-1.5 rounded-sm text-xs border border-input hover:bg-muted"
-              >
-                취소
-              </button>
-            </div>
+      <div className="border border-border rounded-sm p-4 space-y-4 bg-muted/10">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-medium">구직준비도 점검 설문지</div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted-foreground">설문일</label>
+            <input
+              type="date"
+              value={surveyDate}
+              onChange={e => setSurveyDate(e.target.value)}
+              className="text-xs px-2 py-1 rounded-sm border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+            />
           </div>
         </div>
-      )}
 
-      {surveys.length === 0 && !showForm ? (
+        <div className="space-y-3">
+          {SURVEY_QUESTIONS.map((q, idx) => (
+            <div key={q.key} className="space-y-1.5">
+              <div className="text-xs font-medium text-foreground">
+                {idx + 1}. {q.label}
+              </div>
+              <div className="text-xs text-muted-foreground">{q.desc}</div>
+              <div className="flex gap-2">
+                {SURVEY_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      setAnswers(a => ({ ...a, [q.key]: opt.value }));
+                      if (q.key === 'q7_barrier' && opt.value < 2) {
+                        setBarrierDetail('');
+                      }
+                    }}
+                    className="flex-1 py-1.5 rounded-sm text-xs font-medium border transition-all"
+                    style={answers[q.key] === opt.value
+                      ? { background: opt.color, borderColor: opt.color, color: 'white' }
+                      : { borderColor: '#e5e7eb', color: '#6b7280' }
+                    }
+                  >
+                    {opt.label} ({opt.value}점)
+                  </button>
+                ))}
+              </div>
+              {q.key === 'q7_barrier' && answers['q7_barrier'] && answers['q7_barrier'] >= 2 && (
+                <input
+                  type="text"
+                  value={barrierDetail}
+                  onChange={e => setBarrierDetail(e.target.value)}
+                  placeholder="장애요인 내용을 입력하세요..."
+                  className="w-full px-3 py-1.5 rounded-sm border border-input bg-background text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between pt-2 border-t border-border">
+          <div className="text-sm">
+            총점: <span className="font-bold" style={{ color: PRIMARY }}>{totalScore}</span>
+            <span className="text-muted-foreground text-xs"> / {maxScore}점</span>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs font-medium text-white disabled:opacity-60"
+              style={{ background: PRIMARY }}
+            >
+              {saving ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
+              저장
+            </button>
+            <button
+              onClick={resetForm}
+              className="px-3 py-1.5 rounded-sm text-xs border border-input hover:bg-muted"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {surveys.length === 0 ? (
         <div className="text-sm text-muted-foreground text-center py-8">
           <ClipboardList size={32} className="mx-auto mb-2 opacity-30" />
           설문 이력이 없습니다.
         </div>
       ) : (
         surveys.map(s => {
-          const score = s.total_score || Object.values(s).filter(v => typeof v === 'number' && v >= 1 && v <= 3).reduce((a: number, b: any) => a + b, 0);
+          const score = s.total_score ?? SURVEY_QUESTIONS.reduce((sum, q) => sum + (getSurveyAnswer(s, q.key as keyof typeof SURVEY_FIELD_MAP) || 0), 0);
           const pct = Math.round((score / maxScore) * 100);
           return (
-            <div key={s.id} className="border border-border rounded-sm p-4">
+            <div key={s.survey_id} className="border border-border rounded-sm p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="text-sm font-medium">{s.survey_date} 설문</div>
                 <div className="flex items-center gap-2">
@@ -255,7 +306,7 @@ function SurveyTab({ clientId, counselorId }: { clientId: string; counselorId?: 
               </div>
               <div className="grid grid-cols-2 gap-1.5">
                 {SURVEY_QUESTIONS.map(q => {
-                  const val = (s as any)[q.key];
+                  const val = getSurveyAnswer(s, q.key as keyof typeof SURVEY_FIELD_MAP);
                   const opt = SURVEY_OPTIONS.find(o => o.value === val);
                   return (
                     <div key={q.key} className="flex items-center justify-between text-xs">
@@ -267,9 +318,9 @@ function SurveyTab({ clientId, counselorId }: { clientId: string; counselorId?: 
                   );
                 })}
               </div>
-              {s.q7_barrier_detail && (
+              {(s.survey_7_memo || (s as any).q7_barrier_detail) && (
                 <div className="mt-2 text-xs text-muted-foreground">
-                  장애요인: {s.q7_barrier_detail}
+                  장애요인: {s.survey_7_memo || (s as any).q7_barrier_detail}
                 </div>
               )}
             </div>
@@ -611,7 +662,7 @@ function ClientDetailModal({
           )}
 
           {activeTab === 'survey' && (
-            <SurveyTab clientId={client.id} counselorId={user?.counselorId} />
+            <SurveyTab clientId={client.id} />
           )}
         </div>
       </div>
