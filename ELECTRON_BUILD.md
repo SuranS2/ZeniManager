@@ -175,9 +175,7 @@ Electron 앱은 코드에 API 키를 포함하지 않습니다. 사용자가 직
 1. [Supabase 대시보드](https://supabase.com/dashboard) → 프로젝트 선택
 2. 좌측 메뉴 **SQL Editor** 클릭
 3. `supabase_setup.sql` 파일 내용을 붙여넣고 **Run** 클릭
-4. Authentication → Users에서 테스트 계정 생성:
-   - 상담사: `counselor@example.com` / `REDACTED`
-   - 관리자: `admin@example.com` / `REDACTED`
+4. Authentication → Users에서 테스트 계정 생성
 5. 생성된 UUID를 `supabase_setup.sql` 하단 주석의 INSERT 문에 입력하여 실행
 
 ---

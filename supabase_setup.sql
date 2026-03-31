@@ -307,15 +307,14 @@ CREATE POLICY "memos_delete" ON public.memo_cards FOR DELETE
 
 -- ─── 테스트용 상담사 계정 (auth.users에 계정 생성 후 UUID를 아래에 입력) ──────
 -- 1. Supabase Dashboard → Authentication → Users → Add User 클릭
---    이메일: counselor@example.com / 비밀번호: REDACTED
---    이메일: admin@example.com / 비밀번호: REDACTED
+--    테스트용 이메일/비밀번호로 계정을 생성하세요.
 --
 -- 2. 생성된 UUID를 아래 INSERT의 auth_user_id에 입력
 
 -- 예시 (실제 UUID로 교체 필요):
 -- INSERT INTO public.counselors (auth_user_id, name, email, phone, branch, role, status, joined_at)
 -- VALUES
---   ('여기에-상담사-UUID', '최인수', 'counselor@example.com', '010-0000-0001', '서울지점', 5, '재직', '2024-01-01'),
+--   ('여기에-상담사-UUID', '상담사', 'counselor@example.com', '010-0000-0001', '서울지점', 5, '재직', '2024-01-01'),
 --   ('여기에-관리자-UUID', '관리자', 'admin@example.com', '010-0000-0000', '본사', 4, '재직', '2024-01-01');
 
 -- ─── 완료 메시지 ──────────────────────────────────────────────────────────────
