@@ -74,25 +74,28 @@ export default function AdminDashboard() {
       .catch(() => setLoading(false));
   }, []);
 
-  // 1. 드롭다운 옵션 추출
+  // 1. 드롭다운 옵션 추출 (DB 스키마 business_type_code 반영)
   const branchOptions = useMemo(() => ['all', ...Array.from(new Set(counselors.map(c => c.department).filter(Boolean)))], [counselors]);
-  const businessOptions = useMemo(() => ['all', ...Array.from(new Set(clients.map(c => c.business_type).filter(Boolean)))], [clients]);
+  const businessOptions = useMemo(() => {
+    return ['all', ...Array.from(new Set(clients.map(c => String(c.business_type_code || c.business_type || '')).filter(b => b && b !== '미지정')))];
+  }, [clients]);
 
   // 2. 필터링된 데이터 계산
   const filteredClients = useMemo(() => {
     return clients.filter(c => {
       const counselor = counselors.find(con => con.user_id === c.counselor_id);
       const clientBranch = counselor?.department || c.branch || '미지정';
+      const clientBusiness = String(c.business_type_code || c.business_type || '미지정');
       
       const matchBranch = selectedBranch === 'all' || clientBranch === selectedBranch;
-      const matchBusiness = selectedBusiness === 'all' || c.business_type === selectedBusiness;
+      const matchBusiness = selectedBusiness === 'all' || clientBusiness === selectedBusiness;
       return matchBranch && matchBusiness;
     });
   }, [clients, counselors, selectedBranch, selectedBusiness]);
 
-  // 3. KPI 수치 계산
+  // 3. KPI 수치 계산 (hire_type 스키마 반영)
   const totalCount = filteredClients.length;
-  const completedCount = filteredClients.filter(c => !!c.employment_type || c.participation_stage === '취업완료').length;
+  const completedCount = filteredClients.filter(c => !!c.hire_type || c.participation_stage === '취업완료').length;
   const inProgress = totalCount - completedCount;
   const avgRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
@@ -108,7 +111,7 @@ export default function AdminDashboard() {
     return order.map(name => ({ name, value: map[name] }));
   }, [filteredClients]);
 
-  // ─── 5. 월별 성사율 추이 (요청하신 공식 반영) ───
+  // ─── 5. 월별 성사율 추이 (스키마 job_place_support_end, hire_date 반영) ───
   const trendData = useMemo(() => {
     const months: string[] = [];
     const now = new Date();
@@ -127,22 +130,23 @@ export default function AdminDashboard() {
       const startOfMonth = new Date(year, month - 1, 1);
       const endOfMonth = new Date(year, month, 0, 23, 59, 59);
 
-      // 분모: 기본적으로 필터링된 전체 내담자 수로 시작
       let activeCount = filteredClients.length;
       let employedCount = 0;
 
       filteredClients.forEach(c => {
-        // [분모 계산] 취업지원종료일(job_place_support_end)이 해당 월 시작일보다 앞(과거)이면 분모에서 제외
-        if (c.support_end_date) {
-          const supportEndDate = new Date(c.support_end_date);
+        // [분모 계산] 취업지원종료일이 해당 월 시작일보다 앞(과거)이면 분모에서 제외
+        const supportEndStr = c.job_place_support_end || c.support_end_date;
+        if (supportEndStr) {
+          const supportEndDate = new Date(supportEndStr);
           if (!isNaN(supportEndDate.getTime()) && supportEndDate < startOfMonth) {
             activeCount--;
           }
         }
 
-        // [분자 계산] 취업일자(hire_date)가 해당 월 내에 속하면 분자로 카운트
-        if (c.employment_date) {
-          const hireDate = new Date(c.employment_date);
+        // [분자 계산] 취업일자가 해당 월 내에 속하면 분자로 카운트
+        const hireDateStr = c.hire_date || (c as any).employment_date; // fallback 유지
+        if (hireDateStr) {
+          const hireDate = new Date(hireDateStr);
           if (!isNaN(hireDate.getTime()) && hireDate >= startOfMonth && hireDate <= endOfMonth) {
             employedCount++;
           }
@@ -156,12 +160,12 @@ export default function AdminDashboard() {
     });
   }, [filteredClients]);
 
-  // 6. 파이 차트 데이터
+  // 6. 파이 차트 데이터 (business_type_code 반영)
   const pieData = useMemo(() => {
     const map: Record<string, number> = {};
     let total = 0;
     filteredClients.forEach(c => {
-      const bt = c.business_type || '미지정';
+      const bt = String(c.business_type_code || c.business_type || '미지정');
       map[bt] = (map[bt] || 0) + 1;
       total++;
     });
@@ -172,7 +176,7 @@ export default function AdminDashboard() {
     })).sort((a, b) => b.value - a.value);
   }, [filteredClients]);
 
-  // 7. 테이블 데이터
+  // 7. 테이블 데이터 (hire_type 반영)
   const tableData = useMemo(() => {
     if (selectedBranch === 'all') {
       const map: Record<string, { total: number; done: number; counselorCount: number }> = {};
@@ -188,7 +192,7 @@ export default function AdminDashboard() {
         const b = counselor?.department || c.branch || '미지정';
         if (!map[b]) map[b] = { total: 0, done: 0, counselorCount: 0 };
         map[b].total++;
-        if (!!c.employment_type || c.participation_stage === '취업완료') map[b].done++;
+        if (!!c.hire_type || c.participation_stage === '취업완료') map[b].done++;
       });
 
       return Object.entries(map).map(([name, v]) => ({
@@ -199,7 +203,7 @@ export default function AdminDashboard() {
       const branchCounselors = counselors.filter(c => c.department === selectedBranch);
       return branchCounselors.map(con => {
         const conClients = filteredClients.filter(c => c.counselor_id === con.user_id);
-        const done = conClients.filter(c => !!c.employment_type || c.participation_stage === '취업완료').length;
+        const done = conClients.filter(c => !!c.hire_type || c.participation_stage === '취업완료').length;
         return {
           name: con.user_name, total: conClients.length, done: done,
           rate: conClients.length > 0 ? Math.round((done / conClients.length) * 100) : 0
