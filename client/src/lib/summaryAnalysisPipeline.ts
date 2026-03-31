@@ -6,6 +6,7 @@ export interface MemoInsights {
   preferredSchedule: string | null;
   preferredSalary: string | null;
   preferredLocation: string | null;
+  mbti: string | null;
   jobBarriers: string[];
   hiddenStrengths: string[];
 }
@@ -55,7 +56,8 @@ export interface RecommendationResult {
 }
 
 export function extractMemoInsights(
-  memo: string | null | undefined
+  memo: string | null | undefined,
+  mbti?: string | null
 ): MemoInsights {
   const text = memo?.trim() ?? "";
 
@@ -72,6 +74,7 @@ export function extractMemoInsights(
       /희망근무지역\s*[:：]?\s*([^\n-]+)/i,
       /희망지역\s*[:：]?\s*([^\n-]+)/i,
     ]),
+    mbti: mbti?.trim() || null,
     jobBarriers: collectLines(text, ["구직애로", "애로사항", "어려움"]).slice(
       0,
       6
@@ -90,7 +93,15 @@ export function buildStructuredSummaryJson(
   client: ClientRow,
   profile: MergedDocumentProfile
 ): StructuredSummaryJson {
-  const memoInsights = extractMemoInsights(client.memo);
+  const extractedMemoInsights = extractMemoInsights(client.memo, client.MBTI);
+  const memoInsights = {
+    ...extractedMemoInsights,
+    preferredLocation:
+      extractedMemoInsights.preferredLocation ??
+      firstNonEmpty([client.desired_area_1, client.desired_area_2, client.desired_area_3]),
+    preferredSalary:
+      extractedMemoInsights.preferredSalary ?? formatDesiredPayment(client.desired_payment),
+  };
   const cleanedCertifications = cleanData(profile.certifications);
   const cleanedExtraSpecs = cleanData(profile.extraSpecs);
   const combinedQualificationCandidates = [
@@ -618,6 +629,21 @@ function sanitizeStringList(value: unknown, fallback: string[]): string[] {
 
 function unique(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
+}
+
+function firstNonEmpty(values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+function formatDesiredPayment(value: number | null | undefined): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  return `연 ${value}만원`;
 }
 
 export function cleanData(values: string[]): string[] {
