@@ -791,11 +791,10 @@ export default function ClientList() {
         syncFailed = true;
       }
 
-      toast.success(
-        syncFailed
-          ? '취업단계는 업데이트되었지만 성공사례 동기화는 실패했습니다.'
-          : '취업단계가 업데이트되었습니다.',
-      );
+      toast.success('취업단계가 업데이트되었습니다.');
+      if (syncFailed) {
+        toast.warning('취업성사자 기록(유사도) 저장에 실패했습니다.');
+      }
     } catch (e: any) {
       toast.error('업데이트 실패: ' + e.message);
     }
