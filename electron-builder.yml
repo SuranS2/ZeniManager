@@ -66,33 +66,9 @@ win:
   executableName: ZeniManager
   icon: electron/icons/zeniel-logo.ico
   target:
-    - target: nsis
-      arch:
-        - x64        # 64-bit Windows
     - target: portable
       arch:
         - x64
-  # Code signing (set CSC_LINK and CSC_KEY_PASSWORD env vars for production)
-  # certificateFile: path/to/cert.pfx
-  # certificatePassword: ""
-  verifyUpdateCodeSignature: false
-
-nsis:
-  oneClick: false               # Show installer wizard
-  allowToChangeInstallationDirectory: true
-  allowElevation: true
-  installerIcon: electron/icons/zeniel-logo.ico
-  uninstallerIcon: electron/icons/zeniel-logo.ico
-  installerHeaderIcon: electron/icons/zeniel-logo.ico
-  createDesktopShortcut: true
-  createStartMenuShortcut: true
-  shortcutName: 상담 관리 시스템
-  # Korean language support
-  language: 1042               # Korean (ko-KR)
-  # Custom installer script (optional)
-  # include: electron/installer.nsh
-  runAfterFinish: true
-  deleteAppDataOnUninstall: false
 
 # ─── Linux Configuration (optional) ──────────────────────────────────────────
 linux:

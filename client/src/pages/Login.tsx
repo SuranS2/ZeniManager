@@ -24,7 +24,7 @@ import {
   setStoredAppSetting,
 } from '@/lib/supabase';
 
-const ZENIEL_LOGO_SRC = '/zeniel-logo.png';
+const ZENIEL_LOGO_SRC = `${import.meta.env.BASE_URL}zeniel-logo.png`;
 
 function ApiSettingsPanel({ onClose }: { onClose: () => void }) {
   const [url, setUrl] = useState(() => localStorage.getItem(STORAGE_KEYS.SUPABASE_URL) || '');
