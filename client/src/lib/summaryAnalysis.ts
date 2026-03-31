@@ -59,11 +59,19 @@ type ElectronDocumentApi = {
     method: string;
     data: Uint8Array;
   }>;
+  extractHwpText?: (payload: {
+    fileName: string;
+    data: Uint8Array;
+  }) => Promise<{
+    text: string;
+    method: string;
+  }>;
 };
 
 export interface MergedDocumentProfile extends ParsedDocumentProfile {
   sourceHash: string;
   fileCount: number;
+  sourceTexts: string[];
 }
 
 export async function analyzeDocumentFile(
@@ -136,28 +144,38 @@ export async function prepareAnalysisFile(
 
   const electronApi = getElectronDocumentApi();
   if (!electronApi?.isElectron || !electronApi.convertHwpToPdf) {
-    throw new Error(
-      "HWP 자동 PDF 변환은 데스크톱 앱에서만 지원합니다. 데스크톱 앱에서 다시 시도하거나 PDF/HWPX로 변환 후 업로드해 주세요."
-    );
+    return {
+      file,
+      sourceFileName: file.name,
+      preparationMethod: "hwp-binary",
+    };
   }
 
-  const converted = await electronApi.convertHwpToPdf({
-    fileName: file.name,
-    data: new Uint8Array(await file.arrayBuffer()),
-  });
+  try {
+    const converted = await electronApi.convertHwpToPdf({
+      fileName: file.name,
+      data: new Uint8Array(await file.arrayBuffer()),
+    });
 
-  return {
-    file: new File(
-      [converted.data as unknown as BlobPart],
-      converted.fileName,
-      {
-        type: "application/pdf",
-        lastModified: file.lastModified,
-      }
-    ),
-    sourceFileName: file.name,
-    preparationMethod: converted.method,
-  };
+    return {
+      file: new File(
+        [converted.data as unknown as BlobPart],
+        converted.fileName,
+        {
+          type: "application/pdf",
+          lastModified: file.lastModified,
+        }
+      ),
+      sourceFileName: file.name,
+      preparationMethod: converted.method,
+    };
+  } catch {
+    return {
+      file,
+      sourceFileName: file.name,
+      preparationMethod: "hwp-binary",
+    };
+  }
 }
 
 async function analyzeImageFile(
@@ -229,6 +247,9 @@ export function mergeDocumentAnalyses(
       .sort()
       .join(":"),
     fileCount: analyses.length,
+    sourceTexts: uniqueStrings(
+      analyses.map(item => item.extractedText).filter(Boolean)
+    ),
     aiSummary: summary,
     desiredJobs,
     certifications,
@@ -273,8 +294,16 @@ export async function extractTextFromFile(
   }
 
   if (extension === "hwp") {
+    const electronApi = getElectronDocumentApi();
+    if (electronApi?.isElectron && electronApi.extractHwpText) {
+      return electronApi.extractHwpText({
+        fileName: file.name,
+        data: new Uint8Array(await file.arrayBuffer()),
+      });
+    }
+
     throw new Error(
-      "HWP 파일은 업로드 전에 PDF로 자동 변환되어야 합니다. 변환에 실패했다면 한컴오피스 또는 LibreOffice 설치 상태를 확인해 주세요."
+      "HWP 본문 추출은 데스크톱 앱에서만 지원합니다. 데스크톱 앱으로 실행하거나 PDF/HWPX로 변환 후 업로드해 주세요."
     );
   }
 
@@ -573,7 +602,7 @@ function buildRuleBasedAnalysis(
     ]),
     ...collectInlineList(
       lines,
-      /(산업기사|기사|기능사|컴활|TOEIC|TOEFL|MOS|워드프로세서)/i
+      /(?:산업기사|기사|기능사|컴활|TOEIC(?:\s*Speaking)?|TOEFL|TEPS|OPIC|OPIc|Opic|MOS|워드프로세서|토익(?:\s*스피킹)?|오픽|토플|텝스)/i
     ),
   ]).slice(0, 12);
 
@@ -789,10 +818,14 @@ function splitCertificateValue(value: string): string[] {
   );
 
   const exactMatches = cleaned.match(
-    /([가-힣A-Za-z0-9+\- ]+(?:기사|산업기사|기능사|기술사|관리사|컴활\s*\d?급|워드프로세서|MOS|GTQ|OPIc|OPIC|TOEIC\s*\d+점|TOEFL\s*\d+점|TEPS\s*\d+점|토익\s*\d+점|토플\s*\d+점|텝스\s*\d+점))/g
+    /([가-힣A-Za-z0-9+\- ]+(?:기사|산업기사|기능사|기술사|관리사|컴활\s*\d?급|워드프로세서|MOS|GTQ|(?:OPIC|OPIc|Opic|opic|오픽)\s*(?:AL|IH|IM1|IM2|IM3)?|(?:TOEIC\s*Speaking|Toeic\s*Speaking|toeic\s*speaking|토익\s*스피킹|토익스피킹)\s*(?:AH|AM|AL|IH|IM1|IM2|IM3)?|(?:TOEIC|Toeic|toeic|토익)\s*\d{3,4}(?:점)?|(?:TOEFL|Toefl|toefl|토플)\s*\d{3,4}(?:점)?|(?:TEPS|Teps|teps|텝스)\s*\d{3,4}(?:점)?))/g
   );
-  if (exactMatches && exactMatches.length > 0) {
-    return exactMatches.map(item => item.replace(/\s+/g, " ").trim());
+  const languageMatches = extractLanguageScoreCandidates(cleaned);
+  const combined = [...(exactMatches ?? []), ...languageMatches];
+  if (combined.length > 0) {
+    return uniqueStrings(
+      combined.map(item => item.replace(/\s+/g, " ").trim())
+    );
   }
 
   return cleaned
@@ -856,9 +889,21 @@ function isLikelyCertificate(value: string): boolean {
     )
   )
     return false;
-  return /(기사|산업기사|기능사|기술사|관리사|컴활|워드프로세서|MOS|GTQ|OPIc|OPIC|TOEIC|TOEFL|TEPS|토익|토플|텝스)/i.test(
+  return /(기사|산업기사|기능사|기술사|관리사|컴활|워드프로세서|MOS|GTQ|OPIc|OPIC|Opic|opic|오픽|TOEIC(?:\s*Speaking)?|Toeic(?:\s*Speaking)?|toeic(?:\s*speaking)?|TOEFL|TEPS|토익(?:\s*스피킹)?|토익스피킹|토플|텝스)/i.test(
     value
   );
+}
+
+function extractLanguageScoreCandidates(value: string): string[] {
+  const patterns = [
+    /(?:TOEIC\s*Speaking|Toeic\s*Speaking|toeic\s*speaking|토익\s*스피킹|토익스피킹)\s*(?:AH|AM|AL|IH|IM1|IM2|IM3)/gi,
+    /(?:OPIC|OPIc|Opic|opic|오픽)\s*(?:AL|IH|IM1|IM2|IM3)/gi,
+    /(?:TOEIC|Toeic|toeic|토익)\s*\d{3,4}(?:점)?/gi,
+    /(?:TOEFL|Toefl|toefl|토플)\s*\d{3,4}(?:점)?/gi,
+    /(?:TEPS|Teps|teps|텝스)\s*\d{3,4}(?:점)?/gi,
+  ];
+
+  return patterns.flatMap(pattern => value.match(pattern) ?? []);
 }
 
 function isLikelyExtraSpec(value: string): boolean {

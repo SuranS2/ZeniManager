@@ -57,6 +57,41 @@ declare global {
         method: string;
         data: Uint8Array;
       }>;
+      extractHwpText: (payload: {
+        fileName: string;
+        data: Uint8Array;
+      }) => Promise<{
+        text: string;
+        method: string;
+      }>;
+      saveSummaryAnalysis: (payload: {
+        clientId: string;
+        structuredJson?: unknown;
+        competencyScoring?: unknown;
+        recommendation?: unknown;
+        promptSnapshot?: Record<string, unknown>;
+        fileRefs?: Array<{
+          name: string;
+          path: string;
+          url: string;
+          uploaded_at: string;
+        }>;
+      }) => Promise<{ success: boolean; mode?: string; error?: string }>;
+      uploadSummaryAnalysisFiles: (payload: {
+        clientId: string;
+        files: Array<{
+          name: string;
+          type: string;
+          data: Uint8Array;
+        }>;
+      }) => Promise<
+        Array<{
+          name: string;
+          path: string;
+          url: string;
+          uploaded_at: string;
+        }>
+      >;
       onNavigate: (callback: (path: string) => void) => () => void;
       platform: string;
       isElectron: boolean;
@@ -127,6 +162,13 @@ export function useElectron() {
       : async () => {
           throw new Error(
             "HWP 자동 변환은 데스크톱 앱에서만 사용할 수 있습니다."
+          );
+        },
+    extractHwpText: isElectron
+      ? api!.extractHwpText
+      : async () => {
+          throw new Error(
+            "HWP 본문 추출은 데스크톱 앱에서만 사용할 수 있습니다."
           );
         },
 
