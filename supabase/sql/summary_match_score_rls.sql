@@ -38,7 +38,7 @@ using (
     select 1
     from public."user" u
     where u.user_id = auth.uid()
-      and u.role = 1
+      and u.role = 4
   )
 );
 
@@ -57,7 +57,7 @@ using (
           select 1
           from public."user" u
           where u.user_id = auth.uid()
-            and u.role = 1
+            and u.role = 4
         )
       )
   )
@@ -78,7 +78,7 @@ using (
           select 1
           from public."user" u
           where u.user_id = auth.uid()
-            and u.role = 1
+            and u.role = 4
         )
       )
   )
@@ -94,7 +94,7 @@ using (
     select 1
     from public."user" u
     where u.user_id = auth.uid()
-      and u.role = 1
+      and u.role = 4
   )
 );
 
