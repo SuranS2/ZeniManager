@@ -1,9 +1,44 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildClientEmploymentUpdateRecord,
   maskKoreanName,
+  searchEmploymentSuccessCases,
+  syncEmploymentSuccessCase,
   toAgeDecade,
 } from './employmentSuccessCase';
+import { STORAGE_KEYS } from './supabase';
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+  installLocalStorageMock();
+  localStorage.clear();
+});
+
+function installLocalStorageMock() {
+  const store = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => (store.has(key) ? store.get(key)! : null),
+    setItem: (key: string, value: string) => {
+      store.set(key, String(value));
+    },
+    removeItem: (key: string) => {
+      store.delete(key);
+    },
+    clear: () => {
+      store.clear();
+    },
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    get length() {
+      return store.size;
+    },
+  } as Storage;
+
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: storage,
+    configurable: true,
+    writable: true,
+  });
+}
 
 describe('employmentSuccessCase helpers', () => {
   it('masks Korean names to family-name plus OO', () => {
@@ -58,6 +93,51 @@ describe('employmentSuccessCase helpers', () => {
       employmentCompany: '오픈AI',
     })).toEqual({
       hire_place: '오픈AI',
+    });
+  });
+
+  it('calls the employment search edge function with the expected payload', async () => {
+    localStorage.setItem(STORAGE_KEYS.SUPABASE_URL, 'https://example.supabase.co');
+    localStorage.setItem(STORAGE_KEYS.SUPABASE_ANON_KEY, 'anon-key-that-is-long-enough');
+    localStorage.setItem(STORAGE_KEYS.OPENAI_API_KEY, 'sk-test-key');
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ summary: 'ok', results: [], evaluatedCount: 0, reason: null }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await searchEmploymentSuccessCases(7, 4);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      clientId: 7,
+      limit: 4,
+      openAIKey: 'sk-test-key',
+    });
+  });
+
+  it('calls the employment sync edge function with the expected payload', async () => {
+    localStorage.setItem(STORAGE_KEYS.SUPABASE_URL, 'https://example.supabase.co');
+    localStorage.setItem(STORAGE_KEYS.SUPABASE_ANON_KEY, 'anon-key-that-is-long-enough');
+    localStorage.setItem(STORAGE_KEYS.OPENAI_API_KEY, 'sk-test-key');
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ status: 'activated', sourceClientId: 7 }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await syncEmploymentSuccessCase(7);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      clientId: 7,
+      openAIKey: 'sk-test-key',
     });
   });
 });

@@ -3,6 +3,7 @@ import {
   getSupabaseClient,
   getSupabaseUrl,
   isSupabaseConfigured,
+  getOpenAIKey,
 } from './supabase';
 
 const CLIENT_EMPLOYMENT_SELECT_FIELDS = `
@@ -147,6 +148,7 @@ export async function updateClientEmploymentSnapshotFields(
 export async function syncEmploymentSuccessCase(clientId: string | number): Promise<void> {
   await invokeEmploymentEdgeFunction('sync-employment-success-case', {
     clientId: toNumericClientId(clientId),
+    openAIKey: getOpenAIKey(),
   });
 }
 
@@ -191,6 +193,7 @@ export async function searchEmploymentSuccessCases(
     {
       clientId: toNumericClientId(clientId),
       limit,
+      openAIKey: getOpenAIKey(),
     },
   );
 
@@ -216,6 +219,7 @@ export async function backfillEmploymentSuccessCases(limit = 200): Promise<{
     {
       backfill: true,
       limit,
+      openAIKey: getOpenAIKey(),
     },
   );
 
