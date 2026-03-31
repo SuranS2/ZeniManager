@@ -453,7 +453,7 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
           <div className="mt-4 space-y-3 text-sm">
             <InfoRow
               label="분석 문서"
-              value={`${displayedAnalysisCount}?`}
+              value={`${displayedAnalysisCount}`}
             />
             <InfoRow
               label="추출 항목"
