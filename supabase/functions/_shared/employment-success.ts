@@ -139,7 +139,7 @@ export async function createEmbedding(apiKey: string, input: string): Promise<nu
 export function resolveOpenAIKey(requestKey?: string | null): string {
   const key = normalizeText(requestKey) ?? Deno.env.get('OPENAI_API_KEY') ?? null;
   if (!key) {
-    throw new Error('OPENAI_API_KEY가 설정되지 않았습니다.');
+    throw new Error('앱 설정에 OpenAI API Key가 필요합니다.');
   }
   return key;
 }

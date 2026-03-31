@@ -318,12 +318,27 @@ describe('dashboard runtime APIs', () => {
               participation_type: null,
               participation_stage: '초기상담',
               desired_job_1: '개발자',
+              desired_job_2: '프론트엔드 개발자',
+              desired_job_3: '백엔드 개발자',
               hire_type: null,
-              job_place_start: null,
+              hire_place: '제니소프트',
+              hire_job_type: '웹 개발',
+              hire_payment: 3200,
+              hire_date: '2026-03-15',
+              job_place_start: '2026-03-14',
               job_place_end: null,
               iap_to: null,
               retest_stat: null,
+              retest_date: null,
+              continue_serv_1_date: null,
               continue_serv_1_stat: null,
+              continue_serv_6_date: null,
+              continue_serv_6_stat: null,
+              continue_serv_12_date: null,
+              continue_serv_12_stat: null,
+              continue_serv_18_date: null,
+              continue_serv_18_stat: null,
+              future_card_stat: null,
               memo: null,
               business_code: null,
               created_at: '2026-03-01T00:00:00Z',
@@ -338,7 +353,15 @@ describe('dashboard runtime APIs', () => {
     const result = await searchDashboardClients('auth-1', '홍길동');
 
     expect(result).toHaveLength(1);
-    expect(result[0]?.name).toBe('홍길동');
+    expect(result[0]).toMatchObject({
+      name: '홍길동',
+      desired_job_2: '프론트엔드 개발자',
+      desired_job_3: '백엔드 개발자',
+      hire_place: '제니소프트',
+      hire_job_type: '웹 개발',
+      hire_payment: 3200,
+      hire_date: '2026-03-15',
+    });
     expect(queryLog).toContainEqual({
       table: 'client',
       operation: 'select',

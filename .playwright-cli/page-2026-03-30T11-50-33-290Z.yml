@@ -1,0 +1,31 @@
+- generic [ref=e2]:
+  - region "Notifications alt+T"
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - img "ZENIEL" [ref=e6]
+      - heading "상담 관리 시스템" [level=1] [ref=e7]
+      - paragraph [ref=e8]: 로그인하여 시스템에 접속하세요
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - generic [ref=e12]: 이메일
+          - textbox "이메일을 입력하세요" [active] [ref=e13]
+        - generic [ref=e14]:
+          - generic [ref=e15]: 비밀번호
+          - generic [ref=e16]:
+            - textbox "비밀번호를 입력하세요" [ref=e17]
+            - button [ref=e18] [cursor=pointer]:
+              - img [ref=e19]
+        - button "로그인" [ref=e22] [cursor=pointer]
+      - generic [ref=e23]:
+        - generic [ref=e24]: 데모 계정 (Supabase 미설정 시)
+        - generic [ref=e25]: "상담사: counselor@demo.com / demo1234"
+        - generic [ref=e26]: "관리자: admin@demo.com / demo1234"
+      - generic [ref=e28]:
+        - button "Supabase 연결 설정" [ref=e29] [cursor=pointer]:
+          - img [ref=e30]
+          - generic [ref=e34]: Supabase 연결 설정
+          - img [ref=e35]
+        - button "설정 초기화" [ref=e37] [cursor=pointer]:
+          - img [ref=e38]
+          - text: 설정 초기화

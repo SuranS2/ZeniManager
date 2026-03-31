@@ -1,0 +1,211 @@
+- generic:
+  - generic:
+    - region "Notifications alt+T"
+    - generic:
+      - complementary:
+        - generic:
+          - img
+        - generic:
+          - generic:
+            - generic: 상담사
+            - generic:
+              - img
+              - generic: 서울지점
+        - navigation:
+          - generic:
+            - button:
+              - generic:
+                - img
+              - generic: 업무 대시보드
+              - generic:
+                - img
+          - generic:
+            - button:
+              - generic:
+                - img
+              - generic: 상담자 목록
+              - generic:
+                - img
+            - generic:
+              - link:
+                - /url: /clients
+                - generic:
+                  - generic:
+                    - img
+                  - generic: 상담자 검색
+              - link:
+                - /url: /clients/list
+                - generic:
+                  - generic:
+                    - img
+                  - generic: 상담자 목록
+              - link:
+                - /url: /clients/register
+                - generic:
+                  - generic:
+                    - img
+                  - generic: 상담자 등록
+      - generic:
+        - banner:
+          - generic:
+            - button:
+              - img
+            - generic: 상담사 포털
+          - generic:
+            - button:
+              - img
+            - button [expanded]:
+              - generic:
+                - generic: c
+              - generic: counselor
+              - img
+        - main:
+          - generic:
+            - generic:
+              - generic:
+                - heading [level=1]: 업무 대시보드
+                - paragraph: 안녕하세요, counselor님. 오늘도 좋은 하루 되세요.(대시보드 실데이터 확인에는 Supabase 설정 필요)
+              - generic:
+                - button:
+                  - img
+                - generic: 2026년 3월 30일 월요일
+            - generic:
+              - img
+              - textbox:
+                - /placeholder: 피상담자 검색 (이름, 연락처, 희망직종)
+            - generic:
+              - button:
+                - generic:
+                  - img
+                - generic:
+                  - generic: 전체 상담자 수
+                  - generic: "0"
+                  - generic: 담당 상담자
+                  - generic:
+                    - text: 상담자 목록 열기
+                    - img
+              - button:
+                - generic:
+                  - img
+                - generic:
+                  - generic: 진행 중
+                  - generic: "0"
+                  - generic: 프로세스 진행
+                  - generic:
+                    - text: 진행 현황 보기
+                    - img
+              - button:
+                - generic:
+                  - img
+                - generic:
+                  - generic: 취업 완료
+                  - generic: "0"
+                  - generic: "-"
+                  - generic:
+                    - text: 완료 대상 보기
+                    - img
+              - button:
+                - generic:
+                  - img
+                - generic:
+                  - generic: 후속 상담 필요
+                  - generic: "0"
+                  - generic: 팔로업 대상
+                  - generic:
+                    - text: 후속 대상 보기
+                    - img
+            - generic:
+              - button [disabled]:
+                - generic:
+                  - img
+                - generic:
+                  - generic: 평균 점수
+                  - generic: "-"
+                  - generic: 입력된 점수 없음
+              - button [disabled]:
+                - generic:
+                  - img
+                - generic:
+                  - generic: 점수 입력 완료
+                  - generic: "0"
+                  - generic: "-"
+              - button [disabled]:
+                - generic:
+                  - img
+                - generic:
+                  - generic: 점수 미확정
+                  - generic: "0"
+                  - generic: "-"
+            - generic:
+              - button:
+                - img
+                - text: 현황
+              - button:
+                - img
+                - text: 캘린더
+              - button:
+                - img
+                - text: 메모장
+            - generic:
+              - generic: 대시보드 통계 기능을 사용하려면 Supabase 설정이 필요합니다.
+              - generic:
+                - heading [level=3]: 월별 세션/진행 인원
+                - generic:
+                  - generic:
+                    - img
+              - generic:
+                - generic:
+                  - heading [level=3]: 프로세스 과정 수
+                  - button:
+                    - text: 목록 보기
+                    - img
+                - generic:
+                  - button:
+                    - generic:
+                      - generic: 초기상담
+                      - generic: 0명
+                  - button:
+                    - generic:
+                      - generic: 심층상담
+                      - generic: 0명
+                  - button:
+                    - generic:
+                      - generic: 취업지원
+                      - generic: 0명
+                  - button:
+                    - generic:
+                      - generic: 직업훈련
+                      - generic: 0명
+                  - button:
+                    - generic:
+                      - generic: 취업알선
+                      - generic: 0명
+                  - button:
+                    - generic:
+                      - generic: 취업완료
+                      - generic: 0명
+                  - button:
+                    - generic:
+                      - generic: 사후관리
+                      - generic: 0명
+              - generic:
+                - heading [level=3]: 월별 상담 진행 인원 추이
+                - generic:
+                  - generic:
+                    - img
+              - generic:
+                - heading [level=3]: 점수 구간별 분포
+                - generic: 입력된 점수 데이터가 없습니다.
+  - menu "c counselor" [active] [ref=e279]:
+    - generic [ref=e280]:
+      - generic [ref=e281]: counselor
+      - generic [ref=e282]: 상담사 · 서울지점
+      - generic [ref=e283]: counselor@test.com
+    - separator [ref=e284]
+    - menuitem "설정" [ref=e285]:
+      - img
+      - text: 설정
+    - separator [ref=e286]
+    - menuitem "로그아웃" [ref=e287]:
+      - img
+      - text: 로그아웃

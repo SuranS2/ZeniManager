@@ -1,0 +1,164 @@
+- generic [ref=e2]:
+  - region "Notifications alt+T":
+    - list:
+      - listitem [ref=e41]:
+        - img [ref=e43]
+        - generic [ref=e46]: "통계 로드 실패: 대시보드 통계 기능을 사용하려면 Supabase 설정이 필요합니다."
+      - listitem [ref=e47]:
+        - img [ref=e49]
+        - generic [ref=e52]: 로그인되었습니다.
+  - generic [ref=e53]:
+    - complementary [ref=e54]:
+      - img "ZENIEL" [ref=e56]
+      - generic [ref=e58]:
+        - generic [ref=e59]: 상담사
+        - generic [ref=e60]:
+          - img [ref=e61]
+          - generic [ref=e65]: 서울지점
+      - navigation [ref=e66]:
+        - button "업무 대시보드" [ref=e68] [cursor=pointer]:
+          - img [ref=e70]
+          - generic [ref=e75]: 업무 대시보드
+          - img [ref=e77]
+        - button "상담자 목록" [ref=e80] [cursor=pointer]:
+          - img [ref=e82]
+          - generic [ref=e87]: 상담자 목록
+          - img [ref=e89]
+    - generic [ref=e91]:
+      - banner [ref=e92]:
+        - generic [ref=e93]:
+          - button [ref=e94] [cursor=pointer]:
+            - img [ref=e95]
+          - generic [ref=e98]: 상담사 포털
+        - generic [ref=e99]:
+          - button [ref=e100] [cursor=pointer]:
+            - img [ref=e101]
+          - button "c counselor" [ref=e105] [cursor=pointer]:
+            - generic [ref=e107]: c
+            - generic [ref=e108]: counselor
+            - img [ref=e109]
+      - main [ref=e111]:
+        - generic [ref=e112]:
+          - generic [ref=e113]:
+            - generic [ref=e114]:
+              - heading "업무 대시보드" [level=1] [ref=e115]
+              - paragraph [ref=e116]: 안녕하세요, counselor님. 오늘도 좋은 하루 되세요.(대시보드 실데이터 확인에는 Supabase 설정 필요)
+            - generic [ref=e117]:
+              - button "새로고침" [ref=e118] [cursor=pointer]:
+                - img [ref=e119]
+              - generic [ref=e124]: 2026년 3월 30일 월요일
+          - generic [ref=e125]:
+            - img [ref=e126]
+            - textbox "피상담자 검색 (이름, 연락처, 희망직종)" [ref=e129]
+          - generic [ref=e130]:
+            - button "전체 상담자 수 0 담당 상담자 상담자 목록 열기" [ref=e131] [cursor=pointer]:
+              - img [ref=e133]
+              - generic [ref=e138]:
+                - generic [ref=e139]: 전체 상담자 수
+                - generic [ref=e140]: "0"
+                - generic [ref=e141]: 담당 상담자
+                - generic [ref=e142]:
+                  - text: 상담자 목록 열기
+                  - img [ref=e143]
+            - button "진행 중 0 프로세스 진행 진행 현황 보기" [ref=e145] [cursor=pointer]:
+              - img [ref=e147]
+              - generic [ref=e150]:
+                - generic [ref=e151]: 진행 중
+                - generic [ref=e152]: "0"
+                - generic [ref=e153]: 프로세스 진행
+                - generic [ref=e154]:
+                  - text: 진행 현황 보기
+                  - img [ref=e155]
+            - button "취업 완료 0 - 완료 대상 보기" [ref=e157] [cursor=pointer]:
+              - img [ref=e159]
+              - generic [ref=e162]:
+                - generic [ref=e163]: 취업 완료
+                - generic [ref=e164]: "0"
+                - generic [ref=e165]: "-"
+                - generic [ref=e166]:
+                  - text: 완료 대상 보기
+                  - img [ref=e167]
+            - button "후속 상담 필요 0 팔로업 대상 후속 대상 보기" [ref=e169] [cursor=pointer]:
+              - img [ref=e171]
+              - generic [ref=e173]:
+                - generic [ref=e174]: 후속 상담 필요
+                - generic [ref=e175]: "0"
+                - generic [ref=e176]: 팔로업 대상
+                - generic [ref=e177]:
+                  - text: 후속 대상 보기
+                  - img [ref=e178]
+          - generic [ref=e180]:
+            - button "평균 점수 - 입력된 점수 없음" [disabled] [ref=e181]:
+              - img [ref=e183]
+              - generic [ref=e185]:
+                - generic [ref=e186]: 평균 점수
+                - generic [ref=e187]: "-"
+                - generic [ref=e188]: 입력된 점수 없음
+            - button "점수 입력 완료 0 -" [disabled] [ref=e189]:
+              - img [ref=e191]
+              - generic [ref=e194]:
+                - generic [ref=e195]: 점수 입력 완료
+                - generic [ref=e196]: "0"
+                - generic [ref=e197]: "-"
+            - button "점수 미확정 0 -" [disabled] [ref=e198]:
+              - img [ref=e200]
+              - generic [ref=e202]:
+                - generic [ref=e203]: 점수 미확정
+                - generic [ref=e204]: "0"
+                - generic [ref=e205]: "-"
+          - generic [ref=e206]:
+            - button "현황" [ref=e207] [cursor=pointer]:
+              - img [ref=e208]
+              - text: 현황
+            - button "캘린더" [ref=e211] [cursor=pointer]:
+              - img [ref=e212]
+              - text: 캘린더
+            - button "메모장" [ref=e214] [cursor=pointer]:
+              - img [ref=e215]
+              - text: 메모장
+          - generic [ref=e218]:
+            - generic [ref=e219]: 대시보드 통계 기능을 사용하려면 Supabase 설정이 필요합니다.
+            - generic [ref=e220]:
+              - heading "월별 세션/진행 인원" [level=3] [ref=e221]
+              - img [ref=e224]
+            - generic [ref=e227]:
+              - generic [ref=e228]:
+                - heading "프로세스 과정 수" [level=3] [ref=e229]
+                - button "목록 보기" [ref=e230] [cursor=pointer]:
+                  - text: 목록 보기
+                  - img [ref=e231]
+              - generic [ref=e233]:
+                - button "초기상담 0명" [ref=e234] [cursor=pointer]:
+                  - generic [ref=e235]:
+                    - generic [ref=e236]: 초기상담
+                    - generic [ref=e237]: 0명
+                - button "심층상담 0명" [ref=e239] [cursor=pointer]:
+                  - generic [ref=e240]:
+                    - generic [ref=e241]: 심층상담
+                    - generic [ref=e242]: 0명
+                - button "취업지원 0명" [ref=e244] [cursor=pointer]:
+                  - generic [ref=e245]:
+                    - generic [ref=e246]: 취업지원
+                    - generic [ref=e247]: 0명
+                - button "직업훈련 0명" [ref=e249] [cursor=pointer]:
+                  - generic [ref=e250]:
+                    - generic [ref=e251]: 직업훈련
+                    - generic [ref=e252]: 0명
+                - button "취업알선 0명" [ref=e254] [cursor=pointer]:
+                  - generic [ref=e255]:
+                    - generic [ref=e256]: 취업알선
+                    - generic [ref=e257]: 0명
+                - button "취업완료 0명" [ref=e259] [cursor=pointer]:
+                  - generic [ref=e260]:
+                    - generic [ref=e261]: 취업완료
+                    - generic [ref=e262]: 0명
+                - button "사후관리 0명" [ref=e264] [cursor=pointer]:
+                  - generic [ref=e265]:
+                    - generic [ref=e266]: 사후관리
+                    - generic [ref=e267]: 0명
+            - generic [ref=e269]:
+              - heading "월별 상담 진행 인원 추이" [level=3] [ref=e270]
+              - img [ref=e273]
+            - generic [ref=e276]:
+              - heading "점수 구간별 분포" [level=3] [ref=e277]
+              - generic [ref=e278]: 입력된 점수 데이터가 없습니다.
