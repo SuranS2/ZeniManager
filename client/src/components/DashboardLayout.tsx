@@ -30,7 +30,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { toast } from 'sonner';
 
-const ZENIEL_LOGO_SRC = '/zeniel-logo.png';
+const ZENIEL_LOGO_SRC = `${import.meta.env.BASE_URL}zeniel-logo.png`;
 
 interface NavItem {
   label: string;
