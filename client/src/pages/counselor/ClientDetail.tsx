@@ -41,6 +41,16 @@ const PRIMARY = '#009C64';
 
 type ClientTab = 'manage' | 'history' | 'input' | 'survey' | 'summary' | 'chat';
 
+const SUCCESS_CASE_SYNC_FIELDS = new Set([
+  'hire_date',
+  'hire_place',
+  'hire_job_type',
+  'hire_payment',
+  'employment_type',
+  'employment_duration',
+  'participation_stage'
+]);
+
 // ─── Survey Definitions ──────────────────────────────────────────────────────
 
 const SURVEY_QUESTIONS = [
