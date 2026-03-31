@@ -4,13 +4,26 @@ import type {
   RecommendationResult,
   StructuredSummaryJson,
 } from "./summaryAnalysisPipeline";
+import { calculateCompetencyScoring } from "./summaryAnalysisPipeline";
 
 const SUMMARY_ANALYSIS_TIMEOUT_MS = 15000;
 const SUMMARY_ANALYSIS_TABLE = "client_summary_analysis";
 
-function getElectronApi() {
-  if (typeof window === "undefined") return undefined;
-  return window.electronAPI;
+function buildSafeStorageFileName(originalName: string): string {
+  const trimmed = originalName.trim();
+  const extensionMatch = trimmed.match(/(\.[A-Za-z0-9]+)$/);
+  const extension = extensionMatch?.[1]?.toLowerCase() ?? "";
+  const baseName = extension ? trimmed.slice(0, -extension.length) : trimmed;
+
+  const asciiBase = baseName
+    .normalize("NFKD")
+    .replace(/[^\x00-\x7F]/g, "")
+    .replace(/[^A-Za-z0-9._-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+
+  return `${asciiBase || "document"}${extension}`;
 }
 
 export interface StoredSummaryAnalysis {
@@ -26,6 +39,22 @@ export interface StoredSummaryAnalysis {
     uploaded_at: string;
   }> | null;
   updated_at: string;
+}
+
+export function normalizeStoredSummaryAnalysis(
+  saved: StoredSummaryAnalysis
+): StoredSummaryAnalysis {
+  return {
+    ...saved,
+    competency_scoring: calculateCompetencyScoring(saved.structured_json),
+  };
+}
+
+export function hasDifferentCompetencyScoring(
+  left: CompetencyScoring,
+  right: CompetencyScoring
+): boolean {
+  return JSON.stringify(left) !== JSON.stringify(right);
 }
 
 function isMissingSchemaError(error: unknown): boolean {
@@ -62,6 +91,7 @@ export async function fetchClientSummaryAnalysis(
     isSupabaseConfigured: isSupabaseConfigured(),
   });
   if (!isSupabaseConfigured()) return null;
+
   const client = getSupabaseClient();
   if (!client) {
     console.warn("[summaryAnalysisStore] fetch:no-client", {
@@ -79,7 +109,7 @@ export async function fetchClientSummaryAnalysis(
       )
       .eq("client_id", Number(clientId))
       .maybeSingle(),
-    "요약/분석 데이터를 불러오는 중 응답이 지연되고 있습니다."
+    "요약/분석 데이터를 불러오는 응답이 지연되고 있습니다."
   );
 
   if (error) {
@@ -122,28 +152,7 @@ export async function upsertClientSummaryAnalysis(input: {
     hasPromptSnapshot: Boolean(input.promptSnapshot),
     fileRefCount: input.fileRefs?.length ?? 0,
   });
-  const electronAPI = getElectronApi();
-  if (electronAPI?.isElectron && electronAPI.saveSummaryAnalysis) {
-    const result = await electronAPI.saveSummaryAnalysis({
-      clientId: input.clientId,
-      structuredJson: input.structuredJson,
-      competencyScoring: input.competencyScoring,
-      recommendation: input.recommendation,
-      promptSnapshot: input.promptSnapshot,
-      fileRefs: input.fileRefs,
-    });
 
-    if (!result?.success) {
-      throw new Error(result?.error || "Electron 저장에 실패했습니다.");
-    }
-
-    console.log("[summaryAnalysisStore] upsert:success", {
-      clientId: input.clientId,
-      table: SUMMARY_ANALYSIS_TABLE,
-      mode: result.mode ?? "electron-main",
-    });
-    return;
-  }
   if (!isSupabaseConfigured()) {
     throw new Error("Supabase가 설정되지 않아 저장할 수 없습니다.");
   }
@@ -159,19 +168,18 @@ export async function upsertClientSummaryAnalysis(input: {
   };
 
   if (input.structuredJson) payload.structured_json = input.structuredJson;
-  if (input.competencyScoring)
+  if (input.competencyScoring) {
     payload.competency_scoring = input.competencyScoring;
+  }
   if (input.recommendation) payload.recommendation = input.recommendation;
   if (input.promptSnapshot) payload.prompt_snapshot = input.promptSnapshot;
   if (input.fileRefs) payload.file_refs = input.fileRefs;
 
-  // Avoid a pre-read before saving; the extra fetch is the request that is
-  // timing out in Electron during save.
   const { error } = await withTimeout(
     client.from(SUMMARY_ANALYSIS_TABLE).upsert(payload, {
       onConflict: "client_id",
     }),
-    "분석 결과 저장 중 응답이 지연되고 있습니다."
+    "분석 결과 저장 응답이 지연되고 있습니다."
   );
 
   if (error) {
@@ -200,26 +208,7 @@ export async function uploadSummaryAnalysisFiles(input: {
     clientId: input.clientId,
     fileCount: input.files.length,
   });
-  const electronAPI = getElectronApi();
-  if (electronAPI?.isElectron && electronAPI.uploadSummaryAnalysisFiles) {
-    const files = await Promise.all(
-      input.files.map(async file => ({
-        name: file.name,
-        type: file.type,
-        data: new Uint8Array(await file.arrayBuffer()),
-      }))
-    );
-    const refs = await electronAPI.uploadSummaryAnalysisFiles({
-      clientId: input.clientId,
-      files,
-    });
-    console.log("[summaryAnalysisStore] upload:success", {
-      clientId: input.clientId,
-      fileCount: refs.length,
-      mode: "electron-main",
-    });
-    return refs;
-  }
+
   if (!isSupabaseConfigured()) {
     throw new Error("Supabase가 설정되지 않아 파일을 업로드할 수 없습니다.");
   }
@@ -239,7 +228,7 @@ export async function uploadSummaryAnalysisFiles(input: {
   }> = [];
 
   for (const file of input.files) {
-    const safeName = file.name.replace(/[^\w.\-가-힣]/g, "_");
+    const safeName = buildSafeStorageFileName(file.name);
     const path = `${input.clientId}/${Date.now()}-${safeName}`;
     console.log("[summaryAnalysisStore] upload:file:start", {
       clientId: input.clientId,
@@ -249,11 +238,12 @@ export async function uploadSummaryAnalysisFiles(input: {
       size: file.size,
       type: file.type,
     });
+
     const { error } = await withTimeout(
       client.storage.from(bucket).upload(path, file, {
         upsert: true,
       }),
-      "분석 파일 업로드 중 응답이 지연되고 있습니다."
+      "분석 파일 업로드 응답이 지연되고 있습니다."
     );
 
     if (error) {

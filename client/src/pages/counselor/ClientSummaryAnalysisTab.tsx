@@ -33,6 +33,8 @@ import {
 } from "@/lib/summaryAnalysisPipeline";
 import {
   fetchClientSummaryAnalysis,
+  hasDifferentCompetencyScoring,
+  normalizeStoredSummaryAnalysis,
   uploadSummaryAnalysisFiles,
   upsertClientSummaryAnalysis,
 } from "@/lib/summaryAnalysisStore";
@@ -54,6 +56,9 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [items, setItems] = useState<UploadItem[]>([]);
+  const [savedFileRefs, setSavedFileRefs] = useState<
+    Array<{ name: string; path: string; url: string; uploaded_at: string }>
+  >([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [structuredJson, setStructuredJson] =
     useState<StructuredSummaryJson | null>(null);
@@ -79,15 +84,38 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
     [completedAnalyses]
   );
 
+  const hasAnalysisContent = Boolean(mergedProfile || structuredJson);
+  const displayedAnalysisCount =
+    completedAnalyses.length > 0 ? completedAnalyses.length : savedFileRefs.length;
+  const displayedCapturedFieldCount = mergedProfile
+    ? countCapturedFields(mergedProfile)
+    : countStructuredFields(structuredJson);
+
   useEffect(() => {
     let cancelled = false;
 
     fetchClientSummaryAnalysis(client.id)
       .then(saved => {
         if (cancelled || !saved || completedAnalyses.length > 0) return;
-        setStructuredJson(saved.structured_json);
-        setCompetencyScoring(saved.competency_scoring);
-        setRecommendation(saved.recommendation);
+        const normalizedSaved = normalizeStoredSummaryAnalysis(saved);
+        setStructuredJson(normalizedSaved.structured_json);
+        setCompetencyScoring(normalizedSaved.competency_scoring);
+        setRecommendation(normalizedSaved.recommendation);
+        setSavedFileRefs(normalizedSaved.file_refs ?? []);
+
+        if (
+          hasDifferentCompetencyScoring(
+            saved.competency_scoring,
+            normalizedSaved.competency_scoring
+          )
+        ) {
+          void upsertClientSummaryAnalysis({
+            clientId: client.id,
+            competencyScoring: normalizedSaved.competency_scoring,
+          }).catch(() => {
+            // Keep the latest score visible even if silent backfill fails.
+          });
+        }
       })
       .catch(() => {
         // Keep the tab usable even if the saved snapshot cannot be loaded.
@@ -425,15 +453,11 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
           <div className="mt-4 space-y-3 text-sm">
             <InfoRow
               label="분석 문서"
-              value={`${completedAnalyses.length}건`}
+              value={`${displayedAnalysisCount}?`}
             />
             <InfoRow
               label="추출 항목"
-              value={
-                mergedProfile
-                  ? `${countCapturedFields(mergedProfile)} / 4`
-                  : "-"
-              }
+              value={hasAnalysisContent ? `${displayedCapturedFieldCount} / 4` : "-"}
             />
           </div>
           <div className="mt-4 rounded-lg bg-white/80 p-3 text-xs leading-5 text-muted-foreground">
@@ -457,7 +481,7 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
         </div>
       </section>
 
-      {items.length > 0 && (
+      {(items.length > 0 || savedFileRefs.length > 0) && (
         <section className="rounded-xl border border-border bg-card p-5">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -508,29 +532,61 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
                 )}
               </div>
             ))}
+            {items.length === 0 &&
+              savedFileRefs.map(fileRef => (
+                <div
+                  key={fileRef.path}
+                  className="rounded-lg border border-border bg-muted/10 p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium text-foreground">
+                        {fileRef.name}
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        저장된 분석 파일
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={fileRef.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs font-medium text-[#009C64] underline underline-offset-2"
+                      >
+                        열기
+                      </a>
+                      <StatusBadge status="done" />
+                    </div>
+                  </div>
+                </div>
+              ))}
           </div>
         </section>
       )}
 
-      {mergedProfile && (
+      {hasAnalysisContent && (
         <section className="grid gap-4 xl:grid-cols-2">
           <AnalysisCard
             title="AI 요약"
             icon={<Sparkles size={16} style={{ color: PRIMARY }} />}
-            value={mergedProfile.aiSummary}
+            value={structuredJson?.sourceSummary || mergedProfile?.aiSummary || "?? ??"}
             multiline
           />
           <AnalysisCard
             title="희망 직업"
             icon={<Briefcase size={16} style={{ color: PRIMARY }} />}
             value={renderList(
-              structuredJson?.desiredJobs ?? mergedProfile.desiredJobs
+              structuredJson?.desiredJobs ?? mergedProfile?.desiredJobs ?? []
             )}
           />
           <AnalysisCard
             title="자격증"
             icon={<Award size={16} style={{ color: PRIMARY }} />}
-            value={renderQualifications(structuredJson)}
+            value={renderQualificationsSafe(
+              structuredJson,
+              mergedProfile?.certifications ?? []
+            )}
           />
           <AnalysisCard
             title="어학 점수"
@@ -540,7 +596,7 @@ export function ClientSummaryAnalysisTab({ client }: { client: ClientRow }) {
           <AnalysisCard
             title="부가 스펙"
             icon={<GraduationCap size={16} style={{ color: PRIMARY }} />}
-            value={renderStructuredExtraSpecs(structuredJson)}
+            value={renderStructuredExtraSpecsSafe(structuredJson)}
             multiline
           />
         </section>
@@ -655,12 +711,41 @@ function renderList(values: string[]): string {
   return values.length > 0 ? values.join("\n") : "정보 없음";
 }
 
+function renderQualificationsSafe(
+  structuredJson: StructuredSummaryJson | null,
+  fallbackValues: string[] = []
+): string {
+  if (!structuredJson) {
+    const filteredFallback = Array.from(
+      new Set(fallbackValues.filter(item => !isLanguageDisplayToken(item)))
+    );
+    return filteredFallback.length > 0
+      ? filteredFallback.join("\n")
+      : "?뺣낫 ?놁쓬";
+  }
+
+  return renderQualifications(structuredJson, fallbackValues);
+}
+
 function renderQualifications(
-  structuredJson: StructuredSummaryJson | null
+  structuredJson: StructuredSummaryJson | null,
+  fallbackValues: string[] = []
 ): string {
   if (!structuredJson) return "정보 없음";
 
-  const values = [...structuredJson.qualifications];
+  const values = Array.from(
+    new Set(
+      [
+        ...(structuredJson?.qualifications ?? []),
+        ...(structuredJson?.certifications ?? []),
+        ...fallbackValues,
+        ...extractCertificateDisplayTokens(structuredJson?.sourceSummary ?? ""),
+      ]
+        .map(item => item.trim())
+        .filter(Boolean)
+        .filter(item => !isLanguageDisplayToken(item))
+    )
+  );
 
   return values.length > 0 ? values.join("\n") : "정보 없음";
 }
@@ -691,8 +776,89 @@ function renderStructuredExtraSpecs(
   return rows.length > 0 ? Array.from(new Set(rows)).join("\n") : "정보 없음";
 }
 
+function renderStructuredExtraSpecsSafe(
+  structuredJson: StructuredSummaryJson | null
+): string {
+  const raw = renderStructuredExtraSpecs(structuredJson);
+  if (!raw || raw === "?뺣낫 ?놁쓬") return raw;
+
+  const rows = raw
+    .split("\n")
+    .map(sanitizeExtraSpecRow)
+    .filter(Boolean);
+
+  return rows.length > 0 ? Array.from(new Set(rows)).join("\n") : "?뺣낫 ?놁쓬";
+}
+
+function sanitizeExtraSpecRow(value: string): string {
+  const cleaned = value
+    .replace(
+      /(?:정보처리기사|정보통신기사|sqld|adsp|컴퓨터활용능력|컴활|워드프로세서|mos|gtq|erp|전산회계|전산세무|사회복지사|보육교사|간호조무사|직업상담사|유통관리사|한국사능력검정|국가공인|민간자격|toeic(?:\s*speaking)?|토익(?:\s*스피킹|스피킹)?|opic|오픽|toefl|토플|teps|텝스)/gi,
+      " "
+    )
+    .replace(/(?:기사|산업기사|기능사|기술사|관리사|자격증|면허증|면허)/gi, " ");
+
+  const parts = cleaned
+    .replace(/\[(?:자격증|어학)\]/gi, "|")
+    .replace(/(?:자격증|어학)\s*[:：]/gi, "|")
+    .replace(/[•·]/g, "|")
+    .replace(/\*/g, "|")
+    .replace(/\s\/\s/g, "|")
+    .replace(/,\s*/g, "|")
+    .split("|")
+    .map(part => part.trim())
+    .filter(Boolean)
+    .map(part => part.replace(/[([]+$/g, "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  return parts
+    .join(" ")
+    .replace(/\[\s*\]/g, "")
+    .replace(/\(\s*$/g, "")
+    .replace(/\s+\)/g, ")")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractCertificateDisplayTokens(text: string): string[] {
+  const matches =
+    text.match(
+      /(정보처리기사|정보통신기사|SQLD|ADsP|ADSP|컴퓨터활용능력\s*\d급|컴퓨터활용능력|컴활\s*\d급|컴활|워드프로세서|MOS|GTQ|ERP)/gi
+    ) ?? [];
+
+  return Array.from(
+    new Set(
+      matches
+        .map(item => item.replace(/\s+/g, " ").trim())
+        .filter(item => !isLanguageDisplayToken(item))
+    )
+  );
+}
+
+function isLanguageDisplayToken(value: string): boolean {
+  return /(?:TOEIC(?:\s*Speaking)?|토익(?:\s*스피킹|스피킹)?|OPIc|OPIC|오픽|TOEFL|토플|TEPS|텝스)/i.test(
+    value
+  );
+}
+
 function formatLanguageScore(entry: LanguageScoreEntry): string {
   return `${entry.type}: ${entry.score}`;
+}
+
+function countStructuredFields(
+  structuredJson: StructuredSummaryJson | null
+): number {
+  if (!structuredJson) return 0;
+
+  return [
+    structuredJson.sourceSummary.trim().length > 0,
+    structuredJson.desiredJobs.length > 0,
+    structuredJson.qualifications.length > 0 ||
+      structuredJson.languageScores.length > 0,
+    Boolean(structuredJson.education) ||
+      structuredJson.experience.length > 0 ||
+      structuredJson.additionalSpecs.completedEducation.length > 0,
+  ].filter(Boolean).length;
 }
 
 function countCapturedFields(profile: {
