@@ -4,6 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocation, useParams } from 'wouter';
 import { useAuth } from '@/contexts/AuthContext';
+import { PARTICIPATION_TYPE_OPTIONS } from '@/const';
 import {
   ChevronLeft, User, Phone, Edit3, ClipboardList,
   Loader2, Trash2, Save, ChevronRight, Plus,
@@ -1032,12 +1033,7 @@ export default function ClientDetail() {
                     onConfirm={handleUpdateField} 
                     onCancel={cancelEdit} 
                     type="select"
-                    options={[
-                        { value: '청년특례', label: '청년특례' },
-                        { value: '청년층', label: '청년층' },
-                        { value: '중장년층', label: '중장년층' },
-                        { value: '특정계층', label: '특정계층' }
-                    ]}
+                    options={[...PARTICIPATION_TYPE_OPTIONS]}
                 />
                 <DashboardField 
                     label="역량등급" 

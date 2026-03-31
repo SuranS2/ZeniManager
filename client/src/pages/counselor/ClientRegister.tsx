@@ -7,6 +7,7 @@ import { useLocation } from 'wouter';
 import { toast } from 'sonner';
 import { ChevronLeft, User, Phone, Mail, Calendar, Building2, Briefcase, BookOpen, Car, MapPin, Target, Home, FileText } from 'lucide-react';
 import { usePageGuard } from '@/hooks/usePageGuard';
+import { PARTICIPATION_TYPE_OPTIONS } from '@/const';
 import { createClient } from '@/lib/api';
 import { updateClientEmploymentSnapshotAndSync } from '@/lib/employmentSuccessCase';
 import DaumPostcode from 'react-daum-postcode';
@@ -652,13 +653,18 @@ export default function ClientRegister() {
             </div>
             <div className="register_field_group">
               <label className="register_label">참여 유형 분류</label>
-              <input
-                type="text"
+              <select
                 value={form.participationType}
                 onChange={e => update('participationType', e.target.value)}
-                placeholder="(예: 1유형, 2유형)"
                 className="register_input"
-              />
+              >
+                <option value="">선택 안함</option>
+                {PARTICIPATION_TYPE_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
