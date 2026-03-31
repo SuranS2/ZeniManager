@@ -28,6 +28,7 @@ import {
   addCertificate,
   deleteCertificate
 } from '@/lib/api';
+import { syncEmploymentSuccessCase } from '@/lib/employmentSuccessCase';
 import type { ClientRow, SessionRow, SurveyRow } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import DaumPostcode from 'react-daum-postcode';
@@ -545,8 +546,28 @@ export default function ClientDetail() {
       // Update state
       const newState = { ...client, [field]: main.val };
       if (secondField) (newState as any)[secondField] = secondValue;
-      
+
       setClient(newState as ClientRow);
+
+      const second = secondField !== undefined ? processField(secondField, secondValue) : null;
+      const shouldSyncSuccessCase =
+        SUCCESS_CASE_SYNC_FIELDS.has(main.dbKey) ||
+        (second ? SUCCESS_CASE_SYNC_FIELDS.has(second.dbKey) : false);
+
+      if (shouldSyncSuccessCase) {
+        try {
+          await syncEmploymentSuccessCase(id);
+        } catch (syncError) {
+          console.error('Failed to sync employment success case after client detail update:', {
+            clientId: id,
+            field: main.dbKey,
+            secondField: second?.dbKey ?? null,
+            error: syncError instanceof Error ? syncError.message : syncError,
+          });
+          toast.warning('취업성사자 기록(유사도) 저장에 실패했습니다.');
+        }
+      }
+
       toast.success('적용되었습니다.');
       setEditingField(null);
     } catch (e: any) {

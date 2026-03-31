@@ -1,6 +1,7 @@
 import {
   getSupabaseAnonKey,
   getSupabaseClient,
+  getOpenAIKey,
   getSupabaseUrl,
   isSupabaseConfigured,
   getOpenAIKey,

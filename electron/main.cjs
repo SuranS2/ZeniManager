@@ -5,33 +5,55 @@
  * - Dev mode: loads Vite dev server from ELECTRON_RENDERER_URL (default: http://localhost:5181)
  * - Production: loads built index.html from dist/public
  */
-const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require('electron');
-const fs = require('fs');
-const path = require('path');
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  shell,
+  Menu,
+  dialog,
+} = require("electron");
+const { spawn } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const zlib = require("zlib");
+const XLSX = require("xlsx");
 const isDev = !app.isPackaged;
 
 // electron/main.cjs 최상단 부근에 Supabase 클라이언트 세팅 추가
 const { createClient } = require("@supabase/supabase-js");
 
 const SUPABASE_SETTING_KEYS = {
-  URL: 'counsel_supabase_url',
-  SERVICE_ROLE_KEY: 'counsel_supabase_service_role_key',
+  URL: "counsel_supabase_url",
+  ANON_KEY: "counsel_supabase_anon_key",
+  SERVICE_ROLE_KEY: "counsel_supabase_service_role_key",
 };
 
 let supabaseAdmin = null;
 let supabaseAdminUrl = null;
 let supabaseAdminKey = null;
+let supabaseWrite = null;
+let supabaseWriteUrl = null;
+let supabaseWriteKey = null;
 
 function getSupabaseAdminClient() {
   const persistedSettings = readAppSettings();
-  const supabaseUrl = String(persistedSettings[SUPABASE_SETTING_KEYS.URL] || '').trim();
-  const supabaseServiceRoleKey = String(persistedSettings[SUPABASE_SETTING_KEYS.SERVICE_ROLE_KEY] || '').trim();
+  const supabaseUrl = String(
+    persistedSettings[SUPABASE_SETTING_KEYS.URL] || ""
+  ).trim();
+  const supabaseServiceRoleKey = String(
+    persistedSettings[SUPABASE_SETTING_KEYS.SERVICE_ROLE_KEY] || ""
+  ).trim();
 
   if (!supabaseUrl || !supabaseServiceRoleKey) {
     return null;
   }
 
-  if (supabaseAdmin && supabaseAdminUrl === supabaseUrl && supabaseAdminKey === supabaseServiceRoleKey) {
+  if (
+    supabaseAdmin &&
+    supabaseAdminUrl === supabaseUrl &&
+    supabaseAdminKey === supabaseServiceRoleKey
+  ) {
     return supabaseAdmin;
   }
 
@@ -45,7 +67,7 @@ function getSupabaseAdminClient() {
     supabaseAdminUrl = supabaseUrl;
     supabaseAdminKey = supabaseServiceRoleKey;
   } catch (error) {
-    console.error('Supabase 관리자 클라이언트 초기화 실패:', error);
+    console.error("Supabase 관리자 클라이언트 초기화 실패:", error);
     supabaseAdmin = null;
     supabaseAdminUrl = null;
     supabaseAdminKey = null;
@@ -53,6 +75,48 @@ function getSupabaseAdminClient() {
   }
 
   return supabaseAdmin;
+}
+
+function getSupabaseWriteClient() {
+  const persistedSettings = readAppSettings();
+  const supabaseUrl = String(
+    persistedSettings[SUPABASE_SETTING_KEYS.URL] || ""
+  ).trim();
+  const supabaseServiceRoleKey = String(
+    persistedSettings[SUPABASE_SETTING_KEYS.SERVICE_ROLE_KEY] || ""
+  ).trim();
+  const writeKey = supabaseServiceRoleKey;
+
+  if (!supabaseUrl || !writeKey) {
+    return null;
+  }
+
+  if (
+    supabaseWrite &&
+    supabaseWriteUrl === supabaseUrl &&
+    supabaseWriteKey === writeKey
+  ) {
+    return supabaseWrite;
+  }
+
+  try {
+    supabaseWrite = createClient(supabaseUrl, writeKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+    supabaseWriteUrl = supabaseUrl;
+    supabaseWriteKey = writeKey;
+  } catch (error) {
+    console.error("Supabase 저장 클라이언트 초기화 실패:", error);
+    supabaseWrite = null;
+    supabaseWriteUrl = null;
+    supabaseWriteKey = null;
+    return null;
+  }
+
+  return supabaseWrite;
 }
 
 // ─── Keep a global reference to prevent garbage collection ───────────────────
@@ -78,6 +142,29 @@ function writeAppSettings(settings) {
     JSON.stringify(settings, null, 2),
     "utf8"
   );
+}
+
+function toErrorMessage(error) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (error && typeof error === "object") {
+    const message =
+      typeof error.message === "string"
+        ? error.message
+        : typeof error.error_description === "string"
+          ? error.error_description
+          : typeof error.details === "string"
+            ? error.details
+            : null;
+    if (message) return message;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
 }
 
 function runCommand(command, args, options = {}) {
@@ -188,6 +275,86 @@ async function tryConvertWithHancom(inputPath, outputDir) {
   }
 
   return null;
+}
+
+function getCfbEntry(cfb, entryPath) {
+  return XLSX.CFB.find(cfb, entryPath) || XLSX.CFB.find(cfb, `/${entryPath}`);
+}
+
+function decodeHwpSectionText(sectionBuffer) {
+  const chunks = [];
+  let offset = 0;
+
+  while (offset + 4 <= sectionBuffer.length) {
+    const header = sectionBuffer.readUInt32LE(offset);
+    offset += 4;
+
+    const tagId = header & 0x3ff;
+    let size = (header >>> 20) & 0xfff;
+
+    if (size === 0xfff) {
+      if (offset + 4 > sectionBuffer.length) break;
+      size = sectionBuffer.readUInt32LE(offset);
+      offset += 4;
+    }
+
+    if (offset + size > sectionBuffer.length) break;
+
+    if (tagId === 67 && size > 0) {
+      const text = sectionBuffer
+        .subarray(offset, offset + size)
+        .toString("utf16le")
+        .replace(/[\u0000-\u001f]+/g, " ")
+        .trim();
+
+      if (text) chunks.push(text);
+    }
+
+    offset += size;
+  }
+
+  return chunks.join("\n");
+}
+
+function extractHwpTextBuffer(bytes) {
+  const buffer = Buffer.from(bytes);
+  const cfb = XLSX.CFB.read(buffer, { type: "buffer" });
+  const headerEntry = getCfbEntry(cfb, "FileHeader");
+  const headerBuffer = headerEntry?.content
+    ? Buffer.from(headerEntry.content)
+    : null;
+
+  if (!headerBuffer || headerBuffer.length < 40) {
+    throw new Error("HWP 파일 헤더를 읽을 수 없습니다.");
+  }
+
+  const flags = headerBuffer.readUInt32LE(36);
+  const isCompressed = (flags & 0x01) === 0x01;
+  const sectionEntries = cfb.FileIndex.filter((entry, index) => {
+    const fullPath = cfb.FullPaths[index] || "";
+    return /bodytext\/section\d+$/i.test(fullPath);
+  });
+
+  const sections = sectionEntries
+    .sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, { numeric: true })
+    )
+    .map(entry => {
+      const sectionContent = entry.content
+        ? Buffer.from(entry.content)
+        : Buffer.alloc(0);
+      return isCompressed
+        ? zlib.inflateRawSync(sectionContent)
+        : sectionContent;
+    })
+    .map(section => decodeHwpSectionText(section))
+    .filter(Boolean);
+
+  if (sections.length === 0) {
+    throw new Error("HWP 본문에서 읽을 수 있는 텍스트를 찾지 못했습니다.");
+  }
+
+  return sections.join("\n\n");
 }
 
 async function convertHwpToPdfBuffer(fileName, bytes) {
@@ -464,12 +631,135 @@ ipcMain.handle("document:convertHwpToPdf", async (_, payload) => {
   return convertHwpToPdfBuffer(payload.fileName, payload.data);
 });
 
+ipcMain.handle("document:extractHwpText", async (_, payload) => {
+  if (!payload?.data) {
+    throw new Error("HWP 본문을 추출할 파일 데이터가 없습니다.");
+  }
+
+  return {
+    text: extractHwpTextBuffer(payload.data),
+    method: "hwp-binary",
+  };
+});
+
+ipcMain.handle("summary-analysis:upload-files", async (_, payload) => {
+  try {
+    const supabaseWriteClient = getSupabaseWriteClient();
+    if (!supabaseWriteClient) {
+      throw new Error(
+        "Electron 저장에는 Supabase Service Role Key가 필요합니다. Settings에서 Supabase URL과 Service Role Key를 입력해 주세요."
+      );
+    }
+
+    const clientId = String(payload?.clientId || "").trim();
+    const files = Array.isArray(payload?.files) ? payload.files : [];
+    if (!clientId || files.length === 0) {
+      return [];
+    }
+
+    const bucket = "summary-analysis-files";
+    const uploadedAt = new Date().toISOString();
+    const refs = [];
+
+    for (const file of files) {
+      const originalName = String(file.name || "document");
+      const extension = path.extname(originalName).replace(/[^A-Za-z0-9.]/g, "");
+      const baseName =
+        path
+          .basename(originalName, extension)
+          .replace(/[^A-Za-z0-9._-]/g, "_")
+          .replace(/_+/g, "_")
+          .replace(/^_+|_+$/g, "")
+          .slice(0, 80) || "document";
+      const safeName = `${baseName}${extension}`;
+      const pathKey = `${clientId}/${Date.now()}-${safeName}`;
+      const fileBuffer = Buffer.from(file.data || []);
+
+      const { error } = await supabaseWriteClient.storage
+        .from(bucket)
+        .upload(pathKey, fileBuffer, {
+          upsert: true,
+          contentType: file.type || "application/octet-stream",
+        });
+
+      if (error) {
+        throw error;
+      }
+
+      const { data } = supabaseWriteClient.storage
+        .from(bucket)
+        .getPublicUrl(pathKey);
+      refs.push({
+        name: originalName,
+        path: pathKey,
+        url: data.publicUrl,
+        uploaded_at: uploadedAt,
+      });
+    }
+
+    return refs;
+  } catch (error) {
+    console.error("summary-analysis:upload-files error", error);
+    throw new Error(toErrorMessage(error));
+  }
+});
+
+ipcMain.handle("summary-analysis:save", async (_, payload) => {
+  try {
+    const supabaseWriteClient = getSupabaseWriteClient();
+    if (!supabaseWriteClient) {
+      throw new Error(
+        "Electron 저장에는 Supabase Service Role Key가 필요합니다. Settings에서 Supabase URL과 Service Role Key를 입력해 주세요."
+      );
+    }
+
+    const clientId = Number(payload?.clientId);
+    if (!Number.isFinite(clientId)) {
+      throw new Error("저장할 clientId가 올바르지 않습니다.");
+    }
+
+    const savePayload = {
+      client_id: clientId,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (payload?.structuredJson) {
+      savePayload.structured_json = payload.structuredJson;
+    }
+    if (payload?.competencyScoring) {
+      savePayload.competency_scoring = payload.competencyScoring;
+    }
+    if (payload?.recommendation) {
+      savePayload.recommendation = payload.recommendation;
+    }
+    if (payload?.promptSnapshot) {
+      savePayload.prompt_snapshot = payload.promptSnapshot;
+    }
+    if (Array.isArray(payload?.fileRefs) && payload.fileRefs.length > 0) {
+      savePayload.file_refs = payload.fileRefs;
+    }
+
+    const { error } = await supabaseWriteClient
+      .from("client_summary_analysis")
+      .upsert(savePayload, { onConflict: "client_id" });
+
+    if (error) {
+      throw error;
+    }
+
+    return { success: true, mode: "electron-main-upsert" };
+  } catch (error) {
+    console.error("summary-analysis:save error", error);
+    throw new Error(toErrorMessage(error));
+  }
+});
+
 ipcMain.handle("admin-register-counselor", async (event, payload) => {
   try {
     const { supabaseUrl, serviceRoleKey, email, password, user_name, department } = payload;
 
     if (!supabaseUrl || !serviceRoleKey) {
-      return { success: false, error: 'Supabase URL 또는 Service Role Key가 없습니다.' };
+      return { success: false, error: "Supabase URL 또는 Service Role Key가 없습니다." };
     }
 
     const supabaseAdminClient = createClient(supabaseUrl, serviceRoleKey, {
@@ -477,16 +767,17 @@ ipcMain.handle("admin-register-counselor", async (event, payload) => {
     });
 
     // 1. Auth: 이메일과 비밀번호로 계정 생성
-    const { data: authData, error: authError } = await supabaseAdminClient.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true // 생성 즉시 이메일 인증 통과 처리
-    });
+    const { data: authData, error: authError } =
+      await supabaseAdminClient.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true, // 생성 즉시 이메일 인증 통과 처리
+      });
 
     if (authError) throw authError;
 
     // 2. DB: 생성된 uid를 사용하여 user 테이블에 정보 삽입
-    const { error: dbError } = await supabaseAdminClient.from('user').insert([
+    const { error: dbError } = await supabaseAdminClient.from("user").insert([
       {
         user_id: authData.user.id,
         role: 5,
@@ -510,7 +801,7 @@ ipcMain.handle("admin-delete-counselor", async (event, payload) => {
     const { supabaseUrl, serviceRoleKey, userId } = payload;
 
     if (!supabaseUrl || !serviceRoleKey) {
-      return { success: false, error: 'Supabase URL 또는 Service Role Key가 없습니다.' };
+      return { success: false, error: "Supabase URL 또는 Service Role Key가 없습니다." };
     }
 
     // 🚨 방어 코드: 프론트엔드나 IPC 브릿지에서 userId가 객체 형태로 잘못 넘어올 경우 강제로 문자열(UUID)만 추출
@@ -526,7 +817,7 @@ ipcMain.handle("admin-delete-counselor", async (event, payload) => {
 
     // 1. public.user 테이블에서 프로필 정보 먼저 삭제 (외래키 충돌 방지)
     const { error: dbError } = await supabaseAdminClient
-      .from('user')
+      .from("user")
       .delete()
       .eq("user_id", targetId);
 

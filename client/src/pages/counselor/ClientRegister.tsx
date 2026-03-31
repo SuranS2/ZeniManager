@@ -259,11 +259,10 @@ export default function ClientRegister() {
         }
       }
 
-      toast.success(
-        syncFailed
-          ? `${form.name}님이 등록되었습니다. 다만 성공사례 동기화는 실패했습니다.`
-          : `${form.name}님이 등록되었습니다.`,
-      );
+      toast.success(`${form.name}님이 등록되었습니다.`);
+      if (syncFailed) {
+        toast.warning('취업성사자 기록(유사도) 저장에 실패했습니다.');
+      }
       localStorage.removeItem(STORAGE_KEY); // Clear draft on success
       navigate('/clients/list');
     } catch (err: any) {
