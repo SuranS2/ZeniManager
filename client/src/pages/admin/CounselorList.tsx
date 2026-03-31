@@ -50,12 +50,8 @@ function CounselorDetailModal({
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(true);
   
-<<<<<<< HEAD
   // 메모 수정용 상태
   const [memo, setMemo] = useState(counselor.memo_bymanager || '');
-=======
-  const [memo, setMemo] = useState(counselor.memo || '');
->>>>>>> feature/adminlist-rse
   const [savingMemo, setSavingMemo] = useState(false);
 
   useEffect(() => {

@@ -417,33 +417,6 @@ export interface ClientRow {
   address_2: string | null;
   school_name: string | null;
   major: string | null;
-<<<<<<< HEAD
-  education_level: string | null; // 최종학력
-  initial_counsel_date: string | null; // 초기상담(1차)
-  iap_date: string | null; // IAP수립일
-  iap_duration: string | null; // IAP운영기간
-  allowance_apply_date: string | null; // 참여수당신청일
-  rediagnosis_date: string | null; // 재진단날짜
-  rediagnosis_yn: string | null; // 재진단여부
-  work_exp_type: string | null; // 일경험유형
-  work_exp_intent: string | null; // 참여의사
-  work_exp_company: string | null; // 참여기업
-  work_exp_period: string | null; // 참여기간
-  work_exp_completed: string | null; // 수료여부
-  training_name: string | null; // 훈련과정명
-  training_start: string | null; // 훈련개강일
-  training_end: string | null; // 훈련종료일
-  training_allowance: string | null; // 훈련수당
-  intensive_start: string | null; // 집중취업알선시작일
-  intensive_end: string | null; // 집중취업알선종료일
-  support_end_date: string | null; // 취업지원종료일
-  hire_place: string | null; // 취업처
-  hire_job_type: string | null; // 취업직무
-  hire_date: string | null; // 취업일자
-  hire_payment: number | null; // 급여
-  employment_type: string | null; // 취업유형 (본인 등)
-  employment_duration: string | null; // 취업소요기간
-=======
   education_level: string | null;
   initial_counsel_date?: string | null;
   iap_date?: string | null;
@@ -492,7 +465,6 @@ export interface ClientRow {
   hire_job_type: string | null;
   hire_payment: string | null;
   retirement_date: string | null;
->>>>>>> feature/adminlist-rse
   continue_serv_1_date: string | null;
   continue_serv_1_stat: number | null;
   continue_serv_6_date: string | null;
