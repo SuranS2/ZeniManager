@@ -50,6 +50,7 @@ const CLIENT_SELECT_FIELDS = `
   job_place_start,
   job_place_end,
   iap_to,
+  retest_stat,
   retest_date,
   continue_serv_1_date,
   continue_serv_1_stat,
@@ -87,13 +88,13 @@ type LiveClientRecord = {
   hire_type: string | null;
   hire_place: string | null;
   hire_job_type: string | null;
-  hire_payment: string | null;
+  hire_payment: number | null;
   hire_date: string | null;
   job_place_start: string | null;
   job_place_end: string | null;
   iap_to: string | null;
-  retest_date: string | null;
   retest_stat: number | null;
+  retest_date: string | null;
   continue_serv_1_date: string | null;
   continue_serv_1_stat: number | null;
   continue_serv_6_date: string | null;
@@ -171,7 +172,6 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
 
   const createdAt = parseSafeDate(row.created_at);
   const updatedAt = row.update_at ? parseSafeDate(row.update_at) : createdAt;
-  const employmentDate = normalizeEmploymentDate(row.job_place_start, row.hire_date);
 
   return {
     id: String(row.client_id),
@@ -188,7 +188,7 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
     email: null,
     MBTI: null,
     certifications: null,
-    future_card_stat: row.future_card_stat ?? 0,
+    future_card_stat: row.future_card_stat ?? null,
     business_type: row.business_type_code != null ? String(row.business_type_code) : null,
     participation_type: row.participation_type ?? null,
     participation_stage: row.participation_stage ?? null,
@@ -196,8 +196,8 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
     recognition_date: null,
     desired_job: row.desired_job_1 ?? null,
     desired_job_1: row.desired_job_1 ?? null,
-    desired_job_2: null,
-    desired_job_3: null,
+    desired_job_2: row.desired_job_2 ?? null,
+    desired_job_3: row.desired_job_3 ?? null,
     desired_area_1: null,
     desired_area_2: null,
     desired_area_3: null,
@@ -230,10 +230,10 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
     intensive_start: null,
     intensive_end: null,
     support_end_date: null,
-    hire_place: null,
-    hire_job_type: null,
-    hire_date: null,
-    hire_payment: null,
+    hire_place: row.hire_place ?? null,
+    hire_job_type: row.hire_job_type ?? null,
+    hire_date: row.hire_date ?? null,
+    hire_payment: row.hire_payment ?? null,
     employment_duration: null,
     continue_serv_1_date: row.continue_serv_1_date ?? null,
     continue_serv_1_stat: row.continue_serv_1_stat ?? null,
@@ -255,29 +255,6 @@ function liveClientToRow(row: LiveClientRecord): ClientRow {
     created_at: createdAt,
     update_at: updatedAt,
   };
-}
-
-function normalizeEmploymentDate(
-  jobPlaceStart: string | null | undefined,
-  hireDate: string | null | undefined,
-): string | null {
-  const preferred = normalizeDateOnly(jobPlaceStart);
-  if (preferred) return preferred;
-  return normalizeDateOnly(hireDate);
-}
-
-function normalizeDateOnly(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
-
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) return null;
-  const year = parsed.getFullYear();
-  const month = String(parsed.getMonth() + 1).padStart(2, '0');
-  const day = String(parsed.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }
 
 export interface DashboardStats {
